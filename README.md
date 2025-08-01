@@ -8,6 +8,14 @@ that can generate a proof of any RISC-V program.
 - [Rust](https://rustup.rs/)
 - [SP1](https://docs.succinct.xyz/docs/sp1/getting-started/install)
 
+## You will need to install the following dependencies:
+
+```sh
+./install-dependencies.sh
+```
+
+
+
 ## Running the Project
 
 There are 3 main ways to run this project: execute a program, generate a core proof, and
