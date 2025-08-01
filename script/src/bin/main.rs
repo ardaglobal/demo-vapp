@@ -62,9 +62,9 @@ fn main() {
         // Read the output.
         let decoded = PublicValuesStruct::abi_decode(output.as_slice()).unwrap();
         let PublicValuesStruct { n, a, b } = decoded;
-        println!("n: {}", n);
-        println!("a: {}", a);
-        println!("b: {}", b);
+        println!("n: {n}");
+        println!("a: {a}");
+        println!("b: {b}");
 
         let (expected_a, expected_b) = fibonacci_lib::fibonacci(n);
         assert_eq!(a, expected_a);
