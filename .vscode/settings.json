@@ -1,29 +1,31 @@
 {
-    "rust-analyzer.check.overrideCommand": [
-        "cargo",
-        "clippy",
-        "--workspace",
-        "--message-format=json",
-        "--all-features",
-        "--all-targets",
+    "rust-analyzer.check.command": "clippy",
+    "rust-analyzer.check.extraArgs": [
         "--",
-        "-A",
-        "incomplete-features"
+        "-D",
+        "warnings",
+        "-W",
+        "clippy::pedantic",
+        "-W",
+        "clippy::nursery",
+        "-W",
+        "clippy::style",
+        "-W",
+        "clippy::complexity",
+        "-W",
+        "clippy::perf",
+        "-W",
+        "clippy::suspicious",
+        "-W",
+        "clippy::correctness"
     ],
-    "rust-analyzer.runnables.extraEnv": {
-        "RUST_LOG": "debug",
-        "RUSTFLAGS": "-Ctarget-cpu=native"
+    "[toml]": {
+        "editor.defaultFormatter": "tamasfe.even-better-toml",
+        "editor.formatOnSave": true
     },
-    "rust-analyzer.diagnostics.disabled": [
-        "unresolved-proc-macro"
-    ],
-    "editor.rulers": [
-        100
-    ],
-    "editor.inlineSuggest.enabled": true,
-    "[rust]": {
-        "editor.defaultFormatter": "rust-lang.rust-analyzer",
-        "editor.formatOnSave": true,
-        "editor.hover.enabled": true
-    },
+    "evenBetterToml.formatter.alignEntries": true,
+    "evenBetterToml.formatter.arrayTrailingComma": true,
+    "evenBetterToml.formatter.columnWidth": 100,
+    "evenBetterToml.formatter.indentString": "    ",
+    "evenBetterToml.formatter.reorderKeys": true
 }
