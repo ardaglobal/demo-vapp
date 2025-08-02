@@ -1,8 +1,8 @@
 [package]
-version = "0.1.0"
-name = "fibonacci-script"
-edition = "2021"
 default-run = "fibonacci"
+edition     = "2021"
+name        = "fibonacci-script"
+version     = "0.1.0"
 
 [[bin]]
 name = "fibonacci"
@@ -17,18 +17,16 @@ name = "vkey"
 path = "src/bin/vkey.rs"
 
 [dependencies]
-sp1-sdk = "5.1.0"
-serde_json = { version = "1.0.142", default-features = false, features = [
-	"alloc",
-] }
-serde = { version = "1.0.219", default-features = false, features = ["derive"] }
-clap = { version = "4.5.42", features = ["derive", "env"] }
-tracing = "0.1.41"
-hex = "0.4.3"
 alloy-sol-types = { workspace = true }
-fibonacci-lib = { path = "../lib" }
-dotenv = "0.15.0"
-qmdb = { git = "https://github.com/ardaglobal/qmdb", package = "qmdb", branch = "mc/chore/dep-updates" }
+clap            = { version = "4.5.42", features = ["derive", "env"] }
+dotenv          = "0.15.0"
+fibonacci-db    = { path = "../db" }
+fibonacci-lib   = { path = "../lib" }
+hex             = "0.4.3"
+serde           = { workspace = true, default-features = false, features = ["derive"] }
+serde_json      = { version = "1.0.142", default-features = false, features = ["alloc"] }
+sp1-sdk         = "5.1.0"
+tracing         = "0.1.41"
 
 [build-dependencies]
 sp1-build = "5.0.8"
