@@ -1538,7 +1538,9 @@ name = "fibonacci-program"
 version = "0.1.0"
 dependencies = [
  "alloy-sol-types",
+ "fibonacci-db",
  "fibonacci-lib",
+ "parking_lot",
  "sp1-zkvm",
 ]
 
