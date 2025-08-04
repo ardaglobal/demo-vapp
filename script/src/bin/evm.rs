@@ -11,8 +11,8 @@
 //! ```
 
 use alloy_sol_types::SolType;
+use arithmetic_lib::PublicValuesStruct;
 use clap::{Parser, ValueEnum};
-use fibonacci_lib::PublicValuesStruct;
 use serde::{Deserialize, Serialize};
 use sp1_sdk::{
     include_elf, HashableKey, ProverClient, SP1ProofWithPublicValues, SP1Stdin, SP1VerifyingKey,
@@ -20,7 +20,7 @@ use sp1_sdk::{
 use std::path::PathBuf;
 
 /// The ELF (executable and linkable format) file for the Succinct RISC-V zkVM.
-pub const FIBONACCI_ELF: &[u8] = include_elf!("fibonacci-program");
+pub const ARITHMETIC_ELF: &[u8] = include_elf!("arithmetic-program");
 
 /// The arguments for the EVM command.
 #[derive(Parser, Debug)]
@@ -42,10 +42,10 @@ enum ProofSystem {
 /// A fixture that can be used to test the verification of SP1 zkVM proofs inside Solidity.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SP1FibonacciProofFixture {
+struct SP1ArithmeticProofFixture {
     a: u32,
     b: u32,
-    n: u32,
+    result: u32,
     vkey: String,
     public_values: String,
     proof: String,
@@ -62,7 +62,7 @@ fn main() {
     let client = ProverClient::from_env();
 
     // Setup the program.
-    let (pk, vk) = client.setup(FIBONACCI_ELF);
+    let (pk, vk) = client.setup(ARITHMETIC_ELF);
 
     // Setup the inputs.
     let mut stdin = SP1Stdin::new();
@@ -89,13 +89,13 @@ fn create_proof_fixture(
 ) {
     // Deserialize the public values.
     let bytes = proof.public_values.as_slice();
-    let PublicValuesStruct { n, a, b } = PublicValuesStruct::abi_decode(bytes).unwrap();
+    let PublicValuesStruct { a, b, result } = PublicValuesStruct::abi_decode(bytes).unwrap();
 
     // Create the testing fixture so we can test things end-to-end.
-    let fixture = SP1FibonacciProofFixture {
+    let fixture = SP1ArithmeticProofFixture {
         a,
         b,
-        n,
+        result,
         vkey: vk.bytes32(),
         public_values: format!("0x{}", hex::encode(bytes)),
         proof: format!("0x{}", hex::encode(proof.bytes())),

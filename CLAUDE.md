@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is an SP1 (Succinct Proof) project that demonstrates zero-knowledge proof generation for a Fibonacci number computation. The project consists of three main components:
+This is an SP1 (Succinct Proof) project that demonstrates zero-knowledge proof generation for arithmetic computation. The project consists of three main components:
 
-1. **RISC-V Program** (`program/`): Computes Fibonacci numbers inside the SP1 zkVM
+1. **RISC-V Program** (`program/`): Performs arithmetic computations inside the SP1 zkVM
 2. **Script** (`script/`): Generates proofs and handles execution using the SP1 SDK  
 3. **Smart Contracts** (`contracts/`): Solidity contracts for on-chain proof verification
 
@@ -55,25 +55,25 @@ cargo test
 
 ### Core Components
 
-- **fibonacci-lib** (`lib/`): Shared library containing the Fibonacci computation logic and Solidity type definitions
-- **fibonacci-program** (`program/`): The RISC-V program that runs inside the zkVM, reading input and committing public values
-- **fibonacci-script** (`script/`): Contains multiple binaries:
+- **arithmetic-lib** (`lib/`): Shared library containing the arithmetic computation logic and Solidity type definitions
+- **arithmetic-program** (`program/`): The RISC-V program that runs inside the zkVM, reading input and committing public values
+- **arithmetic-script** (`script/`): Contains multiple binaries:
   - `main.rs`: Main script for execution and proof generation
   - `evm.rs`: EVM-compatible proof generation (Groth16/PLONK)
   - `vkey.rs`: Verification key retrieval
 
 ### Data Flow
 
-1. The zkVM program reads a number `n` as input
-2. Computes the (n-1)th and nth Fibonacci numbers using the shared library
+1. The zkVM program reads arithmetic inputs
+2. Performs arithmetic computations using the shared library
 3. Encodes results as `PublicValuesStruct` and commits to zkVM
 4. The script generates proofs that can be verified on-chain via the Solidity contract
 
 ### Key Files
 
 - `program/src/main.rs:14`: Main zkVM entry point with input/output handling
-- `lib/src/lib.rs:13`: Core Fibonacci computation logic
-- `contracts/src/Fibonacci.sol:35`: On-chain proof verification function
+- `lib/src/lib.rs:13`: Core arithmetic computation logic
+- `contracts/src/Arithmetic.sol:35`: On-chain proof verification function
 - `script/src/bin/main.rs:35`: Proof generation orchestration
 
 ## Environment Configuration
