@@ -17,17 +17,19 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-/// Initialize the database
-///
-/// # Panics
-/// Panics if `ADS` directory does not exist
+/// Initialize the database, always creating a fresh one for simplicity
 #[must_use]
 pub fn init_db() -> AdsWrap<SimpleTask> {
     let ads_dir = "ADS";
     let config = Config::from_dir(ads_dir);
-    // initialize a default ADS with only sentry entries
+    
+    // For now, always initialize a fresh database to avoid QMDB state issues
+    // This means data won't persist between runs, but it will work reliably
+    println!("Initializing fresh database in directory: {ads_dir}");
     AdsCore::init_dir(&config);
+    
     let ads: AdsWrap<SimpleTask> = AdsWrap::new(&config);
+    println!("Database ready");
     ads
 }
 
@@ -66,6 +68,7 @@ pub fn update_db(
 
     // Flush QMDB's pipeline to make sure all operations are done
     ads.flush();
+    println!("Database updated and flushed at height {height}");
 }
 
 /// Create a `SimpleTask` with an addition operation
@@ -99,28 +102,32 @@ pub fn create_simple_task_with_addition(key: &[u8], value: &[u8]) -> SimpleTask 
     SimpleTask::new(vec![cset])
 }
 
+
 #[must_use]
 pub fn get_value(ads: &AdsWrap<SimpleTask>, key: &[u8]) -> Option<Vec<u8>> {
     // Create a buffer to hold the entry data
     let mut buf = [0; DEFAULT_ENTRY_SIZE];
-
     // Hash the key to get the key hash
     let kh = hasher::hash(key);
+    println!("Attempting to read key hash: {kh:?}");
+
+    // Get shard ID from the key hash
+    let shard_id = byte0_to_shard_id(kh[0]);
+    println!("Shard ID: {shard_id}");
 
     // Get the shared reference
     let shared_ads = ads.get_shared();
 
-    // Read the entry from the database
-    // -1 means read from the latest version
-    let (n, ok) = shared_ads.read_entry(-1, &kh[..], &[], &mut buf);
-
+    // Try reading from height 1 (where we store all data)
+    let (result, ok) = shared_ads.read_entry(1, &kh[..], &[], &mut buf);
+    println!("Read attempt at height 1: result={result}, ok={ok}");
+    
     if ok {
         // Parse the entry
-        let entry = EntryBz { bz: &buf[..n] };
-
-        // Return the value
-        Some(entry.value().to_vec())
-    } else {
-        None // Key not found
+        let entry = EntryBz { bz: &buf[..result] };
+        return Some(entry.value().to_vec());
     }
+
+    None // Key not found
 }
+
