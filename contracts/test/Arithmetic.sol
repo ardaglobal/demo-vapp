@@ -9,7 +9,7 @@ import {SP1VerifierGateway} from "@sp1-contracts/SP1VerifierGateway.sol";
 struct SP1ProofFixtureJson {
     uint32 a;
     uint32 b;
-    uint32 n;
+    uint32 result;
     bytes proof;
     bytes publicValues;
     bytes32 vkey;
@@ -52,7 +52,7 @@ contract ArithmeticGroth16Test is Test {
             fixture.publicValues,
             fixture.proof
         );
-        assert(n == fixture.n);
+        assert(result == fixture.result);
         assert(a == fixture.a);
         assert(b == fixture.b);
     }
@@ -106,7 +106,7 @@ contract ArithmeticPlonkTest is Test {
             fixture.publicValues,
             fixture.proof
         );
-        assert(n == fixture.n);
+        assert(result == fixture.result);
         assert(a == fixture.a);
         assert(b == fixture.b);
     }

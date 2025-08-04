@@ -10,9 +10,9 @@ struct PublicValuesStruct {
 }
 
 /// @title Arithmetic.
-/// @author Succinct Labs
+/// @author Arda Global
 /// @notice This contract implements a simple example of verifying the proof of a computing a
-///         fibonacci number.
+///         arithmetic operation.
 contract Arithmetic {
     /// @notice The address of the SP1 verifier contract.
     /// @dev This can either be a specific SP1Verifier for a specific version, or the
