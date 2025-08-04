@@ -9,7 +9,7 @@ sol! {
     }
 }
 
-/// Compute the n'th fibonacci number (wrapping around on overflows), using normal Rust code.
+/// Compute the result of the arithmetic operation (wrapping around on overflows), using normal Rust code.
 #[must_use]
 pub const fn addition(a: u32, b: u32) -> u32 {
     a + b
