@@ -30,6 +30,9 @@ struct Args {
     #[arg(long)]
     prove: bool,
 
+    #[arg(long)]
+    verify: bool,
+
     #[arg(long, default_value = "20")]
     n: u32,
 }
@@ -100,7 +103,7 @@ fn main() {
         // Verify the proof.
         client.verify(&proof, &vk).expect("failed to verify proof");
         println!("Successfully verified proof!");
-    } else {
+    } else if args.verify {
         let key_string = args.n.to_string();
         let key = key_string.as_bytes();
         match get_value(&ads, key) {

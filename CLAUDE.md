@@ -4,11 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is an SP1 (Succinct Proof) project that demonstrates zero-knowledge proof generation for a Fibonacci number computation. The project consists of three main components:
+This is an SP1 (Succinct Proof) project that demonstrates zero-knowledge proof generation for a Fibonacci number computation with QMDB (Quantum Merkle Database) integration for authenticated data storage. The project consists of four main components:
 
 1. **RISC-V Program** (`program/`): Computes Fibonacci numbers inside the SP1 zkVM
 2. **Script** (`script/`): Generates proofs and handles execution using the SP1 SDK  
 3. **Smart Contracts** (`contracts/`): Solidity contracts for on-chain proof verification
+4. **Database Module** (`db/`): QMDB integration for authenticated data storage (ADS)
 
 ## Common Commands
 
@@ -17,11 +18,14 @@ This is an SP1 (Succinct Proof) project that demonstrates zero-knowledge proof g
 # First-time setup: compile the program to RISC-V
 cd program && cargo prove build
 
-# Execute program without generating proof
+# Execute program without generating proof (stores result in QMDB)
 cd script && cargo run --release -- --execute
 
 # Generate SP1 core proof
 cd script && cargo run --release -- --prove
+
+# Verify stored data in QMDB for a specific Fibonacci number
+cd script && cargo run --release -- --verify --n 20
 
 # Generate EVM-compatible Groth16 proof (requires 16GB+ RAM)
 cd script && cargo run --release --bin evm -- --system groth16
@@ -57,8 +61,9 @@ cargo test
 
 - **fibonacci-lib** (`lib/`): Shared library containing the Fibonacci computation logic and Solidity type definitions
 - **fibonacci-program** (`program/`): The RISC-V program that runs inside the zkVM, reading input and committing public values
+- **fibonacci-db** (`db/`): QMDB-based authenticated data storage with operations for storing and retrieving Fibonacci results
 - **fibonacci-script** (`script/`): Contains multiple binaries:
-  - `main.rs`: Main script for execution and proof generation
+  - `main.rs`: Main script for execution, proof generation, and database operations
   - `evm.rs`: EVM-compatible proof generation (Groth16/PLONK)
   - `vkey.rs`: Verification key retrieval
 
@@ -67,14 +72,17 @@ cargo test
 1. The zkVM program reads a number `n` as input
 2. Computes the (n-1)th and nth Fibonacci numbers using the shared library
 3. Encodes results as `PublicValuesStruct` and commits to zkVM
-4. The script generates proofs that can be verified on-chain via the Solidity contract
+4. When executing (not proving), computed results are stored in QMDB with key `n` and value containing both Fibonacci numbers
+5. The script can verify previously computed results by querying QMDB
+6. The script generates proofs that can be verified on-chain via the Solidity contract
 
 ### Key Files
 
 - `program/src/main.rs:14`: Main zkVM entry point with input/output handling
 - `lib/src/lib.rs:13`: Core Fibonacci computation logic
+- `db/src/db.rs:25`: QMDB initialization and database operations
 - `contracts/src/Fibonacci.sol:35`: On-chain proof verification function
-- `script/src/bin/main.rs:35`: Proof generation orchestration
+- `script/src/bin/main.rs:55`: Main script with QMDB integration and proof generation orchestration
 
 ## Environment Configuration
 
@@ -83,6 +91,39 @@ Set up environment for prover network usage:
 cp .env.example .env
 # Set SP1_PROVER=network and NETWORK_PRIVATE_KEY in .env
 ```
+
+## QMDB Integration
+
+This project integrates QMDB (Quantum Merkle Database) as an Authenticated Data Structure (ADS) for storing and retrieving Fibonacci computation results. 
+
+### QMDB Features Used
+
+- **Authenticated Storage**: All stored data is cryptographically authenticated using Merkle trees
+- **Key-Value Operations**: Store Fibonacci results with input `n` as key and computed values as binary data
+- **Concurrent Access**: Thread-safe operations using `parking_lot::RwLock`
+- **Configurable Storage**: Uses configurable entry sizes and sharding for optimal performance
+
+### Database Operations
+
+The project provides the following QMDB operations through the `fibonacci-db` crate:
+
+- `init_db()`: Initialize QMDB with default configuration in `ADS/` directory
+- `create_simple_task_with_addition(key, value)`: Create a task to store key-value pair
+- `update_db(ads, task_list, height)`: Execute tasks and update the database
+- `get_value(ads, key)`: Retrieve value by key from the latest database state
+
+### Storage Format
+
+Fibonacci results are stored as:
+- **Key**: String representation of input `n` as bytes
+- **Value**: 8-byte little-endian encoding of both Fibonacci numbers (`a` and `b`)
+
+### QMDB Configuration
+
+- **Storage Directory**: `ADS/` (auto-created on first run)
+- **Allocator**: Uses jemalloc on non-MSVC targets for better performance
+- **Entry Size**: Uses QMDB's default entry size configuration
+- **Sharding**: Automatic sharding based on key hash for load distribution
 
 ## Testing
 
