@@ -291,6 +291,41 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
 
 [[package]]
+name = "arithmetic-lib"
+version = "0.1.0"
+dependencies = [
+ "alloy-sol-types",
+]
+
+[[package]]
+name = "arithmetic-program"
+version = "0.1.0"
+dependencies = [
+ "alloy-sol-types",
+ "arithmetic-lib",
+ "sp1-zkvm",
+]
+
+[[package]]
+name = "arithmetic-script"
+version = "0.1.0"
+dependencies = [
+ "alloy-sol-types",
+ "arithmetic-lib",
+ "clap",
+ "dotenv",
+ "fibonacci-db",
+ "hex",
+ "parking_lot",
+ "qmdb",
+ "serde",
+ "serde_json",
+ "sp1-build",
+ "sp1-sdk",
+ "tracing",
+]
+
+[[package]]
 name = "ark-ff"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1524,40 +1559,6 @@ dependencies = [
  "qmdb",
  "serde",
  "tikv-jemallocator",
-]
-
-[[package]]
-name = "fibonacci-lib"
-version = "0.1.0"
-dependencies = [
- "alloy-sol-types",
-]
-
-[[package]]
-name = "fibonacci-program"
-version = "0.1.0"
-dependencies = [
- "alloy-sol-types",
- "fibonacci-lib",
- "sp1-zkvm",
-]
-
-[[package]]
-name = "fibonacci-script"
-version = "0.1.0"
-dependencies = [
- "alloy-sol-types",
- "clap",
- "dotenv",
- "fibonacci-db",
- "fibonacci-lib",
- "hex",
- "parking_lot",
- "serde",
- "serde_json",
- "sp1-build",
- "sp1-sdk",
- "tracing",
 ]
 
 [[package]]

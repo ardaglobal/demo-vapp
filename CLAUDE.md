@@ -4,10 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is an SP1 (Succinct Proof) project that demonstrates zero-knowledge proof generation for a Fibonacci number computation with QMDB (Quantum Merkle Database) integration for authenticated data storage. The project consists of four main components:
+This is an SP1 (Succinct Proof) project that demonstrates zero-knowledge proof generation for arithmetic computation. The project consists of three main components:
 
-1. **RISC-V Program** (`program/`): Computes Fibonacci numbers inside the SP1 zkVM
-2. **Script** (`script/`): Generates proofs and handles execution using the SP1 SDK  
+1. **RISC-V Program** (`program/`): Performs arithmetic computations inside the SP1 zkVM
+2. **Script** (`script/`): Generates proofs and handles execution using the SP1 SDK
 3. **Smart Contracts** (`contracts/`): Solidity contracts for on-chain proof verification
 4. **Database Module** (`db/`): QMDB integration for authenticated data storage (ADS)
 
@@ -30,7 +30,7 @@ cd script && cargo run --release -- --verify --n 20
 # Generate EVM-compatible Groth16 proof (requires 16GB+ RAM)
 cd script && cargo run --release --bin evm -- --system groth16
 
-# Generate EVM-compatible PLONK proof  
+# Generate EVM-compatible PLONK proof
 cd script && cargo run --release --bin evm -- --system plonk
 
 # Retrieve verification key for on-chain contracts
@@ -59,18 +59,17 @@ cargo test
 
 ### Core Components
 
-- **fibonacci-lib** (`lib/`): Shared library containing the Fibonacci computation logic and Solidity type definitions
-- **fibonacci-program** (`program/`): The RISC-V program that runs inside the zkVM, reading input and committing public values
-- **fibonacci-db** (`db/`): QMDB-based authenticated data storage with operations for storing and retrieving Fibonacci results
-- **fibonacci-script** (`script/`): Contains multiple binaries:
-  - `main.rs`: Main script for execution, proof generation, and database operations
+- **arithmetic-lib** (`lib/`): Shared library containing the arithmetic computation logic and Solidity type definitions
+- **arithmetic-program** (`program/`): The RISC-V program that runs inside the zkVM, reading input and committing public values
+- **arithmetic-script** (`script/`): Contains multiple binaries:
+  - `main.rs`: Main script for execution and proof generation
   - `evm.rs`: EVM-compatible proof generation (Groth16/PLONK)
   - `vkey.rs`: Verification key retrieval
 
 ### Data Flow
 
-1. The zkVM program reads a number `n` as input
-2. Computes the (n-1)th and nth Fibonacci numbers using the shared library
+1. The zkVM program reads arithmetic inputs
+2. Performs arithmetic computations using the shared library
 3. Encodes results as `PublicValuesStruct` and commits to zkVM
 4. When executing (not proving), computed results are stored in QMDB with key `n` and value containing both Fibonacci numbers
 5. The script can verify previously computed results by querying QMDB
@@ -79,10 +78,9 @@ cargo test
 ### Key Files
 
 - `program/src/main.rs:14`: Main zkVM entry point with input/output handling
-- `lib/src/lib.rs:13`: Core Fibonacci computation logic
-- `db/src/db.rs:25`: QMDB initialization and database operations
-- `contracts/src/Fibonacci.sol:35`: On-chain proof verification function
-- `script/src/bin/main.rs:55`: Main script with QMDB integration and proof generation orchestration
+- `lib/src/lib.rs:13`: Core arithmetic computation logic
+- `contracts/src/Arithmetic.sol:35`: On-chain proof verification function
+- `script/src/bin/main.rs:35`: Proof generation orchestration
 
 ## Environment Configuration
 
@@ -94,7 +92,7 @@ cp .env.example .env
 
 ## QMDB Integration
 
-This project integrates QMDB (Quantum Merkle Database) as an Authenticated Data Structure (ADS) for storing and retrieving Fibonacci computation results. 
+This project integrates QMDB (Quantum Merkle Database) as an Authenticated Data Structure (ADS) for storing and retrieving Fibonacci computation results.
 
 ### QMDB Features Used
 
@@ -141,7 +139,7 @@ When implementing a sequencer (transaction ordering system) using SP1, you need 
 ### Core Properties to Prove
 
 1. **Ordering Preservation**: Transactions are output in the same order they were received
-2. **Completeness**: All valid input transactions appear in the output 
+2. **Completeness**: All valid input transactions appear in the output
 3. **Integrity**: No transactions are modified during sequencing
 4. **No Duplication**: Each transaction appears exactly once in the output
 5. **Temporal Consistency**: Earlier timestamps come before later timestamps

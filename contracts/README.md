@@ -26,7 +26,7 @@ Note: you can use either the [SP1VerifierGateway](https://github.com/succinctlab
 
 #### Step 2: Set the `PROGRAM_VKEY` environment variable
 
-Find your program verification key by going into the `../script` directory and running `RUST_LOG=info cargo run --package fibonacci-script --bin vkey --release`, which will print an output like:
+Find your program verification key by going into the `../script` directory and running `RUST_LOG=info cargo run --package arithmetic-script --bin vkey --release`, which will print an output like:
 
 > Program Verification Key: 0x00620892344c310c32a74bf0807a5c043964264e4f37c96a10ad12b5c9214e0e
 
