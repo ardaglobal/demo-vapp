@@ -31,9 +31,9 @@ struct Args {
     prove: bool,
 
     #[arg(long, default_value = "1")]
-    a: u64,
+    a: u32,
     #[arg(long, default_value = "1")]
-    b: u64,
+    b: u32,
 
     #[arg(long)]
     verify: bool,
