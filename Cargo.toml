@@ -7,4 +7,4 @@ alloy-sol-types = "1.0"
 bincode         = "2.0.1"
 parking_lot     = "0.12.4"
 qmdb            = { git = "https://github.com/ardaglobal/qmdb", package = "qmdb", branch = "mc/chore/dep-updates" }
-serde           = "1.0.219"
+serde           = { version = "1.0.219", default-features = false }

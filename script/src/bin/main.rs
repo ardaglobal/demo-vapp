@@ -12,7 +12,9 @@
 
 use alloy_sol_types::SolType;
 use clap::Parser;
+use fibonacci_db::db::{create_simple_task_with_addition, get_value, update_db};
 use fibonacci_lib::PublicValuesStruct;
+use parking_lot::lock_api::RwLock;
 use sp1_sdk::{include_elf, ProverClient, SP1Stdin};
 
 /// The ELF (executable and linkable format) file for the Succinct RISC-V zkVM.
@@ -47,6 +49,7 @@ fn main() {
 
     // Setup the prover client.
     let client = ProverClient::from_env();
+    let mut ads = fibonacci_db::db::init_db();
 
     // Setup the inputs.
     let mut stdin = SP1Stdin::new();
@@ -71,9 +74,18 @@ fn main() {
         assert_eq!(b, expected_b);
         println!("Values are correct!");
 
+        println!("Storing in database");
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&expected_a.to_le_bytes());
+        bytes.extend_from_slice(&expected_b.to_le_bytes());
+        let task = create_simple_task_with_addition(n.to_string().as_bytes(), &bytes);
+        let task_with_lock = RwLock::new(Some(task));
+        update_db(&mut ads, &[task_with_lock], 0);
+        println!("Stored in database");
+
         // Record the number of cycles executed.
         println!("Number of cycles: {}", report.total_instruction_count());
-    } else {
+    } else if args.prove {
         // Setup the program for proving.
         let (pk, vk) = client.setup(FIBONACCI_ELF);
 
@@ -88,5 +100,28 @@ fn main() {
         // Verify the proof.
         client.verify(&proof, &vk).expect("failed to verify proof");
         println!("Successfully verified proof!");
+    } else {
+        let key_string = args.n.to_string();
+        let key = key_string.as_bytes();
+        match get_value(&ads, key) {
+            Some(value) => {
+                if value.len() >= 8 {
+                    let a = u32::from_le_bytes([value[0], value[1], value[2], value[3]]);
+                    let b = u32::from_le_bytes([value[4], value[5], value[6], value[7]]);
+                    println!(
+                        "Retrieved from database for n = {}: a = {}, b = {}",
+                        args.n, a, b
+                    );
+                } else {
+                    println!(
+                        "Value found in database for n = {}, but data is incomplete.",
+                        args.n
+                    );
+                }
+            }
+            None => {
+                println!("No value found in database for n = {}", args.n);
+            }
+        }
     }
 }
