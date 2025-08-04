@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import {Test, console} from "forge-std/Test.sol";
 import {stdJson} from "forge-std/StdJson.sol";
-import {Fibonacci} from "../src/Fibonacci.sol";
+import {Arithmetic} from "../src/Arithmetic.sol";
 import {SP1VerifierGateway} from "@sp1-contracts/SP1VerifierGateway.sol";
 
 struct SP1ProofFixtureJson {
@@ -15,15 +15,18 @@ struct SP1ProofFixtureJson {
     bytes32 vkey;
 }
 
-contract FibonacciGroth16Test is Test {
+contract ArithmeticGroth16Test is Test {
     using stdJson for string;
 
     address verifier;
-    Fibonacci public fibonacci;
+    Arithmetic public arithmetic;
 
     function loadFixture() public view returns (SP1ProofFixtureJson memory) {
         string memory root = vm.projectRoot();
-        string memory path = string.concat(root, "/src/fixtures/groth16-fixture.json");
+        string memory path = string.concat(
+            root,
+            "/src/fixtures/groth16-fixture.json"
+        );
         string memory json = vm.readFile(path);
         bytes memory jsonBytes = json.parseRaw(".");
         return abi.decode(jsonBytes, (SP1ProofFixtureJson));
@@ -33,21 +36,28 @@ contract FibonacciGroth16Test is Test {
         SP1ProofFixtureJson memory fixture = loadFixture();
 
         verifier = address(new SP1VerifierGateway(address(1)));
-        fibonacci = new Fibonacci(verifier, fixture.vkey);
+        arithmetic = new Arithmetic(verifier, fixture.vkey);
     }
 
-    function test_ValidFibonacciProof() public {
+    function test_ValidArithmeticProof() public {
         SP1ProofFixtureJson memory fixture = loadFixture();
 
-        vm.mockCall(verifier, abi.encodeWithSelector(SP1VerifierGateway.verifyProof.selector), abi.encode(true));
+        vm.mockCall(
+            verifier,
+            abi.encodeWithSelector(SP1VerifierGateway.verifyProof.selector),
+            abi.encode(true)
+        );
 
-        (uint32 n, uint32 a, uint32 b) = fibonacci.verifyFibonacciProof(fixture.publicValues, fixture.proof);
+        (uint32 result, uint32 a, uint32 b) = arithmetic.verifyArithmeticProof(
+            fixture.publicValues,
+            fixture.proof
+        );
         assert(n == fixture.n);
         assert(a == fixture.a);
         assert(b == fixture.b);
     }
 
-    function testRevert_InvalidFibonacciProof() public {
+    function testRevert_InvalidArithmeticProof() public {
         vm.expectRevert();
 
         SP1ProofFixtureJson memory fixture = loadFixture();
@@ -55,20 +65,22 @@ contract FibonacciGroth16Test is Test {
         // Create a fake proof.
         bytes memory fakeProof = new bytes(fixture.proof.length);
 
-        fibonacci.verifyFibonacciProof(fixture.publicValues, fakeProof);
+        arithmetic.verifyArithmeticProof(fixture.publicValues, fakeProof);
     }
 }
 
-
-contract FibonacciPlonkTest is Test {
+contract ArithmeticPlonkTest is Test {
     using stdJson for string;
 
     address verifier;
-    Fibonacci public fibonacci;
+    Arithmetic public arithmetic;
 
     function loadFixture() public view returns (SP1ProofFixtureJson memory) {
         string memory root = vm.projectRoot();
-        string memory path = string.concat(root, "/src/fixtures/plonk-fixture.json");
+        string memory path = string.concat(
+            root,
+            "/src/fixtures/plonk-fixture.json"
+        );
         string memory json = vm.readFile(path);
         bytes memory jsonBytes = json.parseRaw(".");
         return abi.decode(jsonBytes, (SP1ProofFixtureJson));
@@ -78,21 +90,28 @@ contract FibonacciPlonkTest is Test {
         SP1ProofFixtureJson memory fixture = loadFixture();
 
         verifier = address(new SP1VerifierGateway(address(1)));
-        fibonacci = new Fibonacci(verifier, fixture.vkey);
+        arithmetic = new Arithmetic(verifier, fixture.vkey);
     }
 
-    function test_ValidFibonacciProof() public {
+    function test_ValidArithmeticProof() public {
         SP1ProofFixtureJson memory fixture = loadFixture();
 
-        vm.mockCall(verifier, abi.encodeWithSelector(SP1VerifierGateway.verifyProof.selector), abi.encode(true));
+        vm.mockCall(
+            verifier,
+            abi.encodeWithSelector(SP1VerifierGateway.verifyProof.selector),
+            abi.encode(true)
+        );
 
-        (uint32 n, uint32 a, uint32 b) = fibonacci.verifyFibonacciProof(fixture.publicValues, fixture.proof);
+        (uint32 result, uint32 a, uint32 b) = arithmetic.verifyArithmeticProof(
+            fixture.publicValues,
+            fixture.proof
+        );
         assert(n == fixture.n);
         assert(a == fixture.a);
         assert(b == fixture.b);
     }
 
-    function testRevert_InvalidFibonacciProof() public {
+    function testRevert_InvalidArithmeticProof() public {
         vm.expectRevert();
 
         SP1ProofFixtureJson memory fixture = loadFixture();
@@ -100,6 +119,6 @@ contract FibonacciPlonkTest is Test {
         // Create a fake proof.
         bytes memory fakeProof = new bytes(fixture.proof.length);
 
-        fibonacci.verifyFibonacciProof(fixture.publicValues, fakeProof);
+        arithmetic.verifyArithmeticProof(fixture.publicValues, fakeProof);
     }
 }

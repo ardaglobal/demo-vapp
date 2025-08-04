@@ -291,6 +291,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
 
 [[package]]
+name = "arithmetic-db"
+version = "0.1.0"
+dependencies = [
+ "bincode 2.0.1",
+ "io-uring",
+ "parking_lot",
+ "qmdb",
+ "serde",
+ "tikv-jemallocator",
+]
+
+[[package]]
 name = "arithmetic-lib"
 version = "0.1.0"
 dependencies = [
@@ -311,10 +323,10 @@ name = "arithmetic-script"
 version = "0.1.0"
 dependencies = [
  "alloy-sol-types",
+ "arithmetic-db",
  "arithmetic-lib",
  "clap",
  "dotenv",
- "fibonacci-db",
  "hex",
  "parking_lot",
  "qmdb",
@@ -1547,18 +1559,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
-]
-
-[[package]]
-name = "fibonacci-db"
-version = "0.1.0"
-dependencies = [
- "bincode 2.0.1",
- "io-uring",
- "parking_lot",
- "qmdb",
- "serde",
- "tikv-jemallocator",
 ]
 
 [[package]]

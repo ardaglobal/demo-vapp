@@ -1,5 +1,5 @@
-//! A simple program that takes a number `n` as input, and writes the `n-1`th and `n`th fibonacci
-//! number as an output.
+//! A simple program that takes two numbers `a` and `b` as input, and writes the result of the
+//! arithmetic operation as an output.
 
 // These two lines are necessary for the program to properly compile.
 //
@@ -19,7 +19,7 @@ pub fn main() {
     let a = sp1_zkvm::io::read::<u32>();
     let b = sp1_zkvm::io::read::<u32>();
 
-    // Compute the n'th fibonacci number using a function from the workspace lib crate.
+    // Compute the result of the arithmetic operation using a function from the workspace lib crate.
     let result = addition(a, b);
 
     // Encode the public values of the program.

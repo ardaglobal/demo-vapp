@@ -18,10 +18,10 @@ path = "src/bin/vkey.rs"
 
 [dependencies]
 alloy-sol-types = { workspace = true }
+arithmetic-db   = { path = "../db" }
 arithmetic-lib  = { path = "../lib" }
 clap            = { version = "4.5.42", features = ["derive", "env"] }
 dotenv          = "0.15.0"
-fibonacci-db    = { path = "../db" }
 hex             = "0.4.3"
 parking_lot     = { workspace = true }
 qmdb            = { git = "https://github.com/ardaglobal/qmdb", package = "qmdb", branch = "mc/chore/dep-updates" }

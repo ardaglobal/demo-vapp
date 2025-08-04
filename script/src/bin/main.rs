@@ -11,9 +11,9 @@
 //! ```
 
 use alloy_sol_types::SolType;
+use arithmetic_db::db::{create_simple_task_with_addition, get_value, init_db, update_db};
 use arithmetic_lib::PublicValuesStruct;
 use clap::Parser;
-use fibonacci_db::db::{create_simple_task_with_addition, get_value, update_db};
 use parking_lot::RwLock;
 use sp1_sdk::{include_elf, ProverClient, SP1Stdin};
 
@@ -57,7 +57,7 @@ fn main() {
 
     // Setup the prover client.
     let client = ProverClient::from_env();
-    let mut ads = fibonacci_db::db::init_db();
+    let mut ads = init_db();
 
     // Setup the inputs.
     let mut stdin = SP1Stdin::new();
