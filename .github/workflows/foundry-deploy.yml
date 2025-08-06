@@ -1,0 +1,54 @@
+name: Deploy Smart Contracts
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'contracts/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'contracts/**'
+
+env:
+  FOUNDRY_PROFILE: ci
+
+jobs:
+  deploy:
+    name: Deploy Contracts
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Install dependencies
+        run: |
+          forge install
+
+      - name: Build contracts
+        run: |
+          forge build
+
+      - name: Run tests
+        run: |
+          forge test
+
+      - name: Deploy contract
+        run: |
+          forge create src/Arithmetic.sol:Arithmetic \
+            --broadcast \
+            --rpc-url ${{ secrets.SEPOLIA_RPC_URL }} \
+            --private-key ${{ secrets.PRIVATE_KEY }} \
+            --constructor-args ${{ secrets.SEPOLIA_GROTH16_VERIFIER }} ${{ secrets.PROGRAM_VKEY }} 
