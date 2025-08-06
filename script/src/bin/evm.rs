@@ -26,8 +26,12 @@ pub const ARITHMETIC_ELF: &[u8] = include_elf!("arithmetic-program");
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct EVMArgs {
-    #[arg(long, default_value = "20")]
-    n: u32,
+    #[arg(long, default_value = "1")]
+    a: i32,
+    #[arg(long, default_value = "1")]
+    b: i32,
+    #[arg(long, default_value = "1")]
+    result: i32,
     #[arg(long, value_enum, default_value = "groth16")]
     system: ProofSystem,
 }
@@ -43,9 +47,9 @@ enum ProofSystem {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SP1ArithmeticProofFixture {
-    a: u32,
-    b: u32,
-    result: u32,
+    a: i32,
+    b: i32,
+    result: i32,
     vkey: String,
     public_values: String,
     proof: String,
@@ -66,9 +70,13 @@ fn main() {
 
     // Setup the inputs.
     let mut stdin = SP1Stdin::new();
-    stdin.write(&args.n);
+    stdin.write(&args.a);
+    stdin.write(&args.b);
+    stdin.write(&args.result);
 
-    println!("n: {}", args.n);
+    println!("a: {}", args.a);
+    println!("b: {}", args.b);
+    println!("result: {}", args.result);
     println!("Proof System: {:?}", args.system);
 
     // Generate the proof based on the selected proof system.

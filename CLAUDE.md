@@ -9,7 +9,7 @@ This is an SP1 (Succinct Proof) project that demonstrates zero-knowledge proof g
 1. **RISC-V Program** (`program/`): Performs arithmetic addition inside the SP1 zkVM
 2. **Script** (`script/`): Generates proofs and handles execution using the SP1 SDK
 3. **Smart Contracts** (`contracts/`): Solidity contracts for on-chain proof verification
-4. **Database Module** (`db/`): QMDB integration for authenticated data storage (ADS)
+4. **Database Module** (`db/`): PostgreSQL integration for storing arithmetic transactions
 
 ## Common Commands
 
@@ -18,13 +18,13 @@ This is an SP1 (Succinct Proof) project that demonstrates zero-knowledge proof g
 # First-time setup: compile the program to RISC-V
 cd program && cargo prove build
 
-# Execute program without generating proof (stores result in QMDB)
+# Execute program without generating proof (stores result in PostgreSQL)
 cd script && cargo run --release -- --execute --a 5 --b 10
 
 # Generate SP1 core proof
 cd script && cargo run --release -- --prove --a 5 --b 10
 
-# Verify stored data in QMDB for a specific result
+# Verify stored data in PostgreSQL for a specific result
 cd script && cargo run --release -- --verify --result 15
 
 # Generate EVM-compatible Groth16 proof (requires 16GB+ RAM)
@@ -71,8 +71,8 @@ cargo test
 1. The zkVM program reads two arithmetic inputs (`a` and `b`)
 2. Performs addition using the shared library (`a + b`)
 3. Encodes inputs and result as `PublicValuesStruct` and commits to zkVM
-4. When executing (not proving), computed results are stored in QMDB with the result as key and the result value as data
-5. The script can verify previously computed results by querying QMDB
+4. When executing (not proving), computed results are stored in PostgreSQL as transactions with a, b, and result values
+5. The script can verify previously computed results by querying PostgreSQL
 6. The script generates proofs that can be verified on-chain via the Solidity contract
 
 ### Key Files
@@ -84,44 +84,53 @@ cargo test
 
 ## Environment Configuration
 
-Set up environment for prover network usage:
+Set up environment variables:
 ```bash
 cp .env.example .env
-# Set SP1_PROVER=network and NETWORK_PRIVATE_KEY in .env
+# Set DATABASE_URL for PostgreSQL connection
+# Set SP1_PROVER=network and NETWORK_PRIVATE_KEY for prover network usage
 ```
 
-## QMDB Integration
+## PostgreSQL Integration
 
-This project integrates QMDB (Quantum Merkle Database) as an Authenticated Data Structure (ADS) for storing and retrieving arithmetic computation results.
+This project uses PostgreSQL as the database for storing and retrieving arithmetic computation results.
 
-### QMDB Features Used
+### PostgreSQL Features Used
 
-- **Authenticated Storage**: All stored data is cryptographically authenticated using Merkle trees
-- **Key-Value Operations**: Store arithmetic results with the result value as key and result data as binary data
-- **Concurrent Access**: Thread-safe operations using `parking_lot::RwLock`
-- **Configurable Storage**: Uses configurable entry sizes and sharding for optimal performance
+- **Relational Storage**: Structured data storage with ACID compliance
+- **Async Operations**: Non-blocking database operations using sqlx
+- **Connection Pooling**: Efficient database connection management
+- **Automatic Migrations**: Schema initialization on startup
 
 ### Database Operations
 
-The project provides the following QMDB operations through the `arithmetic-db` crate:
+The project provides the following PostgreSQL operations through the `arithmetic-db` crate:
 
-- `init_db()`: Initialize QMDB with default configuration in `ADS/` directory
-- `create_simple_task_with_addition(key, value)`: Create a task to store key-value pair
-- `update_db(ads, task_list, height)`: Execute tasks and update the database
-- `get_value(ads, key)`: Retrieve value by key from the latest database state
+- `init_db()`: Initialize PostgreSQL connection pool and run migrations
+- `store_arithmetic_transaction(pool, a, b, result)`: Store an arithmetic transaction
+- `get_value_by_result(pool, result)`: Retrieve the first transaction by result value
+- `get_transactions_by_result(pool, result)`: Retrieve all transactions with a specific result
 
-### Storage Format
+### Storage Schema
 
-Arithmetic results are stored as:
-- **Key**: String representation of the result value as bytes
-- **Value**: 4-byte little-endian encoding of the result
+Arithmetic transactions are stored in the `arithmetic_transactions` table:
+```sql
+CREATE TABLE arithmetic_transactions (
+    id SERIAL PRIMARY KEY,
+    a INTEGER NOT NULL,
+    b INTEGER NOT NULL,
+    result INTEGER NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(a, b, result)
+);
+```
 
-### QMDB Configuration
+### Database Configuration
 
-- **Storage Directory**: `ADS/` (auto-created on first run)
-- **Allocator**: Uses jemalloc on non-MSVC targets for better performance
-- **Entry Size**: Uses QMDB's default entry size configuration
-- **Sharding**: Automatic sharding based on key hash for load distribution
+- **Connection**: Uses DATABASE_URL environment variable
+- **Pooling**: sqlx PgPool for connection management
+- **Migrations**: Automatic schema creation and indexing
+- **Indexing**: Optimized queries on result values and timestamps
 
 ## Testing
 

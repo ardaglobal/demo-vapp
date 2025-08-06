@@ -11,7 +11,7 @@ on:
 jobs:
   format:
     name: format
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -19,9 +19,18 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          components: rustfmt
+          components: rustfmt, clippy
       - name: cargo format
         run: cargo fmt --all -- --check
+      - name: Install SP1 toolchain
+        run: |
+          curl -L https://sp1.succinct.xyz | bash
+          ~/.sp1/bin/sp1up
+          ~/.sp1/bin/cargo-prove prove --version
+      - name: Build SP1 program
+        run: |
+          cd program
+          ~/.sp1/bin/cargo-prove prove build
       - name: Clippy
         run: |
           cargo clippy \
@@ -35,9 +44,9 @@ jobs:
             -W clippy::suspicious \
             -W clippy::correctness
 
-   toml-format:
+  toml-format:
     name: toml-format
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - name: checkout
         uses: actions/checkout@v4

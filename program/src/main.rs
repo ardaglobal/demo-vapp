@@ -16,8 +16,8 @@ pub fn main() {
     //
     // Behind the scenes, this compiles down to a custom system call which handles reading inputs
     // from the prover.
-    let a = sp1_zkvm::io::read::<u32>();
-    let b = sp1_zkvm::io::read::<u32>();
+    let a = sp1_zkvm::io::read::<i32>();
+    let b = sp1_zkvm::io::read::<i32>();
 
     // Compute the result of the arithmetic operation using a function from the workspace lib crate.
     let result = addition(a, b);

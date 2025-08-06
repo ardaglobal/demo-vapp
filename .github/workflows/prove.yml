@@ -28,12 +28,12 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: 1.85.0
+          toolchain: 1.88.0
 
       - name: Install SP1 toolchain
         run: |
           curl -L https://sp1.succinct.xyz | bash
-          ~/.sp1/bin/sp1up 
+          ~/.sp1/bin/sp1up
           ~/.sp1/bin/cargo-prove prove --version
 
       - name: Build SP1 program

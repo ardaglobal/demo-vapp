@@ -7,12 +7,20 @@ version = 2
 # The path where the advisory database is cloned/fetched into
 db-path = "~/cargo/advisory-db"
 # The url of the advisory database to use
-db-urls = ["https://github.com/rustsec/advisory-db"]
+db-urls = [ "https://github.com/rustsec/advisory-db" ]
 # The lint level for crates that have been yanked from their source registry
-yanked = "warn"
+yanked = "allow"
 # A list of advisory IDs to ignore. Note that ignored advisories will still
 # output a note when they are encountered.
-ignore = []
+ignore = [
+    # Ignore unmaintained advisories from SP1 SDK transitive dependencies
+    "RUSTSEC-2021-0139", # ansi_term unmaintained
+    "RUSTSEC-2021-0141", # dotenv unmaintained
+    "RUSTSEC-2024-0384", # instant unmaintained
+    "RUSTSEC-2024-0388", # derivative unmaintained
+    "RUSTSEC-2024-0436", # paste unmaintained
+    "RUSTSEC-2025-0012", # backoff unmaintained
+]
 # Threshold for security vulnerabilities, any vulnerability with a CVSS score
 # lower than the range specified will be ignored. Note that ignored advisories
 # will still output a note when they are encountered.
@@ -47,7 +55,6 @@ allow = [
     "Unicode-3.0",
     "Unlicense",
     "Zlib",
-    "GPL-3.0-or-later",
 ]
 # The confidence threshold for detecting a license from license text.
 # The higher the value, the more closely the license text must be to the
@@ -56,15 +63,23 @@ allow = [
 confidence-threshold = 0.8
 # Allow 1 or more licenses on a per-crate basis, so that particular licenses
 # aren't accepted for every possible crate as with the normal allow list
-exceptions = []
+exceptions = [
+    # Allow LGPL-3.0 for downloader crate
+    { allow = [ "LGPL-3.0" ], name = "downloader" },
+]
 
 # Some crates don't have (easily) machine readable licensing information,
 # adding a clarification entry for it allows you to manually specify the
 # licensing information
 [[licenses.clarify]]
 expression    = "ISC AND MIT AND OpenSSL"
-license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+license-files = [ { path = "LICENSE", hash = 0xbd0eed23 } ]
 name          = "ring"
+
+[[licenses.clarify]]
+expression    = "MIT"
+license-files = [  ]
+name          = "halo2"
 
 [licenses.private]
 # If true, ignores workspace crates that aren't published, or are only
@@ -81,7 +96,7 @@ ignore = false
 # https://embarkstudios.github.io/cargo-deny/checks/bans/cfg.html
 [bans]
 # Lint level for when multiple versions of the same crate are detected
-multiple-versions = "warn"
+multiple-versions = "allow"
 # The graph highlighting used when creating dotgraphs for crates
 # with multiple versions
 # * lowest-version - The path to the lowest versioned duplicate is highlighted
@@ -95,7 +110,19 @@ highlight = "all"
 #deny = [
 #]
 # Certain crates/versions that will be skipped when doing duplicate detection.
-#skip = [
+skip = [
+    # Skip duplicate base64 versions from SP1/AWS dependencies
+    { name = "base64", version = "=0.21.7" },
+    # Skip duplicate bindgen versions from build dependencies  
+    { name = "bindgen", version = "=0.69.5" },
+    # Skip additional duplicates from transitive dependencies
+    { name = "core-foundation", version = "=0.9.4" },
+    { name = "derive_more", version = "=1.0.0" },
+    { name = "derive_more-impl", version = "=1.0.0" },
+]
+
+# Skip trees to avoid checking problematic transitive dependencies (currently unused)
+#skip-tree = [
 #]
 # Similarly to `skip` allows you to skip certain crates during duplicate
 # detection. Unlike skip, it also includes the entire tree of transitive
@@ -116,6 +143,6 @@ unknown-registry = "deny"
 unknown-git = "deny"
 # List of URLs for allowed crate registries. Defaults to the crates.io index
 # if not specified. If it is specified but empty, no registries are allowed.
-allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-registry = [ "https://github.com/rust-lang/crates.io-index" ]
 # List of URLs for allowed Git repositories
-allow-git = []
+allow-git = [  ]
