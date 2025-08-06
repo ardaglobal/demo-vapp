@@ -28,7 +28,7 @@ parking_lot     = { workspace = true }
 qmdb            = { git = "https://github.com/ardaglobal/qmdb", package = "qmdb", branch = "mc/chore/dep-updates" }
 serde           = { workspace = true, default-features = false, features = ["derive"] }
 serde_json      = { version = "1.0.142", default-features = false, features = ["alloc"] }
-sp1-sdk         = "5.1.0"
+sp1-sdk         = "5.2.1"
 tracing         = "0.1.41"
 
 [build-dependencies]
