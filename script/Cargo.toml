@@ -21,7 +21,7 @@ path = "src/bin/vkey.rs"
 alloy-sol-types = { workspace = true }
 arithmetic-db   = { path = "../db" }
 arithmetic-lib  = { path = "../lib" }
-clap            = { version = "4.5.42", features = ["derive", "env"] }
+clap            = { version = "4.5.43", features = ["derive", "env"] }
 dotenv          = "0.15.0"
 hex             = "0.4.3"
 parking_lot     = { workspace = true }
