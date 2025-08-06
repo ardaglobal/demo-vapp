@@ -22,6 +22,8 @@ jobs:
           components: rustfmt, clippy
       - name: cargo format
         run: cargo fmt --all -- --check
+      - name: Build RISC-V program
+        run: cd program && cargo prove build
       - name: Clippy
         run: |
           cargo clippy \
