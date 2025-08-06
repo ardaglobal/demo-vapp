@@ -22,12 +22,12 @@ static GLOBAL: Jemalloc = Jemalloc;
 pub fn init_db() -> AdsWrap<SimpleTask> {
     let ads_dir = "ADS";
     let config = Config::from_dir(ads_dir);
-    
+
     // For now, always initialize a fresh database to avoid QMDB state issues
     // This means data won't persist between runs, but it will work reliably
     println!("Initializing fresh database in directory: {ads_dir}");
     AdsCore::init_dir(&config);
-    
+
     let ads: AdsWrap<SimpleTask> = AdsWrap::new(&config);
     println!("Database ready");
     ads
@@ -102,7 +102,6 @@ pub fn create_simple_task_with_addition(key: &[u8], value: &[u8]) -> SimpleTask 
     SimpleTask::new(vec![cset])
 }
 
-
 #[must_use]
 pub fn get_value(ads: &AdsWrap<SimpleTask>, key: &[u8]) -> Option<Vec<u8>> {
     // Create a buffer to hold the entry data
@@ -121,7 +120,7 @@ pub fn get_value(ads: &AdsWrap<SimpleTask>, key: &[u8]) -> Option<Vec<u8>> {
     // Try reading from height 1 (where we store all data)
     let (result, ok) = shared_ads.read_entry(1, &kh[..], &[], &mut buf);
     println!("Read attempt at height 1: result={result}, ok={ok}");
-    
+
     if ok {
         // Parse the entry
         let entry = EntryBz { bz: &buf[..result] };
@@ -130,4 +129,3 @@ pub fn get_value(ads: &AdsWrap<SimpleTask>, key: &[u8]) -> Option<Vec<u8>> {
 
     None // Key not found
 }
-
