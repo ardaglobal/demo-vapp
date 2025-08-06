@@ -1,6 +1,7 @@
 [package]
 default-run = "arithmetic"
 edition     = "2021"
+license     = "MIT"
 name        = "arithmetic-script"
 version     = "0.1.0"
 
