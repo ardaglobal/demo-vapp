@@ -11,7 +11,7 @@ on:
 jobs:
   format:
     name: format
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -19,7 +19,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          components: rustfmt
+          components: rustfmt, clippy
       - name: cargo format
         run: cargo fmt --all -- --check
       - name: Clippy
@@ -37,7 +37,7 @@ jobs:
 
   toml-format:
     name: toml-format
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - name: checkout
         uses: actions/checkout@v4
