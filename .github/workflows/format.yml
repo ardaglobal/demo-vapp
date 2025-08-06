@@ -35,7 +35,7 @@ jobs:
             -W clippy::suspicious \
             -W clippy::correctness
 
-   toml-format:
+  toml-format:
     name: toml-format
     runs-on: ubuntu-22.04
     steps:

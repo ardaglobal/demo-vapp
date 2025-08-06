@@ -545,6 +545,7 @@ dependencies = [
  "sqlx",
  "tikv-jemallocator",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

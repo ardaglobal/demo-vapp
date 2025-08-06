@@ -1,6 +1,7 @@
 use sqlx::{PgPool, Row};
 use std::env;
 use std::str::FromStr;
+use tracing::debug;
 
 #[cfg(all(not(target_env = "msvc"), feature = "tikv-jemallocator"))]
 use tikv_jemallocator::Jemalloc;
@@ -9,7 +10,7 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArithmeticTransaction {
     pub a: i32,
     pub b: i32,
@@ -26,7 +27,7 @@ pub async fn init_db() -> Result<PgPool, sqlx::Error> {
         sqlx::Error::Configuration("DATABASE_URL environment variable must be set".into())
     })?;
 
-    println!("Connecting to PostgreSQL database...");
+    debug!("Connecting to PostgreSQL database...");
 
     // Configure pool with production settings
     let pool = sqlx::postgres::PgPoolOptions::new()
@@ -41,7 +42,7 @@ pub async fn init_db() -> Result<PgPool, sqlx::Error> {
     // Run migrations
     run_migrations(&pool).await?;
 
-    println!("Database ready");
+    debug!("Database ready");
     Ok(pool)
 }
 
@@ -50,11 +51,11 @@ pub async fn init_db() -> Result<PgPool, sqlx::Error> {
 /// # Errors
 /// Returns error if migration execution fails
 async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
-    println!("Running database migrations...");
+    debug!("Running database migrations...");
 
     sqlx::migrate!("./migrations").run(pool).await?;
 
-    println!("Migrations completed");
+    debug!("Migrations completed");
     Ok(())
 }
 
@@ -68,7 +69,7 @@ pub async fn store_arithmetic_transaction(
     b: i32,
     result: i32,
 ) -> Result<(), sqlx::Error> {
-    println!("Storing transaction: a={a}, b={b}, result={result}");
+    debug!("Storing transaction: a={a}, b={b}, result={result}");
 
     sqlx::query(
         r"
@@ -83,7 +84,7 @@ pub async fn store_arithmetic_transaction(
     .execute(pool)
     .await?;
 
-    println!("Transaction stored successfully");
+    debug!("Transaction stored successfully");
     Ok(())
 }
 
@@ -95,7 +96,7 @@ pub async fn get_transactions_by_result(
     pool: &PgPool,
     result: i32,
 ) -> Result<Vec<ArithmeticTransaction>, sqlx::Error> {
-    println!("Looking for transactions with result: {result}");
+    debug!("Looking for transactions with result: {result}");
 
     let rows = sqlx::query("SELECT a, b, result FROM arithmetic_transactions WHERE result = $1")
         .bind(result)
@@ -111,7 +112,7 @@ pub async fn get_transactions_by_result(
         })
         .collect();
 
-    println!("Found {} transactions", transactions.len());
+    debug!("Found {} transactions", transactions.len());
     Ok(transactions)
 }
 
@@ -123,7 +124,7 @@ pub async fn get_value_by_result(
     pool: &PgPool,
     result: i32,
 ) -> Result<Option<(i32, i32)>, sqlx::Error> {
-    println!("Looking for single transaction with result: {result}");
+    debug!("Looking for single transaction with result: {result}");
 
     let row = sqlx::query("SELECT a, b FROM arithmetic_transactions WHERE result = $1 LIMIT 1")
         .bind(result)
@@ -132,13 +133,13 @@ pub async fn get_value_by_result(
 
     row.map_or_else(
         || {
-            println!("No transaction found with result: {result}");
+            debug!("No transaction found with result: {result}");
             Ok(None)
         },
         |row| {
             let a: i32 = row.get("a");
             let b: i32 = row.get("b");
-            println!("Found transaction: a={a}, b={b}");
+            debug!("Found transaction: a={a}, b={b}");
             Ok(Some((a, b)))
         },
     )
