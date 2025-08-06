@@ -1,14 +1,5 @@
-use parking_lot::RwLock;
-use qmdb::config::Config;
-use qmdb::def::{DEFAULT_ENTRY_SIZE, IN_BLOCK_IDX_BITS, OP_CREATE};
-use qmdb::entryfile::EntryBz;
-use qmdb::tasks::TasksManager;
-use qmdb::test_helper::SimpleTask;
-
-use qmdb::utils::changeset::ChangeSet;
-use qmdb::utils::{byte0_to_shard_id, hasher};
-use qmdb::{AdsCore, AdsWrap, ADS};
-use std::sync::Arc;
+use sqlx::{PgPool, Row};
+use std::env;
 
 #[cfg(all(not(target_env = "msvc"), feature = "tikv-jemallocator"))]
 use tikv_jemallocator::Jemalloc;
@@ -17,117 +8,141 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-/// Initialize the database, always creating a fresh one for simplicity
-#[must_use]
-pub fn init_db() -> AdsWrap<SimpleTask> {
-    let ads_dir = "ADS";
-    let config = Config::from_dir(ads_dir);
-    
-    // For now, always initialize a fresh database to avoid QMDB state issues
-    // This means data won't persist between runs, but it will work reliably
-    println!("Initializing fresh database in directory: {ads_dir}");
-    AdsCore::init_dir(&config);
-    
-    let ads: AdsWrap<SimpleTask> = AdsWrap::new(&config);
+#[derive(Debug)]
+pub struct ArithmeticTransaction {
+    pub a: i32,
+    pub b: i32,
+    pub result: i32,
+}
+
+/// Initialize the database connection
+///
+/// # Panics
+/// Panics if `DATABASE_URL` environment variable is not set or connection fails
+pub async fn init_db() -> PgPool {
+    let database_url =
+        env::var("DATABASE_URL").expect("DATABASE_URL environment variable must be set");
+
+    println!("Connecting to PostgreSQL database...");
+    let pool = PgPool::connect(&database_url)
+        .await
+        .expect("Failed to connect to PostgreSQL database");
+
+    // Run migrations
+    run_migrations(&pool).await;
+
     println!("Database ready");
-    ads
+    pool
 }
 
-/// Update the database with new tasks
-///
-/// # Panics
-/// Panics if `task_list.len()` cannot be converted to `i64`
-pub fn update_db(
-    ads: &mut AdsWrap<SimpleTask>,
-    task_list: &[RwLock<Option<SimpleTask>>],
-    height: i64,
-) {
-    let task_count = i64::try_from(task_list.len()).unwrap();
-    // Task ID's high 40 bits is block height and low 24 bits is task index
-    let last_task_id = (height << IN_BLOCK_IDX_BITS) | (task_count - 1);
+/// Run database migrations
+async fn run_migrations(pool: &PgPool) {
+    println!("Running database migrations...");
 
-    // Add the tasks into QMDB
-    let tasks: Vec<RwLock<Option<SimpleTask>>> = task_list
-        .iter()
-        .map(|lock| RwLock::new(lock.read().clone()))
+    let migration_sql = r"
+        CREATE TABLE IF NOT EXISTS arithmetic_transactions (
+            id SERIAL PRIMARY KEY,
+            a INTEGER NOT NULL,
+            b INTEGER NOT NULL,
+            result INTEGER NOT NULL,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(a, b, result)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_arithmetic_result ON arithmetic_transactions(result);
+        CREATE INDEX IF NOT EXISTS idx_arithmetic_created_at ON arithmetic_transactions(created_at);
+    ";
+
+    sqlx::query(migration_sql)
+        .execute(pool)
+        .await
+        .expect("Failed to run migrations");
+
+    println!("Migrations completed");
+}
+
+/// Store an arithmetic transaction in the database
+///
+/// # Errors
+/// Returns error if database operation fails
+pub async fn store_arithmetic_transaction(
+    pool: &PgPool,
+    a: i32,
+    b: i32,
+    result: i32,
+) -> Result<(), sqlx::Error> {
+    println!("Storing transaction: a={a}, b={b}, result={result}");
+
+    sqlx::query(
+        r"
+        INSERT INTO arithmetic_transactions (a, b, result)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (a, b, result) DO NOTHING
+        ",
+    )
+    .bind(a)
+    .bind(b)
+    .bind(result)
+    .execute(pool)
+    .await?;
+
+    println!("Transaction stored successfully");
+    Ok(())
+}
+
+/// Get arithmetic transactions by result value
+///
+/// # Errors
+/// Returns error if database operation fails
+pub async fn get_transactions_by_result(
+    pool: &PgPool,
+    result: i32,
+) -> Result<Vec<ArithmeticTransaction>, sqlx::Error> {
+    println!("Looking for transactions with result: {result}");
+
+    let rows = sqlx::query("SELECT a, b, result FROM arithmetic_transactions WHERE result = $1")
+        .bind(result)
+        .fetch_all(pool)
+        .await?;
+
+    let transactions: Vec<ArithmeticTransaction> = rows
+        .into_iter()
+        .map(|row| ArithmeticTransaction {
+            a: row.get("a"),
+            b: row.get("b"),
+            result: row.get("result"),
+        })
         .collect();
-    ads.start_block(height, Arc::new(TasksManager::new(tasks, last_task_id)));
 
-    // Multiple shared_ads can be shared by different threads
-    let shared_ads = ads.get_shared();
-
-    // You can associate some extra data in json format to each block
-    shared_ads.insert_extra_data(height, String::new());
-
-    // Pump tasks into QMDB's pipeline
-    for idx in 0..task_count {
-        let task_id = (height << IN_BLOCK_IDX_BITS) | idx;
-        // In production you can pump a task immediately after getting it ready
-        shared_ads.add_task(task_id);
-    }
-
-    // Flush QMDB's pipeline to make sure all operations are done
-    ads.flush();
-    println!("Database updated and flushed at height {height}");
+    println!("Found {} transactions", transactions.len());
+    Ok(transactions)
 }
 
-/// Create a `SimpleTask` with an addition operation
+/// Get the first arithmetic transaction by result value (for compatibility with old QMDB interface)
 ///
-/// # Usage
-/// ```
-/// let task = create_simple_task_with_addition(key, value);
-/// let task_with_lock = RwLock::new(Some(task));
-/// task_list.push(task_with_lock);
-/// ```
-///
-/// # Panics
-/// Panics if `shard_id` cannot be converted to the required type
-#[must_use]
-pub fn create_simple_task_with_addition(key: &[u8], value: &[u8]) -> SimpleTask {
-    let mut cset = ChangeSet::new();
+/// # Errors
+/// Returns error if database operation fails
+pub async fn get_value_by_result(
+    pool: &PgPool,
+    result: i32,
+) -> Result<Option<(i32, i32)>, sqlx::Error> {
+    println!("Looking for single transaction with result: {result}");
 
-    let kh = hasher::hash(key);
-    let shard_id = byte0_to_shard_id(kh[0]);
-    cset.add_op(
-        OP_CREATE,
-        shard_id.try_into().unwrap(),
-        &kh,
-        key,
-        value,
-        None,
-    );
-    cset.sort();
+    let row = sqlx::query("SELECT a, b FROM arithmetic_transactions WHERE result = $1 LIMIT 1")
+        .bind(result)
+        .fetch_optional(pool)
+        .await?;
 
-    // Create a SimpleTask with this single changeset
-    SimpleTask::new(vec![cset])
+    row.map_or_else(
+        || {
+            println!("No transaction found with result: {result}");
+            Ok(None)
+        },
+        |row| {
+            let a: i32 = row.get("a");
+            let b: i32 = row.get("b");
+            println!("Found transaction: a={a}, b={b}");
+            Ok(Some((a, b)))
+        },
+    )
 }
-
-
-#[must_use]
-pub fn get_value(ads: &AdsWrap<SimpleTask>, key: &[u8]) -> Option<Vec<u8>> {
-    // Create a buffer to hold the entry data
-    let mut buf = [0; DEFAULT_ENTRY_SIZE];
-    // Hash the key to get the key hash
-    let kh = hasher::hash(key);
-    println!("Attempting to read key hash: {kh:?}");
-
-    // Get shard ID from the key hash
-    let shard_id = byte0_to_shard_id(kh[0]);
-    println!("Shard ID: {shard_id}");
-
-    // Get the shared reference
-    let shared_ads = ads.get_shared();
-
-    // Try reading from height 1 (where we store all data)
-    let (result, ok) = shared_ads.read_entry(1, &kh[..], &[], &mut buf);
-    println!("Read attempt at height 1: result={result}, ok={ok}");
-    
-    if ok {
-        // Parse the entry
-        let entry = EntryBz { bz: &buf[..result] };
-        return Some(entry.value().to_vec());
-    }
-
-    None // Key not found
-}
-

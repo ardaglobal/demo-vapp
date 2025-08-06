@@ -6,4 +6,4 @@ version = "0.1.0"
 [dependencies]
 alloy-sol-types = { workspace = true }
 arithmetic-lib  = { path = "../lib" }
-sp1-zkvm        = "5.0.8"
+sp1-zkvm        = { workspace = true }

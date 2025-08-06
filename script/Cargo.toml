@@ -20,15 +20,15 @@ path = "src/bin/vkey.rs"
 alloy-sol-types = { workspace = true }
 arithmetic-db   = { path = "../db" }
 arithmetic-lib  = { path = "../lib" }
-clap            = { version = "4.5.42", features = ["derive", "env"] }
-dotenv          = "0.15.0"
-hex             = "0.4.3"
-parking_lot     = { workspace = true }
-qmdb            = { git = "https://github.com/ardaglobal/qmdb", package = "qmdb", branch = "mc/chore/dep-updates" }
-serde           = { workspace = true, default-features = false, features = ["derive"] }
-serde_json      = { version = "1.0.142", default-features = false, features = ["alloc"] }
-sp1-sdk         = "5.1.0"
-tracing         = "0.1.41"
+clap            = { workspace = true, features = ["derive", "env"] }
+dotenv          = { workspace = true }
+hex             = { workspace = true }
+serde           = { workspace = true }
+serde_json      = { workspace = true }
+sp1-sdk         = { workspace = true }
+sqlx            = { workspace = true }
+tokio           = { workspace = true }
+tracing         = { workspace = true }
 
 [build-dependencies]
-sp1-build = "5.1.0"
+sp1-build = { workspace = true }
