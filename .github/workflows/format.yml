@@ -22,8 +22,15 @@ jobs:
           components: rustfmt, clippy
       - name: cargo format
         run: cargo fmt --all -- --check
-      - name: Build RISC-V program
-        run: cd program && cargo prove build
+      - name: Install SP1 toolchain
+        run: |
+          curl -L https://sp1.succinct.xyz | bash
+          ~/.sp1/bin/sp1up
+          ~/.sp1/bin/cargo-prove prove --version
+      - name: Build SP1 program
+        run: |
+          cd program
+          ~/.sp1/bin/cargo-prove prove build
       - name: Clippy
         run: |
           cargo clippy \
