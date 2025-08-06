@@ -51,11 +51,54 @@ PRIVATE_KEY=...
 Then deploy the contract to the chain:
 
 ```sh
-forge create src/Fibonacci.sol:Fibonacci --rpc-url $RPC_URL --private-key $PRIVATE_KEY --constructor-args $VERIFIER $PROGRAM_VKEY
+forge create src/Arithmetic.sol:Arithmetic --broadcast --rpc-url $RPC_URL --private-key $PRIVATE_KEY --constructor-args $VERIFIER $PROGRAM_VKEY
 ```
 
 It can also be a good idea to verify the contract when you deploy, in which case you would also need to set `ETHERSCAN_API_KEY`:
 
 ```sh
-forge create src/Fibonacci.sol:Fibonacci --rpc-url $RPC_URL --private-key $PRIVATE_KEY --constructor-args $VERIFIER $PROGRAM_VKEY --verify --verifier etherscan --etherscan-api-key $ETHERSCAN_API_KEY
+forge create src/Arithmetic.sol:Arithmetic --broadcast --rpc-url $SEPOLIA_RPC_URL --private-key $METAMASK_PRIVATE_KEY --constructor-args $SEPOLIA_GROTH16_VERIFIER $PROGRAM_VKEY --verify --verifier etherscan --etherscan-api-key $ETHERSCAN_API_KEY
 ```
+
+## GitHub Actions Deployment
+
+The repository includes a GitHub Actions workflow that can deploy contracts automatically or manually:
+
+### Automatic Deployment
+The workflow automatically triggers when:
+- Changes are pushed to the `main` branch in the `contracts/` directory
+- Pull requests are opened against `main` with changes in the `contracts/` directory
+
+Automatic deployments will:
+- Deploy to Sepolia testnet by default
+- Verify the contract on Etherscan
+- Run tests before deployment
+
+### Manual Deployment
+You can also trigger deployments manually and choose whether to verify the contract.
+
+### Required GitHub Secrets
+
+The following secrets need to be configured in your GitHub repository:
+
+#### Core Secrets
+- `PRIVATE_KEY`: The private key of the deployer account
+- `PROGRAM_VKEY`: The program verification key (get this by running `cargo run --package arithmetic-script --bin vkey --release` in the `../script` directory)
+
+#### Sepolia Network Secrets
+- `SEPOLIA_RPC_URL`: RPC URL for Sepolia testnet
+- `SEPOLIA_VERIFIER`: SP1 verifier contract address on Sepolia
+- `ETHERSCAN_API_KEY`: API key for Etherscan (used for contract verification)
+
+### Usage
+
+1. Go to your repository's Actions tab
+2. Select "Deploy Smart Contracts" workflow
+3. Click "Run workflow"
+4. Choose whether to verify the contract (defaults to true)
+5. Click "Run workflow" to start the deployment
+
+The workflow will:
+- Build and test the contracts
+- Deploy the `Arithmetic` contract to Sepolia testnet
+- Optionally verify the contract on Etherscan
