@@ -59,7 +59,7 @@ async fn main() {
 
     // Setup the prover client.
     let client = ProverClient::from_env();
-    let pool = init_db().await;
+    let pool = init_db().await.expect("Failed to initialize database");
 
     // Setup the inputs.
     let mut stdin = SP1Stdin::new();

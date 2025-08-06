@@ -1,5 +1,6 @@
 use sqlx::{PgPool, Row};
 use std::env;
+use std::str::FromStr;
 
 #[cfg(all(not(target_env = "msvc"), feature = "tikv-jemallocator"))]
 use tikv_jemallocator::Jemalloc;
@@ -17,48 +18,44 @@ pub struct ArithmeticTransaction {
 
 /// Initialize the database connection
 ///
-/// # Panics
-/// Panics if `DATABASE_URL` environment variable is not set or connection fails
-pub async fn init_db() -> PgPool {
-    let database_url =
-        env::var("DATABASE_URL").expect("DATABASE_URL environment variable must be set");
+/// # Errors
+/// Returns error if `DATABASE_URL` environment variable is not set, connection fails,
+/// or migrations fail
+pub async fn init_db() -> Result<PgPool, sqlx::Error> {
+    let database_url = env::var("DATABASE_URL").map_err(|_| {
+        sqlx::Error::Configuration("DATABASE_URL environment variable must be set".into())
+    })?;
 
     println!("Connecting to PostgreSQL database...");
-    let pool = PgPool::connect(&database_url)
-        .await
-        .expect("Failed to connect to PostgreSQL database");
+
+    // Configure pool with production settings
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(20)
+        .min_connections(5)
+        .acquire_timeout(std::time::Duration::from_secs(30))
+        .idle_timeout(std::time::Duration::from_secs(600))
+        .max_lifetime(std::time::Duration::from_secs(1800))
+        .connect_with(sqlx::postgres::PgConnectOptions::from_str(&database_url)?)
+        .await?;
 
     // Run migrations
-    run_migrations(&pool).await;
+    run_migrations(&pool).await?;
 
     println!("Database ready");
-    pool
+    Ok(pool)
 }
 
 /// Run database migrations
-async fn run_migrations(pool: &PgPool) {
+///
+/// # Errors
+/// Returns error if migration execution fails
+async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
     println!("Running database migrations...");
 
-    let migration_sql = r"
-        CREATE TABLE IF NOT EXISTS arithmetic_transactions (
-            id SERIAL PRIMARY KEY,
-            a INTEGER NOT NULL,
-            b INTEGER NOT NULL,
-            result INTEGER NOT NULL,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(a, b, result)
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_arithmetic_result ON arithmetic_transactions(result);
-        CREATE INDEX IF NOT EXISTS idx_arithmetic_created_at ON arithmetic_transactions(created_at);
-    ";
-
-    sqlx::query(migration_sql)
-        .execute(pool)
-        .await
-        .expect("Failed to run migrations");
+    sqlx::migrate!("./migrations").run(pool).await?;
 
     println!("Migrations completed");
+    Ok(())
 }
 
 /// Store an arithmetic transaction in the database
