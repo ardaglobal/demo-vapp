@@ -4,12 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is an SP1 (Succinct Proof) project that demonstrates zero-knowledge proof generation for arithmetic addition operations. The project consists of four main components:
+This is an SP1 (Succinct Proof) project that demonstrates zero-knowledge proof generation for arithmetic addition operations. The project consists of five main components:
 
 1. **RISC-V Program** (`program/`): Performs arithmetic addition inside the SP1 zkVM
 2. **Script** (`script/`): Generates proofs and handles execution using the SP1 SDK
 3. **Smart Contracts** (`contracts/`): Solidity contracts for on-chain proof verification
 4. **Database Module** (`db/`): PostgreSQL integration for storing arithmetic transactions
+5. **Sindri Integration** (`script/src/bin/sindri.rs`): Serverless proof generation using Sindri's cloud infrastructure
 
 ## Common Commands
 
@@ -35,6 +36,9 @@ cd script && cargo run --release --bin evm -- --system plonk
 
 # Retrieve verification key for on-chain contracts
 cd script && cargo run --release --bin vkey
+
+# Generate ZK proof using Sindri cloud infrastructure
+SINDRI_API_KEY=your_api_key_here cargo run --bin sindri
 ```
 
 ### Smart Contract Testing
@@ -65,6 +69,8 @@ cargo test
   - `main.rs`: Main script for execution and proof generation
   - `evm.rs`: EVM-compatible proof generation (Groth16/PLONK)
   - `vkey.rs`: Verification key retrieval
+  - `sindri.rs`: Sindri cloud-based proof generation
+  - `arithmetic_io.rs`: Interactive input handling utilities
 
 ### Data Flow
 
@@ -75,12 +81,23 @@ cargo test
 5. The script can verify previously computed results by querying PostgreSQL
 6. The script generates proofs that can be verified on-chain via the Solidity contract
 
+### Sindri Integration Data Flow
+
+1. User provides arithmetic inputs (`a` and `b`) through interactive prompts
+2. SP1 inputs are serialized to JSON format expected by Sindri
+3. Proof generation request is sent to Sindri's cloud infrastructure using the prebuilt `demo-vapp` circuit
+4. Sindri returns the cryptographic proof along with metadata (proof ID, circuit ID, status)
+5. Proof is verified through Sindri's verification API
+6. Results include actual proof data (base64 encoded) and comprehensive verification status
+
 ### Key Files
 
 - `program/src/main.rs:14`: Main zkVM entry point with input/output handling
 - `lib/src/lib.rs:14`: Core arithmetic addition logic
 - `contracts/src/Arithmetic.sol:35`: On-chain proof verification function
 - `script/src/bin/main.rs:45`: Proof generation orchestration
+- `script/src/bin/sindri.rs`: Sindri cloud-based proof generation with modern SDK
+- `script/src/bin/arithmetic_io.rs`: Interactive input handling utilities
 
 ## Environment Configuration
 
@@ -89,6 +106,8 @@ Set up environment variables:
 cp .env.example .env
 # Set DATABASE_URL for PostgreSQL connection
 # Set SP1_PROVER=network and NETWORK_PRIVATE_KEY for prover network usage
+# Set SINDRI_API_KEY for Sindri cloud proof generation
+export SINDRI_API_KEY=your_api_key_here
 ```
 
 ## PostgreSQL Integration
