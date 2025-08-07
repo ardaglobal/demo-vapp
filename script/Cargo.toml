@@ -17,19 +17,26 @@ path = "src/bin/evm.rs"
 name = "vkey"
 path = "src/bin/vkey.rs"
 
+[[bin]]
+name = "sindri"
+path = "src/bin/sindri.rs"
+
 [dependencies]
 alloy-sol-types = { workspace = true }
 arithmetic-db   = { path = "../db" }
 arithmetic-lib  = { path = "../lib" }
 clap            = { workspace = true, features = [ "derive", "env" ] }
 dotenv          = { workspace = true }
+eyre            = { workspace = true }
 hex             = { workspace = true }
 serde           = { workspace = true }
 serde_json      = { workspace = true }
+
 sp1-sdk         = { workspace = true }
 sqlx            = { workspace = true }
 tokio           = { workspace = true }
 tracing         = { workspace = true }
+termion         = { workspace = true }
 
 [build-dependencies]
 sp1-build = { workspace = true }
