@@ -20,6 +20,3 @@ pgo-data.profdata
 .envrc
 script/ADS
 ADS/
-
-# Builds
-**/build

@@ -24,10 +24,10 @@ generate an EVM-compatible proof.
 ### Upon first run
 
 Before we can run the program inside the zkVM, it must be compiled to a RISC-V executable using the succinct Rust toolchain. This is called an ELF (Executable and Linkable Format).
-To compile the program, you can run the following command:
+To compile the program to the ELF, you can run the following command:
 
 ```sh
-cd program && cargo prove build
+cd program && cargo prove build --output-directory ../build
 ```
 
 ### Build the Program

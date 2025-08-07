@@ -4,5 +4,5 @@
     "circuitType": "sp1",
     "provingScheme": "core",
     "sp1Version": "5.0.0",
-    "elfPath": "target/elf-compilation/riscv32im-succinct-zkvm-elf/release/arithmetic-program"
+    "elfPath": "build/arithmetic-program"
 }
