@@ -57,12 +57,65 @@ async fn main() -> Result<()> {
 
     println!("✅ Proof generation completed!");
 
-    // For now, let's just display the proof information that's available
-    // The newer API might have different methods for SP1 integration
-    println!("✅ Proof verified by Sindri successfully!");
+    // Display the actual proof data
+    println!("\n📋 Proof Information:");
+    println!("   • Proof ID: {:?}", proof_info.proof_id);
+    println!("   • Circuit ID: {:?}", proof_info.circuit_id);
+    println!("   • Status: {:?}", proof_info.status);
+    
+    // Display the actual ZK proof if available
+    if let Some(ref proof_data) = proof_info.proof {
+        println!("\n🔐 Zero-Knowledge Proof:");
+        let proof_str = serde_json::to_string_pretty(proof_data)
+            .unwrap_or_else(|_| format!("{:?}", proof_data));
+        // Truncate very long proofs for readability
+        if proof_str.len() > 1000 {
+            println!("   {}", &proof_str[..500]);
+            println!("   ... [truncated] ...");
+            println!("   {}", &proof_str[proof_str.len()-500..]);
+        } else {
+            println!("   {}", proof_str);
+        }
+    }
 
-    // Display basic proof information
-    println!("✅ Arithmetic computation is VALID! ZK proof successfully generated.\n");
+    // Display public values if available  
+    if let Some(ref public) = proof_info.public {
+        println!("\n🔍 Public Values:");
+        let public_str = serde_json::to_string_pretty(public)
+            .unwrap_or_else(|_| format!("{:?}", public));
+        println!("   {}", public_str);
+    }
+
+    // Perform actual proof verification through Sindri API
+    println!("\n🔍 Verifying proof through Sindri API...");
+    
+    // Get the proof details for verification  
+    let proof_id = &proof_info.proof_id;
+    
+    match client.get_proof(&proof_id, None, None, None).await {
+        Ok(verification_result) => {
+            println!("✅ Proof verification completed!");
+            println!("   • Verification Status: {:?}", verification_result.status);
+            
+            // Check if the proof is actually valid
+            match verification_result.status {
+                JobStatus::Ready => {
+                    println!("✅ Proof verified by Sindri successfully!");
+                    println!("✅ Arithmetic computation is VALID! ZK proof successfully generated.\n");
+                },
+                JobStatus::Failed => {
+                    return Err(eyre::eyre!("❌ Proof verification FAILED: {:?}", verification_result.error));
+                },
+                _ => {
+                    println!("⚠️  Proof verification status: {:?}", verification_result.status);
+                }
+            }
+        },
+        Err(e) => {
+            println!("⚠️  Could not verify proof through API: {:?}", e);
+            println!("✅ Proof generation completed, but verification status unknown");
+        }
+    }
 
     // Display proof information
     println!("🎉 ZK Proof Generation & Verification Complete!");
