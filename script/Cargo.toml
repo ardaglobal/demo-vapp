@@ -31,7 +31,7 @@ eyre            = { workspace = true }
 hex             = { workspace = true }
 serde           = { workspace = true }
 serde_json      = { workspace = true }
-sindri          = "0.1"
+sindri          = "0.3.1"
 sp1-sdk         = { workspace = true }
 sqlx            = { workspace = true }
 tokio           = { workspace = true }
