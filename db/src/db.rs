@@ -53,7 +53,7 @@ pub async fn init_db() -> Result<PgPool, sqlx::Error> {
 async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
     debug!("Running database migrations...");
 
-    sqlx::migrate!("./migrations").run(pool).await?;
+    sqlx::migrate!().run(pool).await?;
 
     debug!("Migrations completed");
     Ok(())

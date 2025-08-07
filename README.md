@@ -21,6 +21,40 @@ that can generate a proof of any RISC-V program.
 There are 3 main ways to run this project: execute a program, generate a core proof, and
 generate an EVM-compatible proof.
 
+### Environment Setup
+
+**Required**: Copy the environment file and configure your database connection:
+
+```sh
+cp .env.example .env
+```
+
+The `.env` file contains database credentials and SP1 configuration. For development and testing, the default PostgreSQL credentials are already configured for use with Docker Compose (see Database Setup section below).
+
+### Database Setup
+
+This project requires a PostgreSQL database for storing arithmetic transactions. The easiest way to set this up is using Docker Compose:
+
+```sh
+# Start PostgreSQL container in the background
+docker-compose up -d
+
+# Verify the database is running
+docker-compose ps
+```
+
+The database will be automatically initialized with the required schema when you first run the execute command.
+
+To stop the database:
+
+```sh
+# Stop the container
+docker-compose down
+
+# Stop and remove all data (clean slate)
+docker-compose down -v
+```
+
 ### Upon first run
 
 Before we can run the program inside the zkVM, it must be compiled to a RISC-V executable using the succinct Rust toolchain. This is called an ELF (Executable and Linkable Format).
@@ -36,14 +70,39 @@ The program is automatically built through `script/build.rs` when the script is 
 
 ### Execute the Program
 
-To run the program without generating a proof:
+To run the program interactively without generating a proof:
 
 ```sh
 cd script
 cargo run --release -- --execute
 ```
 
-This will execute the program and display the output.
+This will start an interactive CLI where you can:
+- Enter pairs of numbers (a and b) to compute their sum
+- See the results stored in the PostgreSQL database
+- Continue entering new calculations until you press 'q' to quit
+
+Each calculation is verified and stored in the database for later retrieval.
+
+### Verify Stored Results
+
+To verify that results are stored in the database:
+
+```sh
+cd script
+cargo run --release -- --verify
+```
+
+This will start an interactive CLI where you can:
+- Enter a result value (e.g., 15)
+- See what values of 'a' and 'b' were added to get that result
+- Continue looking up different results until you press 'q' to quit
+
+You can also verify a specific result non-interactively:
+
+```sh
+cargo run --release -- --verify --result 15
+```
 
 ### Generate an SP1 Core Proof
 

@@ -10,7 +10,7 @@ mod error_handling_tests {
     #[traced_test]
     async fn test_invalid_database_url() {
         env::set_var("DATABASE_URL", "invalid_url");
-        
+
         let result = init_db().await;
         assert!(result.is_err());
     }
@@ -18,8 +18,11 @@ mod error_handling_tests {
     #[tokio::test]
     #[traced_test]
     async fn test_connection_failure() {
-        env::set_var("DATABASE_URL", "postgres://user:password@nonexistent:5432/db");
-        
+        env::set_var(
+            "DATABASE_URL",
+            "postgres://user:password@nonexistent:5432/db",
+        );
+
         let result = init_db().await;
         assert!(result.is_err());
     }

@@ -16,7 +16,7 @@ This module provides PostgreSQL integration for storing and retrieving arithmeti
 
 Before running tests, ensure you have:
 
-1. **PostgreSQL Server**: A running PostgreSQL instance
+1. **PostgreSQL Server**: A running PostgreSQL instance ( see `docker-compose.yml` for a local instance that you can run using `docker compose up`)
 2. **Database URL**: Set the `DATABASE_URL` environment variable:
    ```bash
    export DATABASE_URL="postgres://username:password@localhost:5432/database_name"
