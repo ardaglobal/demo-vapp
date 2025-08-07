@@ -18,13 +18,19 @@ This is an SP1 (Succinct Proof) project that demonstrates zero-knowledge proof g
 # First-time setup: compile the program to RISC-V
 cd program && cargo prove build
 
-# Execute program without generating proof (stores result in PostgreSQL)
+# Execute program interactively without generating proof (stores results in PostgreSQL)
+cd script && cargo run --release -- --execute
+
+# Execute program non-interactively (legacy mode)
 cd script && cargo run --release -- --execute --a 5 --b 10
 
 # Generate SP1 core proof
 cd script && cargo run --release -- --prove --a 5 --b 10
 
-# Verify stored data in PostgreSQL for a specific result
+# Verify stored data interactively in PostgreSQL 
+cd script && cargo run --release -- --verify
+
+# Verify stored data for a specific result (non-interactive)
 cd script && cargo run --release -- --verify --result 15
 
 # Generate EVM-compatible Groth16 proof (requires 16GB+ RAM)
@@ -46,6 +52,20 @@ cd contracts && forge test
 cd contracts && forge build
 ```
 
+### Database Testing
+```bash
+# Run database tests (requires PostgreSQL)
+cd db && cargo test
+
+# Run database tests with output
+cd db && cargo test -- --nocapture
+
+# Run specific database test categories
+cd db && cargo test db_tests
+cd db && cargo test error_handling_tests
+cd db && cargo test performance_tests
+```
+
 ### Workspace Commands
 ```bash
 # Build entire workspace
@@ -53,6 +73,10 @@ cargo build --release
 
 # Run tests across workspace
 cargo test
+
+# Run tests for specific components
+cargo test -p arithmetic-db
+cargo test -p arithmetic-lib
 ```
 
 ## Architecture
@@ -75,6 +99,22 @@ cargo test
 5. The script can verify previously computed results by querying PostgreSQL
 6. The script generates proofs that can be verified on-chain via the Solidity contract
 
+### Interactive CLI Features
+
+**Execute Mode**: The `--execute` command now runs interactively by default:
+- Prompts users to enter values for 'a' and 'b'
+- Computes the arithmetic operation in the zkVM
+- Stores results automatically in PostgreSQL
+- Continues in a loop until user presses 'q' to quit
+- Shows real-time feedback on computation and database storage
+
+**Verify Mode**: The `--verify` command supports interactive verification:
+- When run without `--result`, starts interactive mode
+- Prompts users to enter result values to look up
+- Shows the original 'a' and 'b' values that produced each result  
+- Continues in a loop until user presses 'q' to quit
+- Supports legacy mode with `--result` flag for specific lookups
+
 ### Key Files
 
 - `program/src/main.rs:14`: Main zkVM entry point with input/output handling
@@ -84,11 +124,41 @@ cargo test
 
 ## Environment Configuration
 
-Set up environment variables:
+### Database Setup (Docker - Recommended)
+
+For easy testing and development, use Docker Compose to run PostgreSQL:
+
 ```bash
+# Start PostgreSQL container
+docker-compose up -d
+
+# Set up environment variables
 cp .env.example .env
-# Set DATABASE_URL for PostgreSQL connection
+# DATABASE_URL is already configured for Docker setup
+
+# Run database tests
+cd db && cargo test
+```
+
+### Manual Database Setup
+
+Alternatively, install and configure PostgreSQL manually:
+
+```bash
+# Set up environment variables
+cp .env.example .env
+# Edit .env and set DATABASE_URL for your PostgreSQL connection
 # Set SP1_PROVER=network and NETWORK_PRIVATE_KEY for prover network usage
+```
+
+### Stopping the Database
+
+```bash
+# Stop the PostgreSQL container
+docker-compose down
+
+# Stop and remove data (clean slate)
+docker-compose down -v
 ```
 
 ## PostgreSQL Integration
@@ -134,9 +204,35 @@ CREATE TABLE arithmetic_transactions (
 
 ## Testing
 
-The project includes comprehensive tests:
+The project includes comprehensive testing across all components:
+
+### Smart Contract Tests
 - Foundry tests for smart contracts (`contracts/test/`)
 - Proof fixtures for both Groth16 and PLONK verification systems
-- Execution validation in the main script
+- Mock verification for faster execution using fixtures from `contracts/src/fixtures/`
 
-Tests use mock verification for faster execution and load proof fixtures from `contracts/src/fixtures/`.
+### Database Tests
+- **Unit Tests**: Core database operations (init, store, retrieve)
+- **Integration Tests**: Full workflow testing with real PostgreSQL
+- **Error Handling**: Invalid URLs, connection failures, closed pools
+- **Performance Tests**: Bulk operations and concurrent access
+- **Edge Cases**: Boundary values, negative numbers, zero handling
+- **Stress Tests**: 1000+ operations to validate reliability
+
+### Test Prerequisites
+- **PostgreSQL**: Database tests require a running PostgreSQL instance
+- **Environment**: Set `DATABASE_URL` environment variable for database tests
+- **Isolation**: Tests automatically create/destroy isolated test databases
+
+### Running All Tests
+```bash
+# Run all tests (requires PostgreSQL for database tests)
+cargo test
+
+# Run tests excluding database tests
+cargo test -p arithmetic-lib
+cargo test -p arithmetic-program
+
+# Run only database tests
+cargo test -p arithmetic-db
+```
