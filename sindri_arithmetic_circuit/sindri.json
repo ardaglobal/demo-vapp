@@ -1,0 +1,7 @@
+{
+  "circuitType": "sp1",
+  "elfPath": "arithmetic-program",
+  "name": "demo-vapp",
+  "provingScheme": "core",
+  "sp1Version": "5.0.0"
+}
