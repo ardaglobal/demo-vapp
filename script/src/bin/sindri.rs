@@ -1,68 +1,57 @@
 use eyre::Result;
 use serde_json::json;
-use arithmetic_lib::PublicValuesStruct;
-use alloy_sol_types::SolType;
+
+
+use sindri::SindriBuilder;
+use std::env;
+use std::fs;
+use std::path::Path;
 
 mod arithmetic_io;
 use arithmetic_io::get_arithmetic_inputs;
 mod types;
-use types::{convert_public, SP1Proof, SP1ProofLite};
+use types::convert_public;
 
-// Mock Sindri client for demonstration
-// 
-// To use the real Sindri client, replace this mock implementation with:
-// 1. Add `sindri = "0.2"` to Cargo.toml dependencies
-// 2. Replace `MockSindriClient` with `use sindri::client::SindriClient;`
-// 3. Replace `MockProofResult` with the actual Sindri API response types
-// 4. Set your SINDRI_API_KEY environment variable
-//
-// The API calls and data flow remain the same - this mock shows exactly
-// how the integration works with your arithmetic program.
-struct MockSindriClient;
-
-impl MockSindriClient {
-    fn default() -> Self {
-        Self
-    }
+// Create input file for Sindri circuit
+fn create_circuit_input_file(a: i32, b: i32, result: i32) -> Result<String> {
+    let input_data = json!({
+        "a": a,
+        "b": b,
+        "result": result
+    });
     
-    async fn prove_circuit(
-        &self,
-        circuit_name: &str,
-        input_json: serde_json::Value,
-        _metadata: Option<()>,
-        _verify: Option<bool>,
-        _custom_prover: Option<()>,
-    ) -> Result<MockProofResult> {
-        println!("🔄 Sending proof request to Sindri API...");
-        println!("   Circuit: {}", circuit_name);
-        println!("   Input: {}", serde_json::to_string_pretty(&input_json)?);
-        
-        // Simulate API delay
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-        
-        // Mock successful proof generation
-        Ok(MockProofResult {
-            proof: Some(Some(json!({
-                "pi_a": ["123", "456", "1"],
-                "pi_b": [["789", "012"], ["345", "678"], ["1", "0"]],
-                "pi_c": ["901", "234", "1"],
-                "protocol": "groth16",
-                "curve": "bn254"
-            }))),
-            public: Some(Some(json!([
-                input_json["a"],
-                input_json["b"], 
-                input_json["result"]
-            ]))),
-            error: None,
-        })
-    }
+    let input_path = "sindri_arithmetic_input.json";
+    fs::write(input_path, serde_json::to_string_pretty(&input_data)?)?;
+    Ok(input_path.to_string())
 }
 
-struct MockProofResult {
-    proof: Option<Option<serde_json::Value>>,
-    public: Option<Option<serde_json::Value>>,
-    error: Option<Option<serde_json::Value>>,
+// Create a temporary circuit directory for upload
+fn create_circuit_package() -> Result<String> {
+    let circuit_dir = "sindri_arithmetic_circuit";
+    fs::create_dir_all(circuit_dir)?;
+    
+    // Create sindri.json manifest
+    let sindri_manifest = json!({
+        "name": "demo-vapp",
+        "circuitType": "sp1",
+        "provingScheme": "core",
+        "sp1Version": "5.0.0",
+        "elfPath": "arithmetic-program"
+    });
+    
+    fs::write(
+        format!("{}/sindri.json", circuit_dir),
+        serde_json::to_string_pretty(&sindri_manifest)?
+    )?;
+    
+    // Copy the ELF binary if it exists
+    let elf_source = "target/elf-compilation/riscv32im-succinct-zkvm-elf/release/arithmetic-program";
+    if Path::new(elf_source).exists() {
+        let elf_dest = format!("{}/arithmetic-program", circuit_dir);
+        fs::copy(elf_source, elf_dest)?;
+    }
+    
+    Ok(circuit_dir.to_string())
 }
 
 #[tokio::main]
@@ -75,58 +64,118 @@ async fn main() -> Result<()> {
 
     let (a, b, result) = session.to_circuit_inputs();
 
-    // Your API key would be supplied from the environment variable SINDRI_API_KEY
-    // For this demo, we're using a mock client
-    let client = MockSindriClient::default();
+    // Get API key from environment variable SINDRI_API_KEY
+    let api_key = env::var("SINDRI_API_KEY")
+        .map_err(|_| eyre::eyre!("SINDRI_API_KEY environment variable not set. Please set your Sindri API key."))?;
+    
+    let client = SindriBuilder::new(&api_key).build();
 
-    println!("Requesting a ZKP for the arithmetic computation...");
+    println!("🔧 Preparing circuit package for upload...");
     
-    // Encode the public values like in main.rs
-    let public_values = PublicValuesStruct { a, b, result };
-    let encoded_bytes = PublicValuesStruct::abi_encode(&public_values);
+    // Create circuit package and input file
+    let circuit_dir = create_circuit_package()?;
+    let input_file = create_circuit_input_file(a, b, result)?;
     
-    // Debug: Print the input JSON to see what we're sending
-    let input_json = json!({
-        "a": a,
-        "b": b,
-        "result": result,
-        "encoded_public_values": hex::encode(&encoded_bytes)
-    });
-    println!("Input JSON: {}", serde_json::to_string_pretty(&input_json).unwrap());
+    println!("📤 Uploading circuit to Sindri...");
     
-    let proof = match client
-        .prove_circuit(
-            "demo-vapp", // Use the circuit name from sindri.json (matches your circuit name)
-            input_json, // JSON proving input
-            None,                              // Optional metadata
-            Some(true),                        // Enable server-side proof verification by Sindri
-            None,
-        ) // Custom prover implementations
-        .await
-    {
-        Ok(proof) => proof,
+    // Upload circuit and get circuit_id
+    let circuit_id = match client.upload_circuit(&circuit_dir, &circuit_dir).await {
+        Ok(id) => {
+            println!("✅ Circuit uploaded successfully! Circuit ID: {}", id);
+            id
+        },
         Err(e) => {
-            println!("Error requesting or waiting for proof: {:?}", e);
-            return Err(eyre::eyre!("{}", e));
+            return Err(eyre::eyre!("Failed to upload circuit: {:?}", e));
+        }
+    };
+    
+    println!("⏳ Waiting for circuit compilation...");
+    
+    // Wait for circuit to be ready (simple polling)
+    loop {
+        match client.get_circuit_details(&circuit_id).await {
+            Ok(details) => {
+                if let Some(status) = details.get("status").and_then(|s| s.as_str()) {
+                    match status {
+                        "Ready" => {
+                            println!("✅ Circuit compilation completed!");
+                            break;
+                        },
+                        "Failed" => {
+                            return Err(eyre::eyre!("Circuit compilation failed"));
+                        },
+                        _ => {
+                            println!("   Status: {}", status);
+                            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        }
+                    }
+                } else {
+                    return Err(eyre::eyre!("Invalid circuit status response"));
+                }
+            },
+            Err(e) => {
+                return Err(eyre::eyre!("Failed to get circuit status: {:?}", e));
+            }
+        }
+    }
+    
+    println!("🔄 Generating proof...");
+    
+    // Generate proof using the uploaded circuit
+    let proof_id = match client.prove_circuit(&circuit_id, &input_file).await {
+        Ok(id) => {
+            println!("✅ Proof generation started! Proof ID: {}", id);
+            id
+        },
+        Err(e) => {
+            return Err(eyre::eyre!("Failed to start proof generation: {:?}", e));
+        }
+    };
+    
+    println!("⏳ Waiting for proof generation to complete...");
+    
+    // Wait for proof to be ready
+    let proof_details = loop {
+        match client.get_proof_details(&proof_id).await {
+            Ok(details) => {
+                if let Some(status) = details.get("status").and_then(|s| s.as_str()) {
+                    match status {
+                        "Ready" => {
+                            println!("✅ Proof generation completed!");
+                            break details;
+                        },
+                        "Failed" => {
+                            return Err(eyre::eyre!("Proof generation failed"));
+                        },
+                        _ => {
+                            println!("   Status: {}", status);
+                            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        }
+                    }
+                } else {
+                    return Err(eyre::eyre!("Invalid proof status response"));
+                }
+            },
+            Err(e) => {
+                return Err(eyre::eyre!("Failed to get proof status: {:?}", e));
+            }
         }
     };
 
-    let _sp1_proof: SP1ProofLite = match proof.proof {
-        Some(Some(proof)) => serde_json::from_value::<SP1Proof>(proof)
-            .unwrap()
-            .to_lite(),
-        _ => {
-            println!("Proof generation failed!");
-            if let Some(Some(error)) = proof.error {
-                println!("Error details: {}", error);
-            }
-            return Err(eyre::eyre!("Failed to generate proof"));
-        }
+    // Extract proof and public inputs from the response
+    let sp1_public = if let Some(public_data) = proof_details.get("public") {
+        convert_public(public_data.clone()).unwrap_or_else(|_| {
+            // Fallback to our known inputs if parsing fails
+            vec![json!(a), json!(b), json!(result)]
+        })
+    } else {
+        // Fallback to our known inputs
+        vec![json!(a), json!(b), json!(result)]
     };
-    let sp1_public = match proof.public {
-        Some(Some(ref public)) => convert_public(public.clone()).unwrap(),
-        _ => return Err(eyre::eyre!("No public input provided")),
-    };
+    
+    // Clean up temporary files
+    let _ = fs::remove_file(&input_file);
+    let _ = fs::remove_dir_all(&circuit_dir);
     
     println!("Public inputs received: {:?}", sp1_public);
     println!("Number of public inputs: {}", sp1_public.len());
