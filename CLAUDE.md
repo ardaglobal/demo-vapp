@@ -18,13 +18,19 @@ This is an SP1 (Succinct Proof) project that demonstrates zero-knowledge proof g
 # First-time setup: compile the program to RISC-V
 cd program && cargo prove build
 
-# Execute program without generating proof (stores result in PostgreSQL)
+# Execute program interactively without generating proof (stores results in PostgreSQL)
+cd script && cargo run --release -- --execute
+
+# Execute program non-interactively (legacy mode)
 cd script && cargo run --release -- --execute --a 5 --b 10
 
 # Generate SP1 core proof
 cd script && cargo run --release -- --prove --a 5 --b 10
 
-# Verify stored data in PostgreSQL for a specific result
+# Verify stored data interactively in PostgreSQL 
+cd script && cargo run --release -- --verify
+
+# Verify stored data for a specific result (non-interactive)
 cd script && cargo run --release -- --verify --result 15
 
 # Generate EVM-compatible Groth16 proof (requires 16GB+ RAM)
@@ -92,6 +98,22 @@ cargo test -p arithmetic-lib
 4. When executing (not proving), computed results are stored in PostgreSQL as transactions with a, b, and result values
 5. The script can verify previously computed results by querying PostgreSQL
 6. The script generates proofs that can be verified on-chain via the Solidity contract
+
+### Interactive CLI Features
+
+**Execute Mode**: The `--execute` command now runs interactively by default:
+- Prompts users to enter values for 'a' and 'b'
+- Computes the arithmetic operation in the zkVM
+- Stores results automatically in PostgreSQL
+- Continues in a loop until user presses 'q' to quit
+- Shows real-time feedback on computation and database storage
+
+**Verify Mode**: The `--verify` command supports interactive verification:
+- When run without `--result`, starts interactive mode
+- Prompts users to enter result values to look up
+- Shows the original 'a' and 'b' values that produced each result  
+- Continues in a loop until user presses 'q' to quit
+- Supports legacy mode with `--result` flag for specific lookups
 
 ### Key Files
 
