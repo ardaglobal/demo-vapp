@@ -111,10 +111,10 @@ impl MerkleTree32 {
             let mut hasher = Sha256::new();
             hasher.update(&zero_hashes[level - 1]);
             hasher.update(&zero_hashes[level - 1]);
-            let level_hash: [u8; 32] = hasher.finalize().into();
-            zero_hashes.push(level_hash);
+            let current_level_hash: [u8; 32] = hasher.finalize().into();
+            zero_hashes.push(current_level_hash);
 
-            debug!("Level {} zero hash: {:02x?}", level, &level_hash[..8]);
+            debug!("Level {} zero hash: {:02x?}", level, &current_level_hash[..8]);
         }
 
         info!("✅ Zero hash precomputation complete");

@@ -643,7 +643,7 @@ async fn check_membership(
                         .merkle_proof
                         .siblings
                         .iter()
-                        .map(|s| hex::encode(s))
+                        .map(hex::encode)
                         .collect(),
                     path_indices: proof.merkle_proof.path_indices.clone(),
                     proof_size_bytes: 32 * 32, // 32 siblings * 32 bytes
@@ -709,7 +709,7 @@ async fn prove_non_membership(
                             .merkle_proof
                             .siblings
                             .iter()
-                            .map(|s| hex::encode(s))
+                            .map(hex::encode)
                             .collect(),
                         path_indices: non_membership_proof
                             .low_nullifier

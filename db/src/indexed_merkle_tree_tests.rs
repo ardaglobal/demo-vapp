@@ -72,7 +72,7 @@ mod tests {
         info!("🧪 Testing sequential insertions with 7-step algorithm");
 
         let mut tree = IndexedMerkleTree::new(pool);
-        let values = vec![50, 100, 150, 200, 250];
+        let values = [50, 100, 150, 200, 250];
         let mut previous_root = [0u8; 32];
 
         for (i, &value) in values.iter().enumerate() {
@@ -144,7 +144,7 @@ mod tests {
         let mut tree = IndexedMerkleTree::new(pool);
 
         // Insert in non-sequential order to test range finding logic
-        let insertion_order = vec![
+        let insertion_order = [
             (500, "middle value"),
             (100, "smaller value - should find correct position"),
             (800, "larger value - should find correct position"),
@@ -260,7 +260,7 @@ mod tests {
             let result = tree
                 .insert_nullifier(value)
                 .await
-                .expect(&format!("Insertion {} should succeed", i));
+                .unwrap_or_else(|_| panic!("Insertion {} should succeed", i));
 
             let metrics = &result.operations_count;
             total_constraints += metrics.constraints_count;
@@ -373,7 +373,6 @@ mod tests {
 
         // Test individual Merkle proof verification
         let last_result = results.last().unwrap();
-        let low_proof = &last_result.insertion_proof.low_nullifier_proof;
 
         // Note: verify_merkle_proof is private, so we test through the public verify_insertion_proof
         assert!(
@@ -402,7 +401,7 @@ mod tests {
             let result = tree
                 .insert_nullifier(value)
                 .await
-                .expect(&format!("Batch insertion {} should succeed", i));
+                .unwrap_or_else(|_| panic!("Batch insertion {} should succeed", i));
 
             total_db_rounds += result.operations_count.database_rounds;
             total_constraints += result.operations_count.constraints_count;
@@ -445,7 +444,7 @@ mod tests {
 
         // Verify final tree integrity
         let stats = tree.db.state.get_stats().await.expect("Should get stats");
-        assert_eq!(stats.total_nullifiers, batch_size as i64);
+        assert_eq!(stats.total_nullifiers, batch_size);
         assert!(
             stats.chain_valid,
             "Chain should remain valid after batch operations"

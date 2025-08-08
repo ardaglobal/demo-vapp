@@ -15,7 +15,7 @@ mod tests {
         (merkle_db, test_db)
     }
 
-    async fn teardown_merkle_tree_db(test_db: TestDatabase) {
+    fn teardown_merkle_tree_db(test_db: TestDatabase) {
         // TestDatabase automatically cleans up on drop
         drop(test_db);
     }
@@ -53,7 +53,7 @@ mod tests {
         let chain_valid = merkle_db.nullifiers.validate_chain().await.unwrap();
         assert!(chain_valid, "Chain validation failed");
 
-        teardown_merkle_tree_db(test_db).await;
+        teardown_merkle_tree_db(test_db);
     }
 
     #[tokio::test]
@@ -101,7 +101,7 @@ mod tests {
             prev_value = nullifier.value;
         }
 
-        teardown_merkle_tree_db(test_db).await;
+        teardown_merkle_tree_db(test_db);
     }
 
     #[tokio::test]
@@ -135,7 +135,7 @@ mod tests {
         assert_eq!(low_null.value, 50);
         assert_eq!(low_null.next_value, 0); // Maximum value
 
-        teardown_merkle_tree_db(test_db).await;
+        teardown_merkle_tree_db(test_db);
     }
 
     #[tokio::test]
@@ -162,7 +162,7 @@ mod tests {
             "Should not have non-membership proof for existing value"
         );
 
-        teardown_merkle_tree_db(test_db).await;
+        teardown_merkle_tree_db(test_db);
     }
 
     #[tokio::test]
@@ -184,7 +184,7 @@ mod tests {
             panic!("Expected NullifierExists error, got: {:?}", result2);
         }
 
-        teardown_merkle_tree_db(test_db).await;
+        teardown_merkle_tree_db(test_db);
     }
 
     #[tokio::test]
@@ -217,7 +217,7 @@ mod tests {
         let retrieved = merkle_db.nodes.get_node(1, 0).await.unwrap().unwrap();
         assert_eq!(retrieved.hash_value, new_hash);
 
-        teardown_merkle_tree_db(test_db).await;
+        teardown_merkle_tree_db(test_db);
     }
 
     #[tokio::test]
@@ -236,7 +236,7 @@ mod tests {
             panic!("Expected InvalidHashLength error, got: {:?}", result);
         }
 
-        teardown_merkle_tree_db(test_db).await;
+        teardown_merkle_tree_db(test_db);
     }
 
     #[tokio::test]
@@ -269,7 +269,7 @@ mod tests {
         assert_eq!(tree_stats.total_nullifiers, 1);
         assert_eq!(tree_stats.tree_height, 32);
 
-        teardown_merkle_tree_db(test_db).await;
+        teardown_merkle_tree_db(test_db);
     }
 
     #[tokio::test]
@@ -321,7 +321,7 @@ mod tests {
         assert_eq!(stats.total_nullifiers, 100);
         assert!(stats.chain_valid);
 
-        teardown_merkle_tree_db(test_db).await;
+        teardown_merkle_tree_db(test_db);
     }
 
     #[tokio::test]
@@ -376,7 +376,7 @@ mod tests {
             "No successful concurrent insertions"
         );
 
-        teardown_merkle_tree_db(test_db).await;
+        teardown_merkle_tree_db(test_db);
     }
 
     #[tokio::test]
@@ -405,7 +405,7 @@ mod tests {
         let chain_valid = merkle_db.nullifiers.validate_chain().await.unwrap();
         assert!(chain_valid, "Chain validation failed for edge cases");
 
-        teardown_merkle_tree_db(test_db).await;
+        teardown_merkle_tree_db(test_db);
     }
 
     #[tokio::test]
@@ -435,6 +435,6 @@ mod tests {
             "Should not deactivate already inactive nullifier"
         );
 
-        teardown_merkle_tree_db(test_db).await;
+        teardown_merkle_tree_db(test_db);
     }
 }

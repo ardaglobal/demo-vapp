@@ -160,15 +160,15 @@ fn extract_client_id(request: &Request<Body>) -> String {
     // Try API key first
     if let Some(api_key) = request.headers().get("x-api-key") {
         if let Ok(key_str) = api_key.to_str() {
-            return format!("api_key:{}", key_str);
+            return format!("api_key:{key_str}");
         }
     }
 
     // Try authorization header
     if let Some(auth) = request.headers().get("authorization") {
         if let Ok(auth_str) = auth.to_str() {
-            if auth_str.starts_with("Bearer ") {
-                return format!("bearer:{}", &auth_str[7..]);
+            if let Some(token) = auth_str.strip_prefix("Bearer ") {
+                return format!("bearer:{token}");
             }
         }
     }
@@ -179,7 +179,7 @@ fn extract_client_id(request: &Request<Body>) -> String {
         .get("x-forwarded-for")
         .or_else(|| request.headers().get("x-real-ip"))
         .and_then(|ip| ip.to_str().ok())
-        .map(|ip| format!("ip:{}", ip))
+        .map(|ip| format!("ip:{ip}"))
         .unwrap_or_else(|| "unknown".to_string())
 }
 
@@ -271,7 +271,7 @@ pub async fn validation_middleware(
                 if !config.allowed_content_types.contains(&ct_base.to_string()) {
                     return validation_error(
                         "INVALID_CONTENT_TYPE",
-                        &format!("Content-Type '{}' not allowed", ct_base),
+                        &format!("Content-Type '{ct_base}' not allowed"),
                         Some(&format!(
                             "Allowed types: {}",
                             config.allowed_content_types.join(", ")
@@ -293,7 +293,7 @@ pub async fn validation_middleware(
         if request.headers().get(required_header).is_none() {
             return validation_error(
                 "MISSING_REQUIRED_HEADER",
-                &format!("Required header '{}' is missing", required_header),
+                &format!("Required header '{required_header}' is missing"),
                 None,
             );
         }
@@ -312,6 +312,7 @@ pub async fn validation_middleware(
     next.run(request).await
 }
 
+#[allow(clippy::result_large_err)]
 fn validate_path_parameters(
     request: &Request<Body>,
     config: &ValidationConfig,
@@ -329,7 +330,7 @@ fn validate_path_parameters(
                     if value < config.min_nullifier_value || value > config.max_nullifier_value {
                         return Err(validation_error(
                             "INVALID_NULLIFIER_VALUE",
-                            &format!("Nullifier value {} is out of range", value),
+                            &format!("Nullifier value {value} is out of range"),
                             Some(&format!(
                                 "Range: {} to {}",
                                 config.min_nullifier_value, config.max_nullifier_value
@@ -430,9 +431,8 @@ pub async fn auth_middleware(
     // Check for Bearer token authentication (JWT)
     if let Some(auth_header) = request.headers().get("authorization") {
         if let Ok(auth_str) = auth_header.to_str() {
-            if auth_str.starts_with("Bearer ") {
-                let token = &auth_str[7..];
-                if let Some(jwt_secret) = &config.jwt_secret {
+            if let Some(token) = auth_str.strip_prefix("Bearer ") {
+                if let Some(_jwt_secret) = &config.jwt_secret {
                     if validate_jwt_token(token) {
                         debug!("JWT authentication successful");
                         return next.run(request).await;
@@ -489,12 +489,12 @@ pub async fn logging_middleware(mut request: Request<Body>, next: Next) -> Respo
 
     let method = request.method().clone();
     let path = request.uri().path().to_string();
-    let query_string = request.uri().query().map(|s| s.to_string());
+    let query_string = request.uri().query().map(std::string::ToString::to_string);
     let user_agent = request
         .headers()
         .get("user-agent")
         .and_then(|h| h.to_str().ok())
-        .map(|s| s.to_string());
+        .map(std::string::ToString::to_string);
     let client_ip = extract_client_ip(&request);
 
     // Add request ID to headers for downstream use
@@ -508,7 +508,7 @@ pub async fn logging_middleware(mut request: Request<Body>, next: Next) -> Respo
     let response = next.run(request).await;
 
     let end_time = Utc::now();
-    let duration_ms = start_instant.elapsed().as_millis() as u64;
+    let duration_ms = u64::try_from(start_instant.elapsed().as_millis()).unwrap_or(u64::MAX);
     let status_code = response.status().as_u16();
 
     let log = RequestLog {
@@ -524,7 +524,7 @@ pub async fn logging_middleware(mut request: Request<Body>, next: Next) -> Respo
         status_code,
         response_size: None, // Would extract from response body if needed
         error: if status_code >= 400 {
-            Some(format!("HTTP {}", status_code))
+            Some(format!("HTTP {status_code}"))
         } else {
             None
         },
@@ -603,7 +603,14 @@ pub struct MiddlewareBuilder {
     pub enable_metrics: bool,
 }
 
+impl Default for MiddlewareBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MiddlewareBuilder {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             rate_limiter: None,
@@ -633,7 +640,7 @@ impl MiddlewareBuilder {
     }
 
     #[must_use]
-    pub fn enable_logging(mut self, enabled: bool) -> Self {
+    pub const fn enable_logging(mut self, enabled: bool) -> Self {
         self.enable_logging = enabled;
         self
     }

@@ -61,9 +61,10 @@ pub type DbResult<T> = Result<T, DbError>;
 
 impl DbError {
     /// Check if the error is recoverable (can retry the operation)
-    pub fn is_recoverable(&self) -> bool {
+    #[must_use]
+    pub const fn is_recoverable(&self) -> bool {
         match self {
-            DbError::Database(sqlx_error) => {
+            Self::Database(sqlx_error) => {
                 matches!(
                     sqlx_error,
                     sqlx::Error::Io(_) | 
@@ -71,40 +72,40 @@ impl DbError {
                     sqlx::Error::PoolClosed
                 )
             }
-            DbError::PoolError(_) => true,
-            DbError::TransactionFailed(_) => true,
+            Self::PoolError(_) | Self::TransactionFailed(_) => true,
             _ => false,
         }
     }
 
     /// Check if the error indicates a constraint violation
+    #[must_use]
     pub fn is_constraint_violation(&self) -> bool {
         match self {
-            DbError::Database(sqlx::Error::Database(db_err)) => {
+            Self::Database(sqlx::Error::Database(db_err)) => {
                 db_err.constraint().is_some()
             }
-            DbError::NullifierExists(_) => true,
-            DbError::ChainValidationFailed => true,
+            Self::NullifierExists(_) | Self::ChainValidationFailed => true,
             _ => false,
         }
     }
 
     /// Get error code for logging and monitoring
-    pub fn error_code(&self) -> &'static str {
+    #[must_use]
+    pub const fn error_code(&self) -> &'static str {
         match self {
-            DbError::Database(_) => "DB_ERROR",
-            DbError::NullifierExists(_) => "NULLIFIER_EXISTS",
-            DbError::InsertionFailed(_) => "INSERTION_FAILED",
-            DbError::NotFound(_) => "NOT_FOUND",
-            DbError::InvalidHashLength(_) => "INVALID_HASH_LENGTH",
-            DbError::ChainValidationFailed => "CHAIN_VALIDATION_FAILED",
-            DbError::InvalidTreeParameter(_) => "INVALID_TREE_PARAMETER",
-            DbError::TreeFull => "TREE_FULL",
-            DbError::InvalidNullifierValue(_) => "INVALID_NULLIFIER_VALUE",
-            DbError::TransactionFailed(_) => "TRANSACTION_FAILED",
-            DbError::PoolError(_) => "POOL_ERROR",
-            DbError::MigrationError(_) => "MIGRATION_ERROR",
-            DbError::ConfigError(_) => "CONFIG_ERROR",
+            Self::Database(_) => "DB_ERROR",
+            Self::NullifierExists(_) => "NULLIFIER_EXISTS",
+            Self::InsertionFailed(_) => "INSERTION_FAILED",
+            Self::NotFound(_) => "NOT_FOUND",
+            Self::InvalidHashLength(_) => "INVALID_HASH_LENGTH",
+            Self::ChainValidationFailed => "CHAIN_VALIDATION_FAILED",
+            Self::InvalidTreeParameter(_) => "INVALID_TREE_PARAMETER",
+            Self::TreeFull => "TREE_FULL",
+            Self::InvalidNullifierValue(_) => "INVALID_NULLIFIER_VALUE",
+            Self::TransactionFailed(_) => "TRANSACTION_FAILED",
+            Self::PoolError(_) => "POOL_ERROR",
+            Self::MigrationError(_) => "MIGRATION_ERROR",
+            Self::ConfigError(_) => "CONFIG_ERROR",
         }
     }
 }
@@ -112,7 +113,7 @@ impl DbError {
 /// Convert database URL parse errors to DbError
 impl From<url::ParseError> for DbError {
     fn from(err: url::ParseError) -> Self {
-        DbError::ConfigError(format!("Invalid database URL: {}", err))
+Self::ConfigError(format!("Invalid database URL: {err}"))
     }
 }
 

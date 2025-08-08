@@ -30,6 +30,7 @@ use crate::vapp_integration::VAppAdsIntegration;
 // ============================================================================
 
 /// Configuration for the combined API server
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone)]
 pub struct ApiServerConfig {
     /// Base API configuration
@@ -116,7 +117,7 @@ impl ApiServer {
 
     /// Build the complete router with all endpoints
     #[instrument(skip(self), level = "info")]
-    #[must_use]
+    #[allow(clippy::cognitive_complexity)]
     pub fn create_router(&self) -> Router<ApiState> {
         info!("🔧 Building API router");
 
