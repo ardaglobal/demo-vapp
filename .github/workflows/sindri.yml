@@ -1,25 +1,99 @@
+name: Sindri Zero-Knowledge Circuit CI
+
 on:
-    push:
-      branches: [main]
-    pull_request:
-  
-  jobs:
-    lint-compile-prove:
-      runs-on: ubuntu-latest
-      steps:
-        - name: Checkout Code
-          uses: actions/checkout@v4
-  
-        - name: Setup Node.js
-          id: setup-node
-          uses: actions/setup-node@v4
-          with:
-            node-version: 20
-  
-        - name: Install Sindri CLI Tool
-          run: |
-            npm install -g sindri@latest
-  
-        - name: Lint Circuit
-          run: |
-            sindri lint
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint-compile-prove:
+    runs-on: ubuntu-latest
+    env:
+      SINDRI_API_KEY: ${{ secrets.SINDRI_API_KEY }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        id: setup-node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Sindri CLI Tool
+        run: |
+          npm install -g sindri@latest
+
+      - name: Lint Circuit
+        run: |
+          sindri lint
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly-2024-04-18
+
+      - name: Install SP1 Toolchain
+        run: |
+          curl -L https://sp1.succinct.xyz | bash
+          ~/.sp1/bin/sp1up
+          echo "$HOME/.sp1/bin" >> $GITHUB_PATH
+
+      - name: Build SP1 Program
+        run: |
+          cd program
+          cargo prove build --output-directory ../build
+
+      - name: Get Branch Name
+        id: branch-name
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "branch=${{ github.head_ref }}" >> $GITHUB_OUTPUT
+            echo "tag=pr-${{ github.event.number }}-${{ github.head_ref }}" >> $GITHUB_OUTPUT
+          else
+            branch=${GITHUB_REF#refs/heads/}
+            echo "branch=$branch" >> $GITHUB_OUTPUT
+            echo "tag=$branch-$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy Circuit to Sindri
+        run: |
+          sindri deploy --tag "${{ steps.branch-name.outputs.tag }}"
+
+      - name: Build Rust Application
+        run: |
+          cd script
+          cargo build --release
+
+      - name: Test Zero-Knowledge Proof Generation
+        id: prove
+        run: |
+          cd script
+          # Generate proof with test values (no database required)
+          output=$(cargo run --release -- --prove --a 7 --b 13)
+          echo "$output"
+          
+          # Extract proof ID from output
+          proof_id=$(echo "$output" | grep "PROOF ID FOR EXTERNAL VERIFICATION:" -A 1 | tail -1 | xargs)
+          echo "proof_id=$proof_id" >> $GITHUB_OUTPUT
+          echo "Generated proof ID: $proof_id"
+
+      - name: Test External Verification
+        run: |
+          cd script
+          # Verify proof using external verification (no database required)
+          cargo run --release -- --verify --proof-id "${{ steps.prove.outputs.proof_id }}" --result 20
+
+      - name: Display Results
+        run: |
+          echo "🎉 Zero-Knowledge Proof Pipeline Complete!"
+          echo "📋 Branch: ${{ steps.branch-name.outputs.branch }}"
+          echo "🏷️  Tag: ${{ steps.branch-name.outputs.tag }}"
+          echo "🔗 Proof ID: ${{ steps.prove.outputs.proof_id }}"
+          echo "✅ Proof Generated: 7 + 13 = 20 (inputs remain private)"
+          echo "✅ Cryptographic Verification: PASSED"
+          echo ""
+          echo "This demonstrates a complete zero-knowledge proof workflow:"
+          echo "- Private inputs (7, 13) are never revealed"
+          echo "- Public output (20) is verified cryptographically" 
+          echo "- External users can verify without database access"

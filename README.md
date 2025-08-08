@@ -210,6 +210,22 @@ This project integrates with [Sindri](https://sindri.app) for serverless zero-kn
    export SINDRI_API_KEY=your_api_key_here
    ```
 
+### Continuous Integration
+
+The project includes a comprehensive GitHub Actions workflow (`.github/workflows/sindri.yml`) that:
+
+1. **Lints** the circuit using Sindri CLI
+2. **Builds** the SP1 program with the current branch/PR
+3. **Deploys** the circuit to Sindri with a unique tag
+4. **Generates** a zero-knowledge proof (7 + 13 = 20)
+5. **Verifies** the proof using external verification (no database required)
+
+**Branch Tagging Strategy:**
+- **Main branch**: `main-<commit-sha>`
+- **Pull requests**: `pr-<number>-<branch-name>`
+
+This ensures each deployment is uniquely tagged and traceable to the source code.
+
 ### What This Proves
 
 The zero-knowledge proofs demonstrate that:
