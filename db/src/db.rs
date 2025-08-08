@@ -17,6 +17,14 @@ pub struct ArithmeticTransaction {
     pub result: i32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SindriProofRecord {
+    pub result: i32,
+    pub proof_id: String,
+    pub circuit_id: Option<String>,
+    pub status: Option<String>,
+}
+
 /// Initialize the database connection
 ///
 /// # Errors
@@ -143,4 +151,60 @@ pub async fn get_value_by_result(
             Ok(Some((a, b)))
         },
     )
+}
+
+/// Store or update a Sindri proof record by result
+///
+/// # Errors
+/// Returns error if database operation fails
+pub async fn upsert_sindri_proof(
+    pool: &PgPool,
+    result: i32,
+    proof_id: &str,
+    circuit_id: Option<String>,
+    status: Option<String>,
+) -> Result<(), sqlx::Error> {
+    debug!("Upserting Sindri proof: result={result}, proof_id={proof_id}");
+
+    sqlx::query(
+        r"
+        INSERT INTO sindri_proofs (result, proof_id, circuit_id, status)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (result)
+        DO UPDATE SET proof_id = EXCLUDED.proof_id,
+                      circuit_id = EXCLUDED.circuit_id,
+                      status = EXCLUDED.status
+        ",
+    )
+    .bind(result)
+    .bind(proof_id)
+    .bind(circuit_id.as_deref())
+    .bind(status.as_deref())
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+/// Fetch a Sindri proof record by result
+///
+/// # Errors
+/// Returns error if database operation fails
+pub async fn get_sindri_proof_by_result(
+    pool: &PgPool,
+    result: i32,
+) -> Result<Option<SindriProofRecord>, sqlx::Error> {
+    let row = sqlx::query(
+        r"SELECT result, proof_id, circuit_id, status FROM sindri_proofs WHERE result = $1 LIMIT 1",
+    )
+    .bind(result)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(row.map(|row| SindriProofRecord {
+        result: row.get("result"),
+        proof_id: row.get("proof_id"),
+        circuit_id: row.get::<Option<String>, _>("circuit_id"),
+        status: row.get::<Option<String>, _>("status"),
+    }))
 }

@@ -1,0 +1,8 @@
+{
+    "$schema": "https://sindri.app/api/v1/sindri-manifest-schema.json",
+    "name": "demo-vapp",
+    "circuitType": "sp1",
+    "provingScheme": "core",
+    "sp1Version": "5.0.0",
+    "elfPath": "build/arithmetic-program"
+}

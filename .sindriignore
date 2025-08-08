@@ -21,5 +21,5 @@ pgo-data.profdata
 script/ADS
 ADS/
 
-# Builds
-**/build
+# DB
+/db
