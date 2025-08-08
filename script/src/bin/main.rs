@@ -17,8 +17,8 @@ use arithmetic_db::db::{
 };
 use arithmetic_lib::PublicValuesStruct;
 use clap::Parser;
-use sindri::{client::SindriClient, JobStatus, ProofInfo, ProofInput};
 use sindri::integrations::sp1_v5::SP1ProofInfo;
+use sindri::{client::SindriClient, JobStatus, ProofInfo, ProofInput};
 use sp1_sdk::{include_elf, ProverClient, SP1Stdin};
 use sqlx::PgPool;
 use std::io::{self, Write};
@@ -83,7 +83,7 @@ async fn main() {
     } else if args.prove {
         // Intelligently determine if we need database based on arguments
         let needs_database = (args.a != 0 && args.b != 0) && args.result == 0;
-        
+
         if needs_database {
             // Need database to lookup inputs by result
             let pool = init_db().await.expect("Failed to initialize database - required to lookup inputs for the specified result");
@@ -265,7 +265,7 @@ async fn verify_result_via_sindri(pool: &PgPool, result: i32) {
                     match verification_result.status {
                         JobStatus::Ready => {
                             println!("✓ Proof is READY on Sindri for result = {result}");
-                            
+
                             // Perform local verification using Sindri's verification key
                             perform_local_verification(&verification_result, result).await;
                         }
@@ -292,7 +292,7 @@ async fn run_external_verify(proof_id: &str, expected_result: i32) {
     println!("=== External Verification Mode ===");
     println!("Verifying proof ID: {proof_id}");
     println!("Expected result: {expected_result}");
-    
+
     let client = SindriClient::default();
     match client.get_proof(proof_id, None, None, None).await {
         Ok(verification_result) => {
@@ -300,11 +300,11 @@ async fn run_external_verify(proof_id: &str, expected_result: i32) {
                 "Verification status from Sindri: {:?}",
                 verification_result.status
             );
-            
+
             match verification_result.status {
                 JobStatus::Ready => {
                     println!("✓ Proof is READY on Sindri for proof ID: {proof_id}");
-                    
+
                     // Perform local verification using Sindri's verification key
                     perform_local_verification(&verification_result, expected_result).await;
                 }
@@ -324,12 +324,12 @@ async fn run_external_verify(proof_id: &str, expected_result: i32) {
 
 #[allow(clippy::future_not_send)]
 #[allow(clippy::unused_async)]
-async fn perform_local_verification<T>(verification_result: &T, expected_result: i32) 
-where 
+async fn perform_local_verification<T>(verification_result: &T, expected_result: i32)
+where
     T: ProofInfo + SP1ProofInfo,
 {
     println!("🔍 Performing local SP1 proof verification...");
-    
+
     // Extract SP1 proof and verification key from Sindri response
     match verification_result.to_sp1_proof_with_public() {
         Ok(sp1_proof) => {
@@ -339,18 +339,20 @@ where
                     match verification_result.verify_sp1_proof_locally(&sindri_verifying_key) {
                         Ok(()) => {
                             // Verification successful - now validate the computation
-                            match PublicValuesStruct::abi_decode(sp1_proof.public_values.as_slice()) {
+                            match PublicValuesStruct::abi_decode(sp1_proof.public_values.as_slice())
+                            {
                                 Ok(decoded) => {
                                     let PublicValuesStruct { result } = decoded;
-                                    
+
                                     // In true zero-knowledge verification, we only see the result
                                     // We cannot see the private inputs 'a' and 'b' that were used
                                     let result_valid = result == expected_result;
-                                    
+
                                     // Color codes for output
-                                    let color_code = if result_valid { "\x1b[32m" } else { "\x1b[31m" }; // Green for valid, Red for invalid
+                                    let color_code =
+                                        if result_valid { "\x1b[32m" } else { "\x1b[31m" }; // Green for valid, Red for invalid
                                     let reset_code = "\x1b[0m"; // Reset color
-                                    
+
                                     if result_valid {
                                         println!(
                                             "{color_code}✓ ZERO-KNOWLEDGE PROOF VERIFIED: result = {result} (ZKP verified){reset_code}"
@@ -474,12 +476,15 @@ async fn run_prove_via_sindri(pool: &PgPool, arg_a: i32, arg_b: i32, arg_result:
     println!("\n🔗 PROOF ID FOR EXTERNAL VERIFICATION:");
     println!("   {}", proof_info.proof_id);
     println!("\n📋 To verify this proof externally, use:");
-    println!("   cargo run --release -- --verify --proof-id {} --result {}", proof_info.proof_id, result);
+    println!(
+        "   cargo run --release -- --verify --proof-id {} --result {}",
+        proof_info.proof_id, result
+    );
 }
 
 async fn run_prove_via_sindri_no_db(arg_a: i32, arg_b: i32, arg_result: i32) {
     use sp1_sdk::SP1Stdin;
-    
+
     // Calculate result from inputs (no database lookup needed)
     // For database-free mode, we always calculate from provided inputs
     if arg_result != 20 {
@@ -536,5 +541,8 @@ async fn run_prove_via_sindri_no_db(arg_a: i32, arg_b: i32, arg_result: i32) {
     println!("\n🔗 PROOF ID FOR EXTERNAL VERIFICATION:");
     println!("   {}", proof_info.proof_id);
     println!("\n📋 To verify this proof externally, use:");
-    println!("   cargo run --release -- --verify --proof-id {} --result {}", proof_info.proof_id, result);
+    println!(
+        "   cargo run --release -- --verify --proof-id {} --result {}",
+        proof_info.proof_id, result
+    );
 }

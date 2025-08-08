@@ -579,18 +579,13 @@ mod integration_tests {
         let b = 25;
         let result = addition(a, b);
 
-        // Create a PublicValuesStruct like the zkVM would
-        let public_values = PublicValuesStruct { a, b, result };
+        // Create a PublicValuesStruct like the zkVM would (only result is public)
+        let public_values = PublicValuesStruct { result };
 
-        // Store using the struct values
-        store_arithmetic_transaction(
-            &test_db.pool,
-            public_values.a,
-            public_values.b,
-            public_values.result,
-        )
-        .await
-        .expect("Failed to store PublicValuesStruct transaction");
+        // Store using computed values (a and b are private, not in PublicValuesStruct)
+        store_arithmetic_transaction(&test_db.pool, a, b, public_values.result)
+            .await
+            .expect("Failed to store PublicValuesStruct transaction");
 
         // Retrieve and verify
         let transactions = get_transactions_by_result(&test_db.pool, public_values.result)
@@ -600,9 +595,7 @@ mod integration_tests {
         assert_eq!(transactions.len(), 1);
         let stored_transaction = &transactions[0];
 
-        // Verify all values match the PublicValuesStruct
-        assert_eq!(stored_transaction.a, public_values.a);
-        assert_eq!(stored_transaction.b, public_values.b);
+        // Verify the result matches the PublicValuesStruct
         assert_eq!(stored_transaction.result, public_values.result);
 
         // Verify arithmetic correctness
