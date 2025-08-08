@@ -75,15 +75,24 @@ async fn main() {
         std::process::exit(1);
     }
 
-    // Setup the prover client and database pool for execute/prove operations.
-    let client = ProverClient::from_env();
-    let pool = init_db().await.expect("Failed to initialize database");
-
     if args.execute {
+        // Execute mode requires database for storing results
+        let client = ProverClient::from_env();
+        let pool = init_db().await.expect("Failed to initialize database");
         run_interactive_execute(&client, &pool).await;
-        // This is now handled by run_interactive_execute
     } else if args.prove {
-        run_prove_via_sindri(&pool, args.a, args.b, args.result).await;
+        // Intelligently determine if we need database based on arguments
+        let needs_database = (args.a != 0 && args.b != 0) && args.result == 0;
+        
+        if needs_database {
+            // Need database to lookup inputs by result
+            let pool = init_db().await.expect("Failed to initialize database - required to lookup inputs for the specified result");
+            run_prove_via_sindri(&pool, args.a, args.b, args.result).await;
+        } else {
+            // Have explicit inputs or using default calculation - no database needed
+            println!("ℹ️  Using provided inputs - database not required for proving");
+            run_prove_via_sindri_no_db(args.a, args.b, args.result).await;
+        }
     }
 }
 
@@ -460,6 +469,68 @@ async fn run_prove_via_sindri(pool: &PgPool, arg_a: i32, arg_b: i32, arg_result:
             result, proof_info.proof_id
         );
     }
+
+    // Print proof ID for external verification
+    println!("\n🔗 PROOF ID FOR EXTERNAL VERIFICATION:");
+    println!("   {}", proof_info.proof_id);
+    println!("\n📋 To verify this proof externally, use:");
+    println!("   cargo run --release -- --verify --proof-id {} --result {}", proof_info.proof_id, result);
+}
+
+async fn run_prove_via_sindri_no_db(arg_a: i32, arg_b: i32, arg_result: i32) {
+    use sp1_sdk::SP1Stdin;
+    
+    // Calculate result from inputs (no database lookup needed)
+    // For database-free mode, we always calculate from provided inputs
+    if arg_result != 20 {
+        println!("⚠️  Database-free mode: Using provided inputs and ignoring --result parameter");
+    }
+    let result = arithmetic_lib::addition(arg_a, arg_b);
+    let (a, b) = (arg_a, arg_b);
+
+    println!("Proving that {a} + {b} = {result} via Sindri (database-free mode)...");
+
+    // Create SP1 inputs and serialize for Sindri
+    let mut stdin = SP1Stdin::new();
+    stdin.write(&a);
+    stdin.write(&b);
+
+    let stdin_json = match serde_json::to_string(&stdin) {
+        Ok(s) => s,
+        Err(e) => {
+            println!("✗ Failed to serialize SP1Stdin: {e}");
+            return;
+        }
+    };
+    let proof_input = ProofInput::from(stdin_json);
+
+    let client = SindriClient::default();
+    println!("Submitting proof request to Sindri...");
+    let proof_info = client
+        .prove_circuit(
+            "demo-vapp", // Circuit name as defined in sindri.json manifest
+            proof_input,
+            None,
+            None,
+            None,
+        )
+        .await;
+
+    let proof_info = match proof_info {
+        Ok(info) => info,
+        Err(e) => {
+            println!("✗ Failed to submit proof request: {e}");
+            return;
+        }
+    };
+
+    if proof_info.status == JobStatus::Failed {
+        println!("✗ Proof generation failed: {:?}", proof_info.error);
+        return;
+    }
+
+    println!("✓ Proof job submitted. Status: {:?}", proof_info.status);
+    println!("ℹ️  Note: Proof metadata not stored (database-free mode)");
 
     // Print proof ID for external verification
     println!("\n🔗 PROOF ID FOR EXTERNAL VERIFICATION:");
