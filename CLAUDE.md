@@ -22,8 +22,11 @@ cd program && cargo prove build --output-directory ../build
 # Execute program interactively (stores results in PostgreSQL)
 cd script && cargo run --release -- --execute
 
-# Generate zero-knowledge proof via Sindri (no database required for generation)
+# Generate zero-knowledge proof via Sindri (database-free mode with explicit inputs)
 cd script && cargo run --release -- --prove --a 5 --b 10
+
+# Generate zero-knowledge proof via Sindri (database mode - lookup inputs by result)
+cd script && cargo run --release -- --prove --result 15
 
 # External verification using proof ID (recommended - no database required)
 cd script && cargo run --release -- --verify --proof-id <PROOF_ID> --result 15
@@ -42,10 +45,13 @@ cd script && cargo run --release --bin vkey
 ```
 
 ### Zero-Knowledge Workflow
+
+#### Database-Free Mode (Recommended for CI/External Use)
 ```bash
-# 1. Generate proof with private inputs (database stores metadata)
+# 1. Generate proof with explicit private inputs (no database required)
 SINDRI_API_KEY=your_api_key_here cargo run --release -- --prove --a 7 --b 13
 # Output: proof_id = abc123def456
+# Note: Proof metadata not stored (database-free mode)
 
 # 2. Share proof ID publicly for external verification
 # Anyone can verify without knowing the private inputs (7, 13)
@@ -53,6 +59,20 @@ cargo run --release -- --verify --proof-id abc123def456 --result 20
 
 # 3. The verifier only learns that someone knows two numbers that add to 20
 # The actual inputs (7, 13) remain completely private
+```
+
+#### Database Mode (For Result Lookup)
+```bash
+# 1. First execute to store inputs in database
+cargo run --release -- --execute
+# Enter: a=7, b=13 (stored as result=20)
+
+# 2. Generate proof by looking up inputs from stored result
+cargo run --release -- --prove --result 20
+# Database retrieves a=7, b=13 for the proof generation
+
+# 3. Verify using database lookup
+cargo run --release -- --verify --result 20
 ```
 
 ### Smart Contract Testing
@@ -243,6 +263,42 @@ This demonstrates **production-ready ZK workflows** with:
 - Branch-specific circuit deployments
 - True zero-knowledge properties (inputs hidden, result verified)
 
+### Intelligent Database Detection
+
+The CLI now intelligently determines whether database access is required based on the command arguments:
+
+**Database Detection Logic**:
+```rust
+let needs_database = (args.a != 0 && args.b != 0) && args.result == 0;
+```
+
+**Database-Free Mode** (when `needs_database = false`):
+- **Explicit Inputs**: `--prove --a 5 --b 10` (uses provided values directly)
+- **Default Calculation**: `--prove` (uses default a=1, b=1, calculates result=2)
+- **Mixed Arguments**: `--prove --a 5 --b 10 --result 999` (ignores result, uses inputs)
+- **Benefits**: No database connection required, perfect for CI/external environments
+
+**Database Mode** (when `needs_database = true`):
+- **Result Lookup**: `--prove --result 15` (looks up stored inputs that produced result=15)
+- **Requirements**: Requires database with previously executed transactions
+- **Use Case**: When you want to prove a specific result but don't remember the original inputs
+
+**Command Examples**:
+```bash
+# Database-free (CI-friendly)
+cargo run --release -- --prove --a 7 --b 13        # ✅ Direct inputs
+cargo run --release -- --prove                     # ✅ Default values (1+1=2)
+cargo run --release -- --prove --a 5 --b 10 --result 999  # ✅ Ignores result
+
+# Database required
+cargo run --release -- --prove --result 20         # 🔍 Looks up inputs for result=20
+```
+
+**Error Handling**:
+- Database-free mode: Proceeds immediately without database connection attempts
+- Database mode: Provides clear error message if database is unavailable
+- No time wasted on unnecessary database connections
+
 ### Interactive CLI Features
 
 **Execute Mode**: The `--execute` command now runs interactively by default:
@@ -264,13 +320,14 @@ This demonstrates **production-ready ZK workflows** with:
 - `program/src/main.rs:25-28`: Zero-knowledge public values commitment (only result is public)
 - `lib/src/lib.rs:6-8`: Zero-knowledge PublicValuesStruct definition (result only)
 - `contracts/src/Arithmetic.sol:35`: On-chain proof verification function
-- `script/src/bin/main.rs:63-76`: Main flow with conditional database initialization
-- `script/src/bin/main.rs:365`: Sindri proof generation with external verification output (`run_prove_via_sindri`)
-- `script/src/bin/main.rs:221`: Database-based verification function (`verify_result_via_sindri`)
-- `script/src/bin/main.rs:280`: External verification function (`run_external_verify`)
-- `script/src/bin/main.rs:316`: Local SP1 verification with cryptographic proof validation (`perform_local_verification`)
+- `script/src/bin/main.rs:83-96`: Intelligent database detection logic for prove operations
+- `script/src/bin/main.rs:380-486`: Database-enabled Sindri proof generation (`run_prove_via_sindri`)
+- `script/src/bin/main.rs:488-551`: Database-free Sindri proof generation (`run_prove_via_sindri_no_db`)
+- `script/src/bin/main.rs:229-280`: Database-based verification function (`verify_result_via_sindri`)
+- `script/src/bin/main.rs:282-314`: External verification function (`run_external_verify`)
+- `script/src/bin/main.rs:318-377`: Local SP1 verification with cryptographic proof validation (`perform_local_verification`)
 - `script/Cargo.toml:30`: Sindri dependency with SP1-v5 feature flag enabled
-- `.github/workflows/sindri.yml`: Complete CI pipeline with zero-knowledge testing
+- `.github/workflows/sindri.yml`: Complete CI pipeline with zero-knowledge testing (database-free)
 - `db/src/db.rs:160`: Sindri proof database operations (`upsert_sindri_proof`, `get_sindri_proof_by_result`)
 
 ## Environment Configuration
@@ -434,11 +491,14 @@ This project has been enhanced throughout development to demonstrate **true zero
 - **Database-Free CI**: Demonstrates external verification workflow in automated testing
 - **Zero-Knowledge Validation**: Proves ZK properties work correctly in production environment
 
-### 📊 Conditional Database Usage
-- **Smart Initialization**: Database only initialized when actually needed
-- **External Mode**: `--verify --proof-id` works without any database dependency
-- **Internal Mode**: `--verify --result` uses database for metadata lookup
-- **Flexible Architecture**: Supports both internal development and external user workflows
+### 📊 Intelligent Database Detection
+- **Proactive Logic**: Determines database need upfront based on command arguments
+- **Database-Free Prove**: `--prove --a X --b Y` works without any database connection
+- **Database-Required Prove**: `--prove --result Z` requires database for input lookup
+- **External Verification**: `--verify --proof-id` works without any database dependency
+- **Internal Verification**: `--verify --result` uses database for metadata lookup
+- **CI-Optimized**: Perfect for continuous integration environments with no database setup
+- **Zero Latency**: No time wasted attempting unnecessary database connections
 
 ### 🎯 Production Benefits
 - **Scalable**: Uses cloud infrastructure for proof generation
