@@ -260,9 +260,7 @@ async fn verify_result_via_sindri(pool: &PgPool, result: i32) {
             }
         }
         Ok(None) => {
-            println!(
-                "✗ No Sindri proof stored for result = {result}. Run --prove to create one."
-            );
+            println!("✗ No Sindri proof stored for result = {result}. Run --prove to create one.");
         }
         Err(e) => println!("✗ Database error: {e}"),
     }
