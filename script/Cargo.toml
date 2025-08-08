@@ -33,8 +33,5 @@ sqlx            = { workspace = true }
 termion         = { workspace = true }
 tokio           = { workspace = true }
 
-[lib]
-path = "src/lib.rs"
-
 [build-dependencies]
 sp1-build = { workspace = true }
