@@ -113,7 +113,59 @@ cargo test -p arithmetic-lib
 3. Proof generation request is sent to Sindri's cloud infrastructure using the prebuilt `demo-vapp` circuit
 4. Sindri returns proof metadata (proof ID, circuit ID, status) which is stored in PostgreSQL
 5. Verification queries Sindri's API using stored proof metadata
-6. Proof status is updated in the database and displayed to the user
+6. **Local SP1 Verification**: Extracts SP1 proof and verification key for cryptographic verification
+7. **Computation Validation**: Validates arithmetic results from proof public values
+8. Proof status is updated in the database and displayed to the user
+
+### Enhanced SP1 Local Verification
+
+The verification logic now performs **full cryptographic verification** using Sindri's SP1 integration:
+
+**Features**:
+- **SP1 Proof Extraction**: Uses `to_sp1_proof_with_public()` to extract SP1 proof from Sindri response
+- **Verification Key Access**: Uses `get_sp1_verifying_key()` to obtain the SP1 verification key
+- **Cryptographic Verification**: Uses `verify_sp1_proof_locally()` for local zero-knowledge proof verification
+- **Computation Validation**: Decodes and validates arithmetic computation from proof public values
+- **Enhanced User Feedback**: Colored output showing detailed verification results
+
+**Implementation** (sindri crate 0.3.1 with "sp1-v5" feature):
+```rust
+// Extract SP1 proof and verification key
+let sp1_proof = verification_result.to_sp1_proof_with_public()?;
+let sindri_verifying_key = verification_result.get_sp1_verifying_key()?;
+
+// Perform cryptographic verification
+verification_result.verify_sp1_proof_locally(&sindri_verifying_key)?;
+
+// Validate computation results (only result is public - inputs remain private)
+let decoded = PublicValuesStruct::abi_decode(sp1_proof.public_values.as_slice())?;
+let PublicValuesStruct { result } = decoded;
+```
+
+### Zero-Knowledge Properties
+
+This implementation demonstrates **true zero-knowledge proofs** with the following properties:
+
+**Public Values Structure**:
+```rust
+struct PublicValuesStruct {
+    int32 result;  // Only the result is revealed
+    // Inputs 'a' and 'b' remain completely private
+}
+```
+
+**Zero-Knowledge Guarantees**:
+- ✅ **Privacy**: Input values `a` and `b` are never revealed to the verifier
+- ✅ **Soundness**: The proof cryptographically guarantees that `a + b = result` 
+- ✅ **Completeness**: Valid computations always produce verifiable proofs
+- ✅ **Zero-Knowledge**: Verifier learns nothing beyond the fact that the prover knows inputs that produce the result
+
+**What the Proof Demonstrates**:
+- "I know two secret numbers that add up to this result"
+- **NOT**: "5 + 10 = 15" (which would reveal the secret inputs)
+
+This is the fundamental difference between a regular cryptographic proof and a zero-knowledge proof - the verifier can confirm the computation was performed correctly without learning anything about the private inputs used.
+
 ### Interactive CLI Features
 
 **Execute Mode**: The `--execute` command now runs interactively by default:
@@ -136,8 +188,9 @@ cargo test -p arithmetic-lib
 - `lib/src/lib.rs:14`: Core arithmetic addition logic
 - `contracts/src/Arithmetic.sol:35`: On-chain proof verification function
 - `script/src/bin/main.rs:45`: Proof generation orchestration including Sindri integration
-- `script/src/bin/main.rs:272`: Sindri proof generation function (`run_prove_via_sindri`)
+- `script/src/bin/main.rs:335`: Sindri proof generation function (`run_prove_via_sindri`)
 - `script/src/bin/main.rs:221`: Sindri proof verification function (`verify_result_via_sindri`)
+- `script/src/bin/main.rs:277`: Local SP1 verification with cryptographic proof validation (`perform_local_verification`)
 - `db/src/db.rs:160`: Sindri proof database operations (`upsert_sindri_proof`, `get_sindri_proof_by_result`)
 
 ## Environment Configuration

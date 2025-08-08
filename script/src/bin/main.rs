@@ -17,7 +17,8 @@ use arithmetic_db::db::{
 };
 use arithmetic_lib::PublicValuesStruct;
 use clap::Parser;
-use sindri::{client::SindriClient, JobStatus, ProofInput};
+use sindri::{client::SindriClient, JobStatus, ProofInfo, ProofInput};
+use sindri::integrations::sp1_v5::SP1ProofInfo;
 use sp1_sdk::{include_elf, ProverClient, SP1Stdin};
 use sqlx::PgPool;
 use std::io::{self, Write};
@@ -138,12 +139,8 @@ async fn run_interactive_execute(client: &sp1_sdk::EnvProver, pool: &PgPool) {
                 // Read the output
                 match PublicValuesStruct::abi_decode(output.as_slice()) {
                     Ok(decoded) => {
-                        let PublicValuesStruct {
-                            a: out_a,
-                            b: out_b,
-                            result,
-                        } = decoded;
-                        println!("✓ Computation successful: {out_a} + {out_b} = {result}");
+                        let PublicValuesStruct { result } = decoded;
+                        println!("✓ Computation successful: {a} + {b} = {result}");
 
                         let expected = arithmetic_lib::addition(a, b);
                         if result == expected {
@@ -154,7 +151,7 @@ async fn run_interactive_execute(client: &sp1_sdk::EnvProver, pool: &PgPool) {
                         }
 
                         // Store in database
-                        match store_arithmetic_transaction(pool, out_a, out_b, result).await {
+                        match store_arithmetic_transaction(pool, a, b, result).await {
                             Ok(()) => {
                                 println!("✓ Stored in database");
                             }
@@ -246,7 +243,12 @@ async fn verify_result_via_sindri(pool: &PgPool, result: i32) {
                     .await;
 
                     match verification_result.status {
-                        JobStatus::Ready => println!("✓ Proof is VALID for result = {result}"),
+                        JobStatus::Ready => {
+                            println!("✓ Proof is READY on Sindri for result = {result}");
+                            
+                            // Perform local verification using Sindri's verification key
+                            perform_local_verification(&verification_result, result).await;
+                        }
                         JobStatus::Failed => println!(
                             "✗ Proof verification FAILED for result = {result}: {:?}",
                             verification_result.error
@@ -263,6 +265,69 @@ async fn verify_result_via_sindri(pool: &PgPool, result: i32) {
             println!("✗ No Sindri proof stored for result = {result}. Run --prove to create one.");
         }
         Err(e) => println!("✗ Database error: {e}"),
+    }
+}
+
+#[allow(clippy::future_not_send)]
+#[allow(clippy::unused_async)]
+async fn perform_local_verification<T>(verification_result: &T, expected_result: i32) 
+where 
+    T: ProofInfo + SP1ProofInfo,
+{
+    println!("🔍 Performing local SP1 proof verification...");
+    
+    // Extract SP1 proof and verification key from Sindri response
+    match verification_result.to_sp1_proof_with_public() {
+        Ok(sp1_proof) => {
+            match verification_result.get_sp1_verifying_key() {
+                Ok(sindri_verifying_key) => {
+                    // Perform local verification using Sindri's verification key
+                    match verification_result.verify_sp1_proof_locally(&sindri_verifying_key) {
+                        Ok(()) => {
+                            // Verification successful - now validate the computation
+                            match PublicValuesStruct::abi_decode(sp1_proof.public_values.as_slice()) {
+                                Ok(decoded) => {
+                                    let PublicValuesStruct { result } = decoded;
+                                    
+                                    // In true zero-knowledge verification, we only see the result
+                                    // We cannot see the private inputs 'a' and 'b' that were used
+                                    let result_valid = result == expected_result;
+                                    
+                                    // Color codes for output
+                                    let color_code = if result_valid { "\x1b[32m" } else { "\x1b[31m" }; // Green for valid, Red for invalid
+                                    let reset_code = "\x1b[0m"; // Reset color
+                                    
+                                    if result_valid {
+                                        println!(
+                                            "{color_code}✓ ZERO-KNOWLEDGE PROOF VERIFIED: result = {result} (ZKP verified){reset_code}"
+                                        );
+                                        println!("🔐 Proof cryptographically verified - computation integrity confirmed");
+                                        println!("🎭 Private inputs remain hidden - only the result is revealed");
+                                        println!("📊 The prover demonstrated knowledge of inputs that produce result = {result}");
+                                    } else {
+                                        println!(
+                                            "{color_code}✗ Proof verification FAILED: Expected {expected_result}, got {result}{reset_code}"
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    println!("✗ Failed to decode public values from proof: {e}");
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            println!("✗ Local proof verification FAILED: {e}");
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("✗ Failed to extract verification key from Sindri response: {e}");
+                }
+            }
+        }
+        Err(e) => {
+            println!("✗ Failed to extract SP1 proof from Sindri response: {e}");
+        }
     }
 }
 
