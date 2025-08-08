@@ -125,7 +125,30 @@ The `--prove` command will:
 
 ### Verify Sindri Proofs
 
-To verify proofs generated via Sindri:
+There are two ways to verify proofs generated via Sindri:
+
+#### External Verification (Recommended for sharing proofs)
+
+Use the proof ID printed during the prove flow:
+
+```sh
+cd script
+# Verify using proof ID (no database required)
+cargo run --release -- --verify --proof-id <PROOF_ID> --result <EXPECTED_RESULT>
+
+# Example:
+cargo run --release -- --verify --proof-id "proof_abc123def456" --result 15
+```
+
+This method:
+- ✅ Works for external users without database access
+- ✅ Only requires the proof ID and expected result
+- ✅ Performs full cryptographic verification using Sindri's verification key
+- ✅ Demonstrates true zero-knowledge properties
+
+#### Database Verification (Internal use)
+
+For internal use with database access:
 
 ```sh
 cd script
@@ -136,10 +159,10 @@ cargo run --release -- --verify
 cargo run --release -- --verify --result 15
 ```
 
-Verification will:
-1. Look up the stored Sindri proof metadata by result
-2. Query Sindri's API to get the current proof status
-3. Display verification results and update the stored status
+This method:
+1. Looks up the stored Sindri proof metadata by result
+2. Queries Sindri's API to get the current proof status
+3. Displays verification results and updates the stored status
 
 ### Generate an EVM-Compatible Proof
 

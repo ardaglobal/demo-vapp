@@ -112,10 +112,13 @@ cargo test -p arithmetic-lib
 2. SP1 inputs are serialized to JSON format expected by Sindri
 3. Proof generation request is sent to Sindri's cloud infrastructure using the prebuilt `demo-vapp` circuit
 4. Sindri returns proof metadata (proof ID, circuit ID, status) which is stored in PostgreSQL
-5. Verification queries Sindri's API using stored proof metadata
-6. **Local SP1 Verification**: Extracts SP1 proof and verification key for cryptographic verification
-7. **Computation Validation**: Validates arithmetic results from proof public values
-8. Proof status is updated in the database and displayed to the user
+5. **Proof ID is printed for external verification** - no database dependency required
+6. Verification can be done via:
+   - **External**: Using proof ID directly (recommended for sharing)
+   - **Internal**: Database lookup by result (legacy mode)
+7. **Local SP1 Verification**: Extracts SP1 proof and verification key for cryptographic verification
+8. **Computation Validation**: Validates arithmetic results from proof public values
+9. Proof status is updated in the database (internal mode only)
 
 ### Enhanced SP1 Local Verification
 
@@ -166,6 +169,42 @@ struct PublicValuesStruct {
 
 This is the fundamental difference between a regular cryptographic proof and a zero-knowledge proof - the verifier can confirm the computation was performed correctly without learning anything about the private inputs used.
 
+### External Verification Workflow
+
+The system supports **database-independent verification** for sharing proofs with external users:
+
+**Prove Flow**:
+```bash
+# Generate proof
+cargo run --release -- --prove --a 5 --b 10
+
+# Output includes:
+🔗 PROOF ID FOR EXTERNAL VERIFICATION:
+   proof_abc123def456
+
+📋 To verify this proof externally, use:
+   cargo run --release -- --verify --proof-id proof_abc123def456 --result 15
+```
+
+**External Verify Flow**:
+```bash
+# Anyone can verify using just the proof ID and expected result
+cargo run --release -- --verify --proof-id proof_abc123def456 --result 15
+
+# Output:
+=== External Verification Mode ===
+Verifying proof ID: proof_abc123def456
+Expected result: 15
+✓ ZERO-KNOWLEDGE PROOF VERIFIED: result = 15 (ZKP verified)
+🎭 Private inputs remain hidden - only the result is revealed
+```
+
+**Benefits**:
+- ✅ **No Database Required**: External users don't need database access
+- ✅ **Shareable**: Proof IDs can be shared publicly for verification
+- ✅ **Self-Contained**: Only requires proof ID and expected result
+- ✅ **True ZK**: Demonstrates zero-knowledge properties to external verifiers
+
 ### Interactive CLI Features
 
 **Execute Mode**: The `--execute` command now runs interactively by default:
@@ -188,9 +227,10 @@ This is the fundamental difference between a regular cryptographic proof and a z
 - `lib/src/lib.rs:14`: Core arithmetic addition logic
 - `contracts/src/Arithmetic.sol:35`: On-chain proof verification function
 - `script/src/bin/main.rs:45`: Proof generation orchestration including Sindri integration
-- `script/src/bin/main.rs:335`: Sindri proof generation function (`run_prove_via_sindri`)
-- `script/src/bin/main.rs:221`: Sindri proof verification function (`verify_result_via_sindri`)
-- `script/src/bin/main.rs:277`: Local SP1 verification with cryptographic proof validation (`perform_local_verification`)
+- `script/src/bin/main.rs:365`: Sindri proof generation function (`run_prove_via_sindri`)
+- `script/src/bin/main.rs:221`: Database-based verification function (`verify_result_via_sindri`)
+- `script/src/bin/main.rs:280`: External verification function (`run_external_verify`)
+- `script/src/bin/main.rs:316`: Local SP1 verification with cryptographic proof validation (`perform_local_verification`)
 - `db/src/db.rs:160`: Sindri proof database operations (`upsert_sindri_proof`, `get_sindri_proof_by_result`)
 
 ## Environment Configuration

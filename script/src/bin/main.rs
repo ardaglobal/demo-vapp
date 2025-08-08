@@ -46,6 +46,9 @@ struct Args {
 
     #[arg(long, default_value = "20")]
     result: i32,
+
+    #[arg(long)]
+    proof_id: Option<String>,
 }
 
 #[tokio::main]
@@ -57,17 +60,24 @@ async fn main() {
     // Parse the command line arguments.
     let args = Args::parse();
 
-    // Setup the prover client and database pool.
-    let client = ProverClient::from_env();
-    let pool = init_db().await.expect("Failed to initialize database");
-
     if args.verify {
-        run_verify_mode(&pool, args.result).await;
+        if let Some(proof_id) = args.proof_id {
+            // External verification flow - no database dependency
+            run_external_verify(&proof_id, args.result).await;
+        } else {
+            // Legacy database-based verification flow - requires database
+            let pool = init_db().await.expect("Failed to initialize database");
+            run_verify_mode(&pool, args.result).await;
+        }
         return;
     } else if args.execute == args.prove {
         eprintln!("Error: You must specify either --execute or --prove");
         std::process::exit(1);
     }
+
+    // Setup the prover client and database pool for execute/prove operations.
+    let client = ProverClient::from_env();
+    let pool = init_db().await.expect("Failed to initialize database");
 
     if args.execute {
         run_interactive_execute(&client, &pool).await;
@@ -175,7 +185,8 @@ async fn run_interactive_execute(client: &sp1_sdk::EnvProver, pool: &PgPool) {
 }
 
 async fn run_verify_mode(pool: &PgPool, result: i32) {
-    println!("=== Verify Mode ===");
+    println!("=== Database Verification Mode ===");
+    println!("⚠️  This mode requires database access. For external verification, use --proof-id instead.");
 
     if result == 20 {
         // Default value
@@ -265,6 +276,40 @@ async fn verify_result_via_sindri(pool: &PgPool, result: i32) {
             println!("✗ No Sindri proof stored for result = {result}. Run --prove to create one.");
         }
         Err(e) => println!("✗ Database error: {e}"),
+    }
+}
+
+async fn run_external_verify(proof_id: &str, expected_result: i32) {
+    println!("=== External Verification Mode ===");
+    println!("Verifying proof ID: {proof_id}");
+    println!("Expected result: {expected_result}");
+    
+    let client = SindriClient::default();
+    match client.get_proof(proof_id, None, None, None).await {
+        Ok(verification_result) => {
+            println!(
+                "Verification status from Sindri: {:?}",
+                verification_result.status
+            );
+            
+            match verification_result.status {
+                JobStatus::Ready => {
+                    println!("✓ Proof is READY on Sindri for proof ID: {proof_id}");
+                    
+                    // Perform local verification using Sindri's verification key
+                    perform_local_verification(&verification_result, expected_result).await;
+                }
+                JobStatus::Failed => println!(
+                    "✗ Proof verification FAILED for proof ID {proof_id}: {:?}",
+                    verification_result.error
+                ),
+                other => println!("⏳ Proof status: {other:?}"),
+            }
+        }
+        Err(e) => {
+            println!("✗ Failed to retrieve proof from Sindri: {e}");
+            println!("💡 Make sure the proof ID is correct and the proof exists on Sindri");
+        }
     }
 }
 
@@ -411,8 +456,14 @@ async fn run_prove_via_sindri(pool: &PgPool, arg_a: i32, arg_b: i32, arg_result:
         println!("✗ Failed to store proof metadata: {e}");
     } else {
         println!(
-            "✓ Stored Sindri proof metadata for result = {} (proof_id = {:?})",
+            "✓ Stored Sindri proof metadata for result = {} (proof_id = {})",
             result, proof_info.proof_id
         );
     }
+
+    // Print proof ID for external verification
+    println!("\n🔗 PROOF ID FOR EXTERNAL VERIFICATION:");
+    println!("   {}", proof_info.proof_id);
+    println!("\n📋 To verify this proof externally, use:");
+    println!("   cargo run --release -- --verify --proof-id {} --result {}", proof_info.proof_id, result);
 }
