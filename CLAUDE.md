@@ -9,8 +9,8 @@ This is an SP1 (Succinct Proof) project that demonstrates zero-knowledge proof g
 1. **RISC-V Program** (`program/`): Performs arithmetic addition inside the SP1 zkVM
 2. **Script** (`script/`): Generates proofs and handles execution using the SP1 SDK
 3. **Smart Contracts** (`contracts/`): Solidity contracts for on-chain proof verification
-4. **Database Module** (`db/`): PostgreSQL integration for storing arithmetic transactions
-5. **Sindri Integration** (`script/src/bin/sindri.rs`): Serverless proof generation using Sindri's cloud infrastructure
+4. **Database Module** (`db/`): PostgreSQL integration for storing arithmetic transactions and Sindri proof metadata
+5. **Sindri Integration** (integrated into `script/src/bin/main.rs`): Serverless proof generation using Sindri's cloud infrastructure
 
 ## Common Commands
 
@@ -43,8 +43,11 @@ cd script && cargo run --release --bin evm -- --system plonk
 # Retrieve verification key for on-chain contracts
 cd script && cargo run --release --bin vkey
 
-# Generate ZK proof using Sindri cloud infrastructure
-SINDRI_API_KEY=your_api_key_here cargo run --bin sindri
+# Generate ZK proof using Sindri cloud infrastructure  
+SINDRI_API_KEY=your_api_key_here cargo run --release -- --prove --a 5 --b 10
+
+# Generate proof for previously computed result
+SINDRI_API_KEY=your_api_key_here cargo run --release -- --prove --result 15
 ```
 
 ### Smart Contract Testing
@@ -90,11 +93,9 @@ cargo test -p arithmetic-lib
 - **arithmetic-lib** (`lib/`): Shared library containing the arithmetic computation logic and Solidity type definitions
 - **arithmetic-program** (`program/`): The RISC-V program that runs inside the zkVM, reading input and committing public values
 - **arithmetic-script** (`script/`): Contains multiple binaries:
-  - `main.rs`: Main script for execution and proof generation
+  - `main.rs`: Main script for execution, Sindri proof generation, and verification
   - `evm.rs`: EVM-compatible proof generation (Groth16/PLONK)
   - `vkey.rs`: Verification key retrieval
-  - `sindri.rs`: Sindri cloud-based proof generation
-  - `arithmetic_io.rs`: Interactive input handling utilities
 
 ### Data Flow
 
@@ -107,12 +108,12 @@ cargo test -p arithmetic-lib
 
 ### Sindri Integration Data Flow
 
-1. User provides arithmetic inputs (`a` and `b`) through interactive prompts
+1. User provides arithmetic inputs (`a` and `b`) via command-line arguments or uses previously computed results
 2. SP1 inputs are serialized to JSON format expected by Sindri
 3. Proof generation request is sent to Sindri's cloud infrastructure using the prebuilt `demo-vapp` circuit
-4. Sindri returns the cryptographic proof along with metadata (proof ID, circuit ID, status)
-5. Proof is verified through Sindri's verification API
-6. Results include actual proof data (base64 encoded) and comprehensive verification status
+4. Sindri returns proof metadata (proof ID, circuit ID, status) which is stored in PostgreSQL
+5. Verification queries Sindri's API using stored proof metadata
+6. Proof status is updated in the database and displayed to the user
 ### Interactive CLI Features
 
 **Execute Mode**: The `--execute` command now runs interactively by default:
@@ -134,9 +135,10 @@ cargo test -p arithmetic-lib
 - `program/src/main.rs:14`: Main zkVM entry point with input/output handling
 - `lib/src/lib.rs:14`: Core arithmetic addition logic
 - `contracts/src/Arithmetic.sol:35`: On-chain proof verification function
-- `script/src/bin/main.rs:45`: Proof generation orchestration
-- `script/src/bin/sindri.rs`: Sindri cloud-based proof generation with modern SDK
-- `script/src/bin/arithmetic_io.rs`: Interactive input handling utilities
+- `script/src/bin/main.rs:45`: Proof generation orchestration including Sindri integration
+- `script/src/bin/main.rs:272`: Sindri proof generation function (`run_prove_via_sindri`)
+- `script/src/bin/main.rs:221`: Sindri proof verification function (`verify_result_via_sindri`)
+- `db/src/db.rs:160`: Sindri proof database operations (`upsert_sindri_proof`, `get_sindri_proof_by_result`)
 
 ## Environment Configuration
 
@@ -198,6 +200,8 @@ The project provides the following PostgreSQL operations through the `arithmetic
 - `store_arithmetic_transaction(pool, a, b, result)`: Store an arithmetic transaction
 - `get_value_by_result(pool, result)`: Retrieve the first transaction by result value
 - `get_transactions_by_result(pool, result)`: Retrieve all transactions with a specific result
+- `upsert_sindri_proof(pool, result, proof_id, circuit_id, status)`: Store/update Sindri proof metadata
+- `get_sindri_proof_by_result(pool, result)`: Retrieve Sindri proof metadata by result
 
 ### Storage Schema
 
@@ -210,6 +214,19 @@ CREATE TABLE arithmetic_transactions (
     result INTEGER NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(a, b, result)
+);
+```
+
+Sindri proof metadata is stored in the `sindri_proofs` table:
+```sql
+CREATE TABLE sindri_proofs (
+    id SERIAL PRIMARY KEY,
+    result INTEGER NOT NULL,
+    proof_id TEXT NOT NULL,
+    circuit_id TEXT,
+    status TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (result)
 );
 ```
 
