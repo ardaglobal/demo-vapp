@@ -1,20 +1,14 @@
 use async_graphql::{
-    Context, FieldResult, Object, Schema, Subscription, Union, ID,
-    SimpleObject, InputObject, Enum, Interface, MergedObject, MergedSubscription,
+    Context, Enum, FieldResult, InputObject, Object, Schema, SimpleObject, Subscription, Union,
 };
-use async_graphql_axum::{GraphQLRequest, GraphQLResponse, GraphQLSubscription};
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use tokio_stream::StreamExt;
-use tracing::{debug, error, info, instrument, warn};
-use uuid::Uuid;
 
-use crate::ads_service::{IndexedMerkleTreeADS, AdsError, StateTransition, MembershipProof, NonMembershipProof, StateCommitment, AuditTrail, AdsMetrics};
-use crate::vapp_integration::{VAppAdsIntegration, VAppError, VAppInsertionResponse, VAppProofResponse, VAppBatchResponse, ProofType};
-use crate::api::rest::{ApiState, ApiConfig};
+use tracing::{info, instrument};
+
+use crate::ads_service::AdsError;
+use crate::api::rest::ApiState;
+use crate::vapp_integration::VAppError;
 
 // ============================================================================
 // GRAPHQL SCHEMA TYPES
@@ -329,33 +323,44 @@ pub struct QueryRoot;
 impl QueryRoot {
     /// Get information about a specific nullifier
     #[instrument(skip(ctx))]
-    async fn nullifier(&self, ctx: &Context<'_>, input: NullifierQueryInput) -> FieldResult<Option<NullifierType>> {
+    async fn nullifier(
+        &self,
+        ctx: &Context<'_>,
+        input: NullifierQueryInput,
+    ) -> FieldResult<Option<NullifierType>> {
         let state = ctx.data::<ApiState>()?;
-        
+
         info!("🔍 GraphQL: Querying nullifier {}", input.value);
-        
+
         let vapp = state.vapp_integration.read().await;
         match vapp.verify_nullifier_presence(input.value).await {
             Ok(_) => {
                 // Nullifier exists, get details
                 Ok(Some(NullifierType {
                     value: input.value,
-                    tree_index: Some(0), // Would get actual index
+                    tree_index: Some(0),           // Would get actual index
                     inserted_at: Some(Utc::now()), // Would get actual timestamp
-                    block_height: Some(1000), // Would get actual block height
+                    block_height: Some(1000),      // Would get actual block height
                 }))
-            },
+            }
             Err(_) => Ok(None), // Nullifier doesn't exist
         }
     }
 
     /// Check if a nullifier exists and get membership proof
     #[instrument(skip(ctx))]
-    async fn membership_proof(&self, ctx: &Context<'_>, nullifier_value: i64) -> FieldResult<Option<MembershipProofType>> {
+    async fn membership_proof(
+        &self,
+        ctx: &Context<'_>,
+        nullifier_value: i64,
+    ) -> FieldResult<Option<MembershipProofType>> {
         let state = ctx.data::<ApiState>()?;
-        
-        info!("🔍 GraphQL: Generating membership proof for {}", nullifier_value);
-        
+
+        info!(
+            "🔍 GraphQL: Generating membership proof for {}",
+            nullifier_value
+        );
+
         let vapp = state.vapp_integration.read().await;
         match vapp.verify_nullifier_presence(nullifier_value).await {
             Ok(response) => {
@@ -366,7 +371,10 @@ impl QueryRoot {
                         root_hash: hex::encode(proof.root_hash),
                         merkle_proof: MerkleProofType {
                             leaf_hash: hex::encode([0u8; 32]), // Would be actual leaf hash
-                            siblings: proof.merkle_proof.siblings.iter()
+                            siblings: proof
+                                .merkle_proof
+                                .siblings
+                                .iter()
                                 .map(|s| hex::encode(s))
                                 .collect(),
                             path_indices: proof.merkle_proof.path_indices,
@@ -379,18 +387,25 @@ impl QueryRoot {
                 } else {
                     Ok(None)
                 }
-            },
+            }
             Err(_) => Ok(None),
         }
     }
 
     /// Generate non-membership proof for a nullifier
     #[instrument(skip(ctx))]
-    async fn non_membership_proof(&self, ctx: &Context<'_>, nullifier_value: i64) -> FieldResult<Option<NonMembershipProofType>> {
+    async fn non_membership_proof(
+        &self,
+        ctx: &Context<'_>,
+        nullifier_value: i64,
+    ) -> FieldResult<Option<NonMembershipProofType>> {
         let state = ctx.data::<ApiState>()?;
-        
-        info!("🔍 GraphQL: Generating non-membership proof for {}", nullifier_value);
-        
+
+        info!(
+            "🔍 GraphQL: Generating non-membership proof for {}",
+            nullifier_value
+        );
+
         let vapp = state.vapp_integration.read().await;
         match vapp.verify_nullifier_absence(nullifier_value).await {
             Ok(response) => {
@@ -409,7 +424,11 @@ impl QueryRoot {
                             tree_index: proof.low_nullifier.tree_index,
                             merkle_proof: MerkleProofType {
                                 leaf_hash: hex::encode([0u8; 32]),
-                                siblings: proof.low_nullifier.merkle_proof.siblings.iter()
+                                siblings: proof
+                                    .low_nullifier
+                                    .merkle_proof
+                                    .siblings
+                                    .iter()
                                     .map(|s| hex::encode(s))
                                     .collect(),
                                 path_indices: proof.low_nullifier.merkle_proof.path_indices,
@@ -431,7 +450,7 @@ impl QueryRoot {
                 } else {
                     Ok(None)
                 }
-            },
+            }
             Err(_) => Ok(None),
         }
     }
@@ -440,11 +459,11 @@ impl QueryRoot {
     #[instrument(skip(ctx))]
     async fn tree_stats(&self, ctx: &Context<'_>) -> FieldResult<TreeStatsType> {
         let state = ctx.data::<ApiState>()?;
-        
+
         let ads = state.ads.read().await;
         let commitment = ads.get_state_commitment().await?;
         let metrics = ads.get_metrics().await?;
-        
+
         Ok(TreeStatsType {
             root_hash: hex::encode(commitment.root_hash),
             total_nullifiers: commitment.nullifier_count as i64,
@@ -455,9 +474,11 @@ impl QueryRoot {
                 avg_proof_generation_time_ms: metrics.avg_proof_time_ms,
                 total_operations: metrics.operations_total as i64,
                 error_rate_percent: metrics.error_rate * 100.0,
-                operations_per_second: if metrics.avg_insertion_time_ms > 0.0 { 
-                    1000.0 / metrics.avg_insertion_time_ms 
-                } else { 0.0 },
+                operations_per_second: if metrics.avg_insertion_time_ms > 0.0 {
+                    1000.0 / metrics.avg_insertion_time_ms
+                } else {
+                    0.0
+                },
             },
             constraint_efficiency: ConstraintEfficiencyType {
                 our_constraints: 200,
@@ -474,10 +495,10 @@ impl QueryRoot {
     #[instrument(skip(ctx))]
     async fn tree_root(&self, ctx: &Context<'_>) -> FieldResult<String> {
         let state = ctx.data::<ApiState>()?;
-        
+
         let vapp = state.vapp_integration.read().await;
         let commitment = vapp.get_current_state_commitment().await?;
-        
+
         Ok(hex::encode(commitment.root_hash))
     }
 
@@ -485,10 +506,10 @@ impl QueryRoot {
     #[instrument(skip(ctx))]
     async fn state_commitment(&self, ctx: &Context<'_>) -> FieldResult<StateCommitmentType> {
         let state = ctx.data::<ApiState>()?;
-        
+
         let vapp = state.vapp_integration.read().await;
         let commitment = vapp.get_current_state_commitment().await?;
-        
+
         Ok(StateCommitmentType {
             root_hash: hex::encode(commitment.root_hash),
             nullifier_count: commitment.nullifier_count as i64,
@@ -499,7 +520,7 @@ impl QueryRoot {
                 chain_id: commitment.settlement_data.chain_id as i64,
                 nonce: commitment.settlement_data.nonce as i64,
                 gas_price: commitment.settlement_data.gas_price as i64,
-                estimated_gas: 150000, // Placeholder
+                estimated_gas: 150_000, // Placeholder
             },
             last_updated: commitment.last_updated,
             version: 1,
@@ -508,13 +529,19 @@ impl QueryRoot {
 
     /// Get audit trail for a nullifier
     #[instrument(skip(ctx))]
-    async fn audit_trail(&self, ctx: &Context<'_>, input: AuditTrailQueryInput) -> FieldResult<Option<AuditTrailType>> {
+    async fn audit_trail(
+        &self,
+        ctx: &Context<'_>,
+        input: AuditTrailQueryInput,
+    ) -> FieldResult<Option<AuditTrailType>> {
         let state = ctx.data::<ApiState>()?;
-        
+
         let ads = state.ads.read().await;
         match ads.get_audit_trail(input.nullifier_value).await {
             Ok(audit_trail) => {
-                let events: Vec<AuditEventType> = audit_trail.operation_history.into_iter()
+                let events: Vec<AuditEventType> = audit_trail
+                    .operation_history
+                    .into_iter()
                     .map(|event| AuditEventType {
                         event_id: event.event_id,
                         event_type: format!("{:?}", event.event_type),
@@ -543,7 +570,7 @@ impl QueryRoot {
                     last_accessed: audit_trail.last_accessed,
                     risk_score: 0.1, // Would calculate
                 }))
-            },
+            }
             Err(_) => Ok(None),
         }
     }
@@ -552,18 +579,20 @@ impl QueryRoot {
     #[instrument(skip(ctx))]
     async fn performance_metrics(&self, ctx: &Context<'_>) -> FieldResult<PerformanceMetricsType> {
         let state = ctx.data::<ApiState>()?;
-        
+
         let vapp = state.vapp_integration.read().await;
         let metrics = vapp.get_metrics().await?;
-        
+
         Ok(PerformanceMetricsType {
             avg_insertion_time_ms: metrics.avg_insertion_time_ms,
             avg_proof_generation_time_ms: metrics.avg_proof_time_ms,
             total_operations: metrics.operations_total as i64,
             error_rate_percent: metrics.error_rate * 100.0,
-            operations_per_second: if metrics.avg_insertion_time_ms > 0.0 { 
-                1000.0 / metrics.avg_insertion_time_ms 
-            } else { 0.0 },
+            operations_per_second: if metrics.avg_insertion_time_ms > 0.0 {
+                1000.0 / metrics.avg_insertion_time_ms
+            } else {
+                0.0
+            },
         })
     }
 
@@ -571,11 +600,20 @@ impl QueryRoot {
     #[instrument(skip(ctx))]
     async fn health(&self, ctx: &Context<'_>) -> FieldResult<HealthStatusType> {
         let state = ctx.data::<ApiState>()?;
-        
-        let is_healthy = state.vapp_integration.read().await.health_check().await.unwrap_or(false);
-        
+
+        let is_healthy = state
+            .vapp_integration
+            .read()
+            .await
+            .health_check()
+            .await
+            .unwrap_or(false);
+
         let mut health_metrics = HashMap::new();
-        health_metrics.insert("ads_service".to_string(), if is_healthy { "healthy" } else { "degraded" }.to_string());
+        health_metrics.insert(
+            "ads_service".to_string(),
+            if is_healthy { "healthy" } else { "degraded" }.to_string(),
+        );
         health_metrics.insert("database".to_string(), "healthy".to_string());
         health_metrics.insert("tree_height".to_string(), "32".to_string());
         health_metrics.insert("constraint_optimization".to_string(), "8x".to_string());
@@ -602,14 +640,18 @@ pub struct MutationRoot;
 impl MutationRoot {
     /// Insert a single nullifier into the tree
     #[instrument(skip(ctx))]
-    async fn insert_nullifier(&self, ctx: &Context<'_>, input: InsertNullifierInput) -> FieldResult<StateTransitionType> {
+    async fn insert_nullifier(
+        &self,
+        ctx: &Context<'_>,
+        input: InsertNullifierInput,
+    ) -> FieldResult<StateTransitionType> {
         let state = ctx.data::<ApiState>()?;
-        
+
         info!("🔄 GraphQL: Inserting nullifier {}", input.value);
-        
+
         let vapp = state.vapp_integration.read().await;
         let response = vapp.process_nullifier_insertion(input.value).await?;
-        
+
         Ok(StateTransitionType {
             id: response.state_transition.id,
             old_root: hex::encode(response.state_transition.old_root),
@@ -630,41 +672,52 @@ impl MutationRoot {
 
     /// Insert multiple nullifiers in a batch
     #[instrument(skip(ctx))]
-    async fn batch_insert_nullifiers(&self, ctx: &Context<'_>, input: BatchInsertInput) -> FieldResult<OperationResult> {
+    async fn batch_insert_nullifiers(
+        &self,
+        ctx: &Context<'_>,
+        input: BatchInsertInput,
+    ) -> FieldResult<OperationResult> {
         let state = ctx.data::<ApiState>()?;
-        
-        info!("📦 GraphQL: Batch inserting {} nullifiers", input.values.len());
-        
+
+        info!(
+            "📦 GraphQL: Batch inserting {} nullifiers",
+            input.values.len()
+        );
+
         // Validate batch size
         if input.values.len() > state.config.max_batch_size {
             return Ok(OperationResult::Error(ErrorResult {
                 error_code: "BATCH_SIZE_EXCEEDED".to_string(),
-                message: format!("Batch size {} exceeds maximum {}", input.values.len(), state.config.max_batch_size),
+                message: format!(
+                    "Batch size {} exceeds maximum {}",
+                    input.values.len(),
+                    state.config.max_batch_size
+                ),
                 details: Some("Reduce batch size and try again".to_string()),
             }));
         }
-        
+
         let vapp = state.vapp_integration.read().await;
         match vapp.process_batch_insertions(&input.values).await {
             Ok(response) => {
                 let message = format!(
                     "Batch completed: {}/{} operations successful in {}ms",
-                    response.successful_operations, response.total_operations, response.processing_time_ms
+                    response.successful_operations,
+                    response.total_operations,
+                    response.processing_time_ms
                 );
-                
+
                 Ok(OperationResult::Success(SuccessResult {
                     message,
                     transaction_id: Some(response.batch_id),
                     processing_time_ms: response.processing_time_ms as i64,
                 }))
-            },
-            Err(e) => {
-                Ok(OperationResult::Error(ErrorResult {
-                    error_code: "BATCH_INSERT_FAILED".to_string(),
-                    message: "Batch insertion failed".to_string(),
-                    details: Some(e.to_string()),
-                }))
             }
+            Err(e) => Ok(OperationResult::Error(ErrorResult {
+                error_code: "BATCH_INSERT_FAILED".to_string(),
+                message: "Batch insertion failed".to_string(),
+                details: Some(e.to_string()),
+            })),
         }
     }
 
@@ -672,25 +725,21 @@ impl MutationRoot {
     #[instrument(skip(ctx))]
     async fn reset_metrics(&self, ctx: &Context<'_>) -> FieldResult<OperationResult> {
         let state = ctx.data::<ApiState>()?;
-        
+
         info!("🔄 GraphQL: Resetting performance metrics");
-        
+
         let ads = state.ads.write().await;
         match ads.reset_metrics().await {
-            Ok(_) => {
-                Ok(OperationResult::Success(SuccessResult {
-                    message: "Performance metrics reset successfully".to_string(),
-                    transaction_id: None,
-                    processing_time_ms: 0,
-                }))
-            },
-            Err(e) => {
-                Ok(OperationResult::Error(ErrorResult {
-                    error_code: "METRICS_RESET_FAILED".to_string(),
-                    message: "Failed to reset metrics".to_string(),
-                    details: Some(e.to_string()),
-                }))
-            }
+            Ok(_) => Ok(OperationResult::Success(SuccessResult {
+                message: "Performance metrics reset successfully".to_string(),
+                transaction_id: None,
+                processing_time_ms: 0,
+            })),
+            Err(e) => Ok(OperationResult::Error(ErrorResult {
+                error_code: "METRICS_RESET_FAILED".to_string(),
+                message: "Failed to reset metrics".to_string(),
+                details: Some(e.to_string()),
+            })),
         }
     }
 }
@@ -705,7 +754,10 @@ pub struct SubscriptionRoot;
 impl SubscriptionRoot {
     /// Subscribe to nullifier insertion events
     #[instrument(skip(self, _ctx))]
-    async fn nullifier_insertions(&self, _ctx: &Context<'_>) -> impl futures_util::stream::Stream<Item = StateTransitionType> {
+    async fn nullifier_insertions(
+        &self,
+        _ctx: &Context<'_>,
+    ) -> impl futures_util::stream::Stream<Item = StateTransitionType> {
         // This would be a real-time stream of insertions
         // For now, return an empty stream as placeholder
         tokio_stream::empty()
@@ -713,7 +765,10 @@ impl SubscriptionRoot {
 
     /// Subscribe to tree statistics updates
     #[instrument(skip(self, _ctx))]
-    async fn tree_stats_updates(&self, _ctx: &Context<'_>) -> impl futures_util::stream::Stream<Item = TreeStatsType> {
+    async fn tree_stats_updates(
+        &self,
+        _ctx: &Context<'_>,
+    ) -> impl futures_util::stream::Stream<Item = TreeStatsType> {
         // This would emit periodic tree statistics
         // For now, return an empty stream as placeholder
         tokio_stream::empty()
@@ -721,7 +776,10 @@ impl SubscriptionRoot {
 
     /// Subscribe to audit events
     #[instrument(skip(self, _ctx))]
-    async fn audit_events(&self, _ctx: &Context<'_>) -> impl futures_util::stream::Stream<Item = AuditEventType> {
+    async fn audit_events(
+        &self,
+        _ctx: &Context<'_>,
+    ) -> impl futures_util::stream::Stream<Item = AuditEventType> {
         // This would emit audit events in real-time
         // For now, return an empty stream as placeholder
         tokio_stream::empty()
@@ -773,7 +831,9 @@ pub fn create_context_with_state(_state: ApiState) -> Result<(), async_graphql::
 /// Validate GraphQL input parameters
 pub fn validate_nullifier_value(value: i64) -> Result<(), async_graphql::Error> {
     if value <= 0 {
-        Err(async_graphql::Error::new("Nullifier value must be positive"))
+        Err(async_graphql::Error::new(
+            "Nullifier value must be positive",
+        ))
     } else if value > i64::MAX - 1000 {
         Err(async_graphql::Error::new("Nullifier value too large"))
     } else {
@@ -787,7 +847,8 @@ pub fn validate_batch_size(size: usize, max_size: usize) -> Result<(), async_gra
         Err(async_graphql::Error::new("Batch cannot be empty"))
     } else if size > max_size {
         Err(async_graphql::Error::new(format!(
-            "Batch size {} exceeds maximum {}", size, max_size
+            "Batch size {} exceeds maximum {}",
+            size, max_size
         )))
     } else {
         Ok(())

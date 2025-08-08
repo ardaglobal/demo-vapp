@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{FromRow, PgPool, Row};
+use sqlx::{FromRow, PgPool};
 use tracing::{debug, error, info, instrument, warn};
 
 use crate::error::DbError;
@@ -93,10 +93,10 @@ pub struct AlgorithmInsertionResult {
 
 #[derive(Debug, Clone)]
 pub struct InsertionMetrics {
-    pub hash_operations: u32,     // Target: 3n + 3 = 99 for 32-level tree
-    pub range_checks: u32,        // Target: exactly 2
-    pub database_rounds: u32,     // Minimize round trips
-    pub constraints_count: u32,   // Target: ~200 vs ~1600 for 256-level
+    pub hash_operations: u32,   // Target: 3n + 3 = 99 for 32-level tree
+    pub range_checks: u32,      // Target: exactly 2
+    pub database_rounds: u32,   // Minimize round trips
+    pub constraints_count: u32, // Target: ~200 vs ~1600 for 256-level
 }
 
 // ============================================================================
@@ -114,12 +114,15 @@ impl NullifierDb {
     }
 
     #[instrument(skip(self), level = "debug")]
-    pub async fn find_low_nullifier(&self, new_value: i64) -> Result<Option<LowNullifier>, DbError> {
+    pub async fn find_low_nullifier(
+        &self,
+        new_value: i64,
+    ) -> Result<Option<LowNullifier>, DbError> {
         debug!("Finding low nullifier for value: {}", new_value);
 
         let result = sqlx::query!(
             r#"
-            SELECT low_value as value, low_next_index as next_index, 
+            SELECT low_value as value, low_next_index as next_index,
                    low_next_value as next_value, low_tree_index as tree_index
             FROM find_low_nullifier($1)
             "#,
@@ -156,7 +159,7 @@ impl NullifierDb {
         .fetch_one(&self.pool)
         .await
         .map_err(DbError::Database)?;
-        
+
         let count = count.unwrap_or(0);
 
         let exists = count > 0;
@@ -181,7 +184,7 @@ impl NullifierDb {
         // Update the low nullifier to point to our new nullifier
         let update_result = sqlx::query!(
             r#"
-            UPDATE nullifiers 
+            UPDATE nullifiers
             SET next_index = $1, next_value = $2
             WHERE value = $3 AND is_active = true
             "#,
@@ -193,7 +196,10 @@ impl NullifierDb {
         .await
         .map_err(DbError::Database)?;
 
-        debug!("Updated low nullifier, rows affected: {}", update_result.rows_affected());
+        debug!(
+            "Updated low nullifier, rows affected: {}",
+            update_result.rows_affected()
+        );
 
         // Insert new nullifier with pointers from old low_nullifier
         let new_nullifier = sqlx::query_as!(
@@ -214,7 +220,10 @@ impl NullifierDb {
 
         tx.commit().await.map_err(DbError::Database)?;
 
-        info!("Successfully inserted nullifier with id: {}", new_nullifier.id);
+        info!(
+            "Successfully inserted nullifier with id: {}",
+            new_nullifier.id
+        );
         Ok(new_nullifier)
     }
 
@@ -251,7 +260,9 @@ impl NullifierDb {
         let low_next_value = result.low_nullifier_next_value.unwrap_or(0);
 
         // Fetch the inserted nullifier
-        let nullifier = self.get_by_tree_index(tree_index).await?
+        let nullifier = self
+            .get_by_tree_index(tree_index)
+            .await?
             .ok_or_else(|| DbError::NotFound(format!("tree_index {}", tree_index)))?;
 
         let low_nullifier = LowNullifier {
@@ -267,7 +278,10 @@ impl NullifierDb {
             tree_index,
         };
 
-        info!("Atomic insertion successful for value: {} at tree_index: {}", new_value, tree_index);
+        info!(
+            "Atomic insertion successful for value: {} at tree_index: {}",
+            new_value, tree_index
+        );
         Ok(insertion_result)
     }
 
@@ -277,7 +291,7 @@ impl NullifierDb {
             Nullifier,
             r#"
             SELECT id, value, next_index, next_value as "next_value!", tree_index, created_at as "created_at!", is_active as "is_active!"
-            FROM nullifiers 
+            FROM nullifiers
             WHERE tree_index = $1 AND is_active = true
             "#,
             tree_index
@@ -295,7 +309,7 @@ impl NullifierDb {
             Nullifier,
             r#"
             SELECT id, value, next_index, next_value as "next_value!", tree_index, created_at as "created_at!", is_active as "is_active!"
-            FROM nullifiers 
+            FROM nullifiers
             WHERE value = $1 AND is_active = true
             "#,
             value
@@ -313,7 +327,7 @@ impl NullifierDb {
             Nullifier,
             r#"
             SELECT id, value, next_index, next_value as "next_value!", tree_index, created_at as "created_at!", is_active as "is_active!"
-            FROM nullifiers 
+            FROM nullifiers
             WHERE is_active = true
             ORDER BY value ASC
             "#
@@ -328,12 +342,10 @@ impl NullifierDb {
 
     #[instrument(skip(self), level = "debug")]
     pub async fn validate_chain(&self) -> Result<bool, DbError> {
-        let is_valid = sqlx::query_scalar!(
-            "SELECT validate_nullifier_chain()"
-        )
-        .fetch_one(&self.pool)
-        .await
-        .map_err(DbError::Database)?;
+        let is_valid = sqlx::query_scalar!("SELECT validate_nullifier_chain()")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(DbError::Database)?;
 
         let valid = is_valid.unwrap_or(false);
         if valid {
@@ -378,6 +390,11 @@ impl MerkleNodeDb {
         Self { pool }
     }
 
+    /// Upsert a Merkle tree node at the specified level and index
+    ///
+    /// # Errors
+    /// Returns `DbError::InvalidHashLength` if hash_value is not exactly 32 bytes
+    /// Returns `DbError::Database` if database operation fails
     #[instrument(skip(self, hash_value), level = "debug")]
     pub async fn upsert_node(
         &self,
@@ -406,17 +423,24 @@ impl MerkleNodeDb {
         .await
         .map_err(DbError::Database)?;
 
-        debug!("Upserted merkle node at level {} index {}", tree_level, node_index);
+        debug!(
+            "Upserted merkle node at level {} index {}",
+            tree_level, node_index
+        );
         Ok(node)
     }
 
     #[instrument(skip(self), level = "debug")]
-    pub async fn get_node(&self, tree_level: i32, node_index: i64) -> Result<Option<MerkleNode>, DbError> {
+    pub async fn get_node(
+        &self,
+        tree_level: i32,
+        node_index: i64,
+    ) -> Result<Option<MerkleNode>, DbError> {
         let node = sqlx::query_as!(
             MerkleNode,
             r#"
             SELECT tree_level, node_index, hash_value, updated_at as "updated_at!"
-            FROM merkle_nodes 
+            FROM merkle_nodes
             WHERE tree_level = $1 AND node_index = $2
             "#,
             tree_level,
@@ -435,7 +459,7 @@ impl MerkleNodeDb {
             MerkleNode,
             r#"
             SELECT tree_level, node_index, hash_value, updated_at as "updated_at!"
-            FROM merkle_nodes 
+            FROM merkle_nodes
             WHERE tree_level = $1
             ORDER BY node_index ASC
             "#,
@@ -467,12 +491,12 @@ impl TreeStateDb {
     #[instrument(skip(self), level = "debug")]
     pub async fn get_state(&self, tree_id: Option<&str>) -> Result<Option<TreeState>, DbError> {
         let id = tree_id.unwrap_or("default");
-        
+
         let state = sqlx::query_as!(
             TreeState,
             r#"
             SELECT tree_id, root_hash, next_available_index as "next_available_index!", tree_height as "tree_height!", total_nullifiers as "total_nullifiers!", updated_at as "updated_at!"
-            FROM tree_state 
+            FROM tree_state
             WHERE tree_id = $1
             "#,
             id
@@ -485,17 +509,21 @@ impl TreeStateDb {
     }
 
     #[instrument(skip(self, root_hash), level = "debug")]
-    pub async fn update_root(&self, root_hash: &[u8], tree_id: Option<&str>) -> Result<TreeState, DbError> {
+    pub async fn update_root(
+        &self,
+        root_hash: &[u8],
+        tree_id: Option<&str>,
+    ) -> Result<TreeState, DbError> {
         if root_hash.len() != 32 {
             return Err(DbError::InvalidHashLength(root_hash.len()));
         }
 
         let id = tree_id.unwrap_or("default");
-        
+
         let state = sqlx::query_as!(
             TreeState,
             r#"
-            UPDATE tree_state 
+            UPDATE tree_state
             SET root_hash = $1, updated_at = NOW()
             WHERE tree_id = $2
             RETURNING tree_id, root_hash, next_available_index as "next_available_index!", tree_height as "tree_height!", total_nullifiers as "total_nullifiers!", updated_at as "updated_at!"
@@ -512,13 +540,16 @@ impl TreeStateDb {
     }
 
     #[instrument(skip(self), level = "debug")]
-    pub async fn increment_nullifier_count(&self, tree_id: Option<&str>) -> Result<TreeState, DbError> {
+    pub async fn increment_nullifier_count(
+        &self,
+        tree_id: Option<&str>,
+    ) -> Result<TreeState, DbError> {
         let id = tree_id.unwrap_or("default");
-        
+
         let state = sqlx::query_as!(
             TreeState,
             r#"
-            UPDATE tree_state 
+            UPDATE tree_state
             SET total_nullifiers = total_nullifiers + 1, updated_at = NOW()
             WHERE tree_id = $1
             RETURNING tree_id, root_hash, next_available_index as "next_available_index!", tree_height as "tree_height!", total_nullifiers as "total_nullifiers!", updated_at as "updated_at!"
@@ -535,14 +566,10 @@ impl TreeStateDb {
 
     #[instrument(skip(self), level = "debug")]
     pub async fn get_next_index(&self, tree_id: Option<&str>) -> Result<i64, DbError> {
-        let id = tree_id.unwrap_or("default");
-        
-        let next_index = sqlx::query_scalar!(
-            "SELECT get_next_tree_index()"
-        )
-        .fetch_one(&self.pool)
-        .await
-        .map_err(DbError::Database)?;
+        let next_index = sqlx::query_scalar!("SELECT get_next_tree_index()")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(DbError::Database)?;
 
         let index = next_index.unwrap_or(0);
         debug!("Next available tree index: {}", index);
@@ -582,7 +609,6 @@ pub struct MerkleTreeDb {
     pub nullifiers: NullifierDb,
     pub nodes: MerkleNodeDb,
     pub state: TreeStateDb,
-    pool: PgPool,
 }
 
 impl MerkleTreeDb {
@@ -591,43 +617,48 @@ impl MerkleTreeDb {
             nullifiers: NullifierDb::new(pool.clone()),
             nodes: MerkleNodeDb::new(pool.clone()),
             state: TreeStateDb::new(pool.clone()),
-            pool,
         }
     }
 
     #[instrument(skip(self), level = "info")]
     pub async fn insert_nullifier_complete(&self, value: i64) -> Result<InsertionResult, DbError> {
         info!("Starting complete nullifier insertion for value: {}", value);
-        
+
         // Use the atomic insertion which handles the full 7-step process
         let result = self.nullifiers.atomic_insert(value).await?;
-        
+
         // Update tree state
         self.state.increment_nullifier_count(None).await?;
-        
+
         // Validate the chain integrity after insertion
         let chain_valid = self.nullifiers.validate_chain().await?;
         if !chain_valid {
             error!("Chain validation failed after inserting value: {}", value);
             return Err(DbError::ChainValidationFailed);
         }
-        
-        info!("Complete nullifier insertion successful for value: {}", value);
+
+        info!(
+            "Complete nullifier insertion successful for value: {}",
+            value
+        );
         Ok(result)
     }
-    
+
     #[instrument(skip(self), level = "debug")]
     pub async fn get_membership_proof(&self, value: i64) -> Result<bool, DbError> {
         self.nullifiers.exists(value).await
     }
-    
+
     #[instrument(skip(self), level = "debug")]
-    pub async fn get_non_membership_proof(&self, value: i64) -> Result<Option<LowNullifier>, DbError> {
+    pub async fn get_non_membership_proof(
+        &self,
+        value: i64,
+    ) -> Result<Option<LowNullifier>, DbError> {
         // For non-membership proof, we need the low nullifier
         if self.nullifiers.exists(value).await? {
             return Ok(None); // Value exists, no non-membership proof
         }
-        
+
         self.nullifiers.find_low_nullifier(value).await
     }
 }
@@ -640,22 +671,27 @@ impl MerkleTreeDb {
 pub struct IndexedMerkleTree {
     pub db: MerkleTreeDb,
     pub tree_height: usize, // Exactly 32 levels
-    pool: PgPool,
 }
 
 impl IndexedMerkleTree {
+    #[must_use]
     pub fn new(pool: PgPool) -> Self {
         Self {
             db: MerkleTreeDb::new(pool.clone()),
             tree_height: 32, // Fixed at 32 levels per spec
-            pool,
         }
     }
 
     /// Implements the exact 7-step nullifier insertion algorithm from transparency dictionaries paper
     #[instrument(skip(self), level = "info")]
-    pub async fn insert_nullifier(&mut self, new_nullifier: i64) -> Result<AlgorithmInsertionResult, DbError> {
-        info!("🚀 Starting 7-step nullifier insertion for value: {}", new_nullifier);
+    pub async fn insert_nullifier(
+        &mut self,
+        new_nullifier: i64,
+    ) -> Result<AlgorithmInsertionResult, DbError> {
+        info!(
+            "🚀 Starting 7-step nullifier insertion for value: {}",
+            new_nullifier
+        );
         let mut metrics = InsertionMetrics {
             hash_operations: 0,
             range_checks: 0,
@@ -669,59 +705,77 @@ impl IndexedMerkleTree {
         info!("📊 Old root: {:02x?}", &old_root[..8]);
 
         // STEP 1: Find low_nullifier
-        info!("🔍 Step 1: Finding low nullifier for value {}", new_nullifier);
+        info!(
+            "🔍 Step 1: Finding low nullifier for value {}",
+            new_nullifier
+        );
         metrics.database_rounds += 1;
-        let low_nullifier = self.db.nullifiers.find_low_nullifier(new_nullifier).await?
+        let low_nullifier = self
+            .db
+            .nullifiers
+            .find_low_nullifier(new_nullifier)
+            .await?
             .ok_or_else(|| DbError::NotFound("low nullifier".to_string()))?;
-        
-        debug!("Found low nullifier: value={}, next_value={}, tree_index={}", 
-            low_nullifier.value, low_nullifier.next_value, low_nullifier.tree_index);
+
+        debug!(
+            "Found low nullifier: value={}, next_value={}, tree_index={}",
+            low_nullifier.value, low_nullifier.next_value, low_nullifier.tree_index
+        );
 
         // STEP 2: Membership check
-        info!("✅ Step 2: Verifying low nullifier exists in tree");
         metrics.database_rounds += 1;
         if !self.db.nullifiers.exists(low_nullifier.value).await? {
             error!("Low nullifier {} not found in tree", low_nullifier.value);
-            return Err(DbError::NotFound(format!("Low nullifier {}", low_nullifier.value)));
+            return Err(DbError::NotFound(format!(
+                "Low nullifier {}",
+                low_nullifier.value
+            )));
         }
 
         // STEP 3: Range validation (exactly 2 range checks as per spec)
         info!("🔒 Step 3: Performing range validation");
-        
+
         // Range check 1: new_nullifier > low_nullifier.value
         metrics.range_checks += 1;
         if new_nullifier <= low_nullifier.value {
-            error!("Range check 1 failed: {} <= {}", new_nullifier, low_nullifier.value);
-            return Err(DbError::InvalidNullifierValue(
-                format!("New nullifier {} must be greater than low nullifier {}", 
-                    new_nullifier, low_nullifier.value)
-            ));
+            error!(
+                "Range check 1 failed: {} <= {}",
+                new_nullifier, low_nullifier.value
+            );
+            return Err(DbError::InvalidNullifierValue(format!(
+                "New nullifier {} must be greater than low nullifier {}",
+                new_nullifier, low_nullifier.value
+            )));
         }
-        debug!("✓ Range check 1 passed: {} > {}", new_nullifier, low_nullifier.value);
+        debug!(
+            "✓ Range check 1 passed: {} > {}",
+            new_nullifier, low_nullifier.value
+        );
 
         // Range check 2: new_nullifier < low_nullifier.next_value OR low_nullifier.next_value == 0
         metrics.range_checks += 2;
         if low_nullifier.next_value != 0 && new_nullifier >= low_nullifier.next_value {
-            error!("Range check 2 failed: {} >= {} (next_value)", new_nullifier, low_nullifier.next_value);
-            return Err(DbError::InvalidNullifierValue(
-                format!("New nullifier {} must be less than next value {}", 
-                    new_nullifier, low_nullifier.next_value)
-            ));
+            error!(
+                "Range check 2 failed: {} >= {} (next_value)",
+                new_nullifier, low_nullifier.next_value
+            );
+            return Err(DbError::InvalidNullifierValue(format!(
+                "New nullifier {} must be less than next value {}",
+                new_nullifier, low_nullifier.next_value
+            )));
         }
-        debug!("✓ Range check 2 passed: {} < {} or next_value is max (0)", 
-            new_nullifier, low_nullifier.next_value);
 
         // Get next available tree index
         metrics.database_rounds += 1;
         let new_tree_index = self.db.state.get_next_index(None).await?;
-        info!("📍 Assigned tree index {} for new nullifier", new_tree_index);
+        info!(
+            "📍 Assigned tree index {} for new nullifier",
+            new_tree_index
+        );
 
         // Store the low_nullifier state before update for proof generation
         let low_nullifier_before = low_nullifier.clone();
 
-        // STEPS 4-7: Atomic insertion with pointer updates
-        info!("🔄 Steps 4-7: Executing atomic insertion with pointer updates");
-        
         // Create the low_nullifier state after update
         let low_nullifier_after = LowNullifier {
             value: low_nullifier.value,
@@ -732,20 +786,25 @@ impl IndexedMerkleTree {
 
         // Execute the atomic insertion
         metrics.database_rounds += 1;
-        let new_nullifier_entry = self.db.nullifiers.insert_with_update(
-            new_nullifier,
-            new_tree_index,
-            &low_nullifier,
-        ).await?;
+        let new_nullifier_entry = self
+            .db
+            .nullifiers
+            .insert_with_update(new_nullifier, new_tree_index, &low_nullifier)
+            .await?;
 
-        info!("✅ Successfully inserted nullifier with ID: {}", new_nullifier_entry.id);
+        info!(
+            "✅ Successfully inserted nullifier with ID: {}",
+            new_nullifier_entry.id
+        );
 
         // Update Merkle tree with both changes (hash operations counted here)
-        let tree_update_metrics = self.update_tree_for_insertion(
-            &low_nullifier_before,
-            &low_nullifier_after,
-            &new_nullifier_entry,
-        ).await?;
+        let tree_update_metrics = self
+            .update_tree_for_insertion(
+                &low_nullifier_before,
+                &low_nullifier_after,
+                &new_nullifier_entry,
+            )
+            .await?;
         metrics.hash_operations += tree_update_metrics;
 
         // Get new root after changes
@@ -754,17 +813,19 @@ impl IndexedMerkleTree {
         info!("📊 New root: {:02x?}", &new_root[..8]);
 
         // Generate proofs (additional hash operations)
-        let (insertion_proof, proof_metrics) = self.generate_insertion_proof(
-            &low_nullifier_before,
-            &low_nullifier_after,
-            &new_nullifier_entry,
-        ).await?;
+        let (insertion_proof, proof_metrics) = self
+            .generate_insertion_proof(
+                &low_nullifier_before,
+                &low_nullifier_after,
+                &new_nullifier_entry,
+            )
+            .await?;
         metrics.hash_operations += proof_metrics;
 
         // Calculate total constraints for ZK circuit
         metrics.constraints_count = self.calculate_constraints(&metrics);
 
-        info!("🎯 Insertion complete - Metrics: {} hashes, {} range checks, {} DB rounds, {} constraints", 
+        info!("🎯 Insertion complete - Metrics: {} hashes, {} range checks, {} DB rounds, {} constraints",
             metrics.hash_operations, metrics.range_checks, metrics.database_rounds, metrics.constraints_count);
 
         Ok(AlgorithmInsertionResult {
@@ -784,7 +845,11 @@ impl IndexedMerkleTree {
         hasher.update(nullifier.next_index.unwrap_or(0).to_be_bytes());
         hasher.update(nullifier.next_value.to_be_bytes());
         let result: [u8; 32] = hasher.finalize().into();
-        debug!("Hashed nullifier leaf: value={}, hash={:02x?}", nullifier.value, &result[..8]);
+        debug!(
+            "Hashed nullifier leaf: value={}, hash={:02x?}",
+            nullifier.value,
+            &result[..8]
+        );
         result
     }
 
@@ -796,7 +861,11 @@ impl IndexedMerkleTree {
         hasher.update(low_nullifier.next_index.unwrap_or(0).to_be_bytes());
         hasher.update(low_nullifier.next_value.to_be_bytes());
         let result: [u8; 32] = hasher.finalize().into();
-        debug!("Hashed low nullifier leaf: value={}, hash={:02x?}", low_nullifier.value, &result[..8]);
+        debug!(
+            "Hashed low nullifier leaf: value={}, hash={:02x?}",
+            low_nullifier.value,
+            &result[..8]
+        );
         result
     }
 
@@ -811,9 +880,12 @@ impl IndexedMerkleTree {
 
     /// Efficiently update tree for both low_nullifier and new_nullifier
     /// Returns the number of hash operations performed
-    #[instrument(skip(self, low_nullifier_before, low_nullifier_after, new_nullifier), level = "debug")]
+    #[instrument(
+        skip(self, low_nullifier_before, low_nullifier_after, new_nullifier),
+        level = "debug"
+    )]
     async fn update_tree_for_insertion(
-        &mut self,
+        &self,
         low_nullifier_before: &LowNullifier,
         low_nullifier_after: &LowNullifier,
         new_nullifier: &Nullifier,
@@ -825,16 +897,24 @@ impl IndexedMerkleTree {
         // Update 1: Hash the updated low_nullifier leaf (1 hash)
         hash_count += 1;
         let updated_low_hash = self.hash_low_nullifier_leaf(low_nullifier_after);
-        
-        self.update_leaf(low_nullifier_before.tree_index as usize, updated_low_hash).await?;
-        debug!("Updated low nullifier leaf at index {}", low_nullifier_before.tree_index);
+
+        self.update_leaf(low_nullifier_before.tree_index as usize, updated_low_hash)
+            .await?;
+        debug!(
+            "Updated low nullifier leaf at index {}",
+            low_nullifier_before.tree_index
+        );
 
         // Update 2: Hash the new nullifier leaf (1 hash)
         hash_count += 1;
         let new_nullifier_hash = self.hash_nullifier_leaf(new_nullifier);
-        
-        self.update_leaf(new_nullifier.tree_index as usize, new_nullifier_hash).await?;
-        debug!("Inserted new nullifier leaf at index {}", new_nullifier.tree_index);
+
+        self.update_leaf(new_nullifier.tree_index as usize, new_nullifier_hash)
+            .await?;
+        debug!(
+            "Inserted new nullifier leaf at index {}",
+            new_nullifier.tree_index
+        );
 
         // For each path to root update, we do (tree_height) hashes
         // Two paths * 32 levels = 64 hash operations for path updates
@@ -849,11 +929,18 @@ impl IndexedMerkleTree {
 
     /// Update a specific leaf and propagate changes to root
     #[instrument(skip(self, leaf_hash), level = "debug")]
-    async fn update_leaf(&mut self, leaf_index: usize, leaf_hash: [u8; 32]) -> Result<(), DbError> {
-        debug!("Updating leaf at index {} with hash {:02x?}", leaf_index, &leaf_hash[..8]);
-        
+    async fn update_leaf(&self, leaf_index: usize, leaf_hash: [u8; 32]) -> Result<(), DbError> {
+        debug!(
+            "Updating leaf at index {} with hash {:02x?}",
+            leaf_index,
+            &leaf_hash[..8]
+        );
+
         // Store leaf node (level 0)
-        self.db.nodes.upsert_node(0, leaf_index as i64, &leaf_hash).await?;
+        self.db
+            .nodes
+            .upsert_node(0, leaf_index as i64, &leaf_hash)
+            .await?;
 
         // Propagate changes up the tree
         let mut current_hash = leaf_hash;
@@ -862,14 +949,19 @@ impl IndexedMerkleTree {
         for level in 1..=self.tree_height {
             let parent_index = current_index / 2;
             let is_right_child = current_index % 2 == 1;
-            let sibling_index = if is_right_child { 
-                current_index - 1 
-            } else { 
-                current_index + 1 
+            let sibling_index = if is_right_child {
+                current_index - 1
+            } else {
+                current_index + 1
             };
 
             // Get sibling hash (or use zero hash if sibling doesn't exist)
-            let sibling_hash = match self.db.nodes.get_node(level as i32 - 1, sibling_index as i64).await? {
+            let sibling_hash = match self
+                .db
+                .nodes
+                .get_node(level as i32 - 1, sibling_index as i64)
+                .await?
+            {
                 Some(node) => {
                     let mut hash = [0u8; 32];
                     hash.copy_from_slice(&node.hash_value);
@@ -886,7 +978,10 @@ impl IndexedMerkleTree {
             };
 
             // Store parent node
-            self.db.nodes.upsert_node(level as i32, parent_index as i64, &parent_hash).await?;
+            self.db
+                .nodes
+                .upsert_node(level as i32, parent_index as i64, &parent_hash)
+                .await?;
 
             current_hash = parent_hash;
             current_index = parent_index;
@@ -900,13 +995,21 @@ impl IndexedMerkleTree {
     }
 
     /// Generate Merkle proof for a specific leaf
+    ///
+    /// # Errors
+    /// Returns `DbError::NotFound` if the leaf at the specified index doesn't exist
+    /// Returns `DbError::Database` if database operation fails
     #[instrument(skip(self), level = "debug")]
     pub async fn generate_merkle_proof(&self, leaf_index: i64) -> Result<MerkleProof, DbError> {
         debug!("Generating Merkle proof for leaf index {}", leaf_index);
-        
-        let leaf_node = self.db.nodes.get_node(0, leaf_index).await?
+
+        let leaf_node = self
+            .db
+            .nodes
+            .get_node(0, leaf_index)
+            .await?
             .ok_or_else(|| DbError::NotFound(format!("leaf at index {}", leaf_index)))?;
-        
+
         let mut leaf_hash = [0u8; 32];
         leaf_hash.copy_from_slice(&leaf_node.hash_value);
 
@@ -916,10 +1019,10 @@ impl IndexedMerkleTree {
 
         for level in 0..self.tree_height {
             let is_right_child = current_index % 2 == 1;
-            let sibling_index = if is_right_child { 
-                current_index - 1 
-            } else { 
-                current_index + 1 
+            let sibling_index = if is_right_child {
+                current_index - 1
+            } else {
+                current_index + 1
             };
 
             // Get sibling hash
@@ -934,7 +1037,7 @@ impl IndexedMerkleTree {
 
             siblings.push(sibling_hash);
             path_indices.push(is_right_child);
-            
+
             current_index = current_index / 2;
         }
 
@@ -948,7 +1051,10 @@ impl IndexedMerkleTree {
 
     /// Generate complete insertion proof with both low_nullifier and new_nullifier proofs
     /// Returns (proof, hash_operations_count)
-    #[instrument(skip(self, low_nullifier_before, low_nullifier_after, new_nullifier), level = "debug")]
+    #[instrument(
+        skip(self, low_nullifier_before, low_nullifier_after, new_nullifier),
+        level = "debug"
+    )]
     async fn generate_insertion_proof(
         &self,
         low_nullifier_before: &LowNullifier,
@@ -956,9 +1062,11 @@ impl IndexedMerkleTree {
         new_nullifier: &Nullifier,
     ) -> Result<(InsertionProof, u32), DbError> {
         info!("🔐 Generating insertion proof");
-        
+
         // Generate proofs (each proof generation involves tree_height hash operations for verification)
-        let low_nullifier_proof = self.generate_merkle_proof(low_nullifier_before.tree_index).await?;
+        let low_nullifier_proof = self
+            .generate_merkle_proof(low_nullifier_before.tree_index)
+            .await?;
         let new_nullifier_proof = self.generate_merkle_proof(new_nullifier.tree_index).await?;
 
         // Hash operations for proof generation: 2 * tree_height = 2 * 32 = 64 operations
@@ -979,9 +1087,13 @@ impl IndexedMerkleTree {
     /// Get current root hash from tree state
     #[instrument(skip(self), level = "debug")]
     pub async fn get_root(&self) -> Result<[u8; 32], DbError> {
-        let state = self.db.state.get_state(None).await?
+        let state = self
+            .db
+            .state
+            .get_state(None)
+            .await?
             .ok_or_else(|| DbError::NotFound("tree state".to_string()))?;
-        
+
         let mut root = [0u8; 32];
         root.copy_from_slice(&state.root_hash);
         Ok(root)
@@ -991,13 +1103,13 @@ impl IndexedMerkleTree {
     fn calculate_constraints(&self, metrics: &InsertionMetrics) -> u32 {
         // Constraint calculation based on paper specifications:
         // - Hash operations: each SHA-256 ≈ 27,000 R1CS constraints, but we use Poseidon in ZK (≈ 8 constraints)
-        // - Range checks: ≈ 250 constraints each for 64-bit values  
+        // - Range checks: ≈ 250 constraints each for 64-bit values
         // - Equality constraints: ≈ 1 constraint each
-        
+
         let hash_constraints = metrics.hash_operations * 8; // Poseidon hash constraints
         let range_constraints = metrics.range_checks * 250; // 64-bit range check constraints
         let equality_constraints = 10u32; // Fixed equality constraints for the algorithm
-        
+
         hash_constraints + range_constraints + equality_constraints
     }
 
@@ -1010,7 +1122,7 @@ impl IndexedMerkleTree {
             return false;
         }
 
-        // Verify new nullifier proof  
+        // Verify new nullifier proof
         if !self.verify_merkle_proof(&proof.new_nullifier_proof, root) {
             warn!("New nullifier proof verification failed");
             return false;
@@ -1030,7 +1142,7 @@ impl IndexedMerkleTree {
     #[instrument(skip(self, proof, root), level = "debug")]
     fn verify_merkle_proof(&self, proof: &MerkleProof, root: &[u8; 32]) -> bool {
         let mut current_hash = proof.leaf_hash;
-        
+
         for (sibling, is_right) in proof.siblings.iter().zip(proof.path_indices.iter()) {
             current_hash = if *is_right {
                 self.hash_internal_node(sibling, &current_hash)

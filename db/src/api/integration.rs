@@ -6,7 +6,6 @@ use tokio::sync::RwLock;
 use tracing::{info, instrument, warn};
 
 use crate::ads_service::IndexedMerkleTreeADS;
-use crate::api::middleware::{AuthConfig, MiddlewareBuilder, ValidationConfig};
 use crate::api::rest::{ApiConfig, ApiState};
 use crate::api::server::{ApiServer, ApiServerConfig};
 use crate::vapp_integration::VAppAdsIntegration;
@@ -19,7 +18,6 @@ use crate::vapp_integration::VAppAdsIntegration;
 pub struct VAppApiIntegration {
     api_server: ApiServer,
     integration_config: VAppIntegrationConfig,
-    health_monitor: HealthMonitor,
 }
 
 /// Configuration for vApp API integration
@@ -79,13 +77,6 @@ impl Default for VAppIntegrationConfig {
 // HEALTH MONITORING
 // ============================================================================
 
-/// Health monitor for API services
-#[derive(Debug, Clone)]
-pub struct HealthMonitor {
-    checks: Vec<HealthCheck>,
-    last_check_time: std::sync::Arc<std::sync::Mutex<Option<std::time::Instant>>>,
-}
-
 #[derive(Debug, Clone)]
 pub struct HealthCheck {
     pub name: String,
@@ -136,204 +127,6 @@ pub struct BuildInfo {
     pub commit: String,
     pub build_date: String,
     pub rust_version: String,
-}
-
-impl HealthMonitor {
-    pub fn new() -> Self {
-        Self {
-            checks: vec![
-                HealthCheck {
-                    name: "database".to_string(),
-                    endpoint: "/health/db".to_string(),
-                    timeout_seconds: 5,
-                    critical: true,
-                },
-                HealthCheck {
-                    name: "ads_service".to_string(),
-                    endpoint: "/health/ads".to_string(),
-                    timeout_seconds: 3,
-                    critical: true,
-                },
-                HealthCheck {
-                    name: "vapp_integration".to_string(),
-                    endpoint: "/health/vapp".to_string(),
-                    timeout_seconds: 5,
-                    critical: false,
-                },
-            ],
-            last_check_time: Arc::new(std::sync::Mutex::new(None)),
-        }
-    }
-
-    pub async fn perform_health_check(&self, api_state: &ApiState) -> HealthStatus {
-        let start_time = std::time::Instant::now();
-        let mut check_results = Vec::new();
-        let mut overall_status = ServiceStatus::Healthy;
-
-        // Check database health
-        let db_check = self.check_database_health(api_state).await;
-        if matches!(db_check.status, CheckStatus::Critical) {
-            overall_status = ServiceStatus::Unhealthy;
-        } else if matches!(db_check.status, CheckStatus::Warning)
-            && matches!(overall_status, ServiceStatus::Healthy)
-        {
-            overall_status = ServiceStatus::Degraded;
-        }
-        check_results.push(db_check);
-
-        // Check ADS service health
-        let ads_check = self.check_ads_health(api_state).await;
-        if matches!(ads_check.status, CheckStatus::Critical) {
-            overall_status = ServiceStatus::Unhealthy;
-        } else if matches!(ads_check.status, CheckStatus::Warning)
-            && matches!(overall_status, ServiceStatus::Healthy)
-        {
-            overall_status = ServiceStatus::Degraded;
-        }
-        check_results.push(ads_check);
-
-        // Check vApp integration health
-        let vapp_check = self.check_vapp_health(api_state).await;
-        if matches!(vapp_check.status, CheckStatus::Critical) {
-            overall_status = ServiceStatus::Unhealthy;
-        } else if matches!(vapp_check.status, CheckStatus::Warning)
-            && matches!(overall_status, ServiceStatus::Healthy)
-        {
-            overall_status = ServiceStatus::Degraded;
-        }
-        check_results.push(vapp_check);
-
-        // Update last check time
-        if let Ok(mut last_check) = self.last_check_time.lock() {
-            *last_check = Some(start_time);
-        }
-
-        HealthStatus {
-            service_id: "indexed-merkle-tree-api".to_string(),
-            status: overall_status,
-            timestamp: chrono::Utc::now(),
-            checks: check_results,
-            uptime_seconds: 0, // Would track actual uptime
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            build_info: BuildInfo {
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                commit: "unknown".to_string(), // Would be populated by build system
-                build_date: "unknown".to_string(), // Would be populated by build system
-                rust_version: "1.70+".to_string(),
-            },
-        }
-    }
-
-    async fn check_database_health(&self, api_state: &ApiState) -> HealthCheckResult {
-        let start = std::time::Instant::now();
-
-        // Try to get ADS service health
-        let ads = api_state.ads.read().await;
-        let result = ads.health_check().await;
-        drop(ads);
-
-        let duration = start.elapsed();
-
-        match result {
-            Ok(true) => HealthCheckResult {
-                name: "database".to_string(),
-                status: CheckStatus::Passing,
-                duration_ms: duration.as_millis() as u64,
-                message: Some("Database connection healthy".to_string()),
-                last_success: Some(chrono::Utc::now()),
-            },
-            Ok(false) => HealthCheckResult {
-                name: "database".to_string(),
-                status: CheckStatus::Warning,
-                duration_ms: duration.as_millis() as u64,
-                message: Some("Database health check returned false".to_string()),
-                last_success: None,
-            },
-            Err(e) => HealthCheckResult {
-                name: "database".to_string(),
-                status: CheckStatus::Critical,
-                duration_ms: duration.as_millis() as u64,
-                message: Some(format!("Database error: {}", e)),
-                last_success: None,
-            },
-        }
-    }
-
-    async fn check_ads_health(&self, api_state: &ApiState) -> HealthCheckResult {
-        let start = std::time::Instant::now();
-
-        // Try to get ADS metrics as a health indicator
-        let ads = api_state.ads.read().await;
-        let result = ads.get_metrics().await;
-        drop(ads);
-
-        let duration = start.elapsed();
-
-        match result {
-            Ok(metrics) => {
-                let status = if metrics.error_rate > 0.1 {
-                    // More than 10% error rate
-                    CheckStatus::Warning
-                } else {
-                    CheckStatus::Passing
-                };
-
-                HealthCheckResult {
-                    name: "ads_service".to_string(),
-                    status,
-                    duration_ms: duration.as_millis() as u64,
-                    message: Some(format!(
-                        "ADS service healthy - {} operations, {:.2}% error rate",
-                        metrics.operations_total,
-                        metrics.error_rate * 100.0
-                    )),
-                    last_success: Some(chrono::Utc::now()),
-                }
-            }
-            Err(e) => HealthCheckResult {
-                name: "ads_service".to_string(),
-                status: CheckStatus::Critical,
-                duration_ms: duration.as_millis() as u64,
-                message: Some(format!("ADS service error: {}", e)),
-                last_success: None,
-            },
-        }
-    }
-
-    async fn check_vapp_health(&self, api_state: &ApiState) -> HealthCheckResult {
-        let start = std::time::Instant::now();
-
-        // Try to get vApp integration health
-        let vapp = api_state.vapp_integration.read().await;
-        let result = vapp.health_check().await;
-        drop(vapp);
-
-        let duration = start.elapsed();
-
-        match result {
-            Ok(true) => HealthCheckResult {
-                name: "vapp_integration".to_string(),
-                status: CheckStatus::Passing,
-                duration_ms: duration.as_millis() as u64,
-                message: Some("vApp integration healthy".to_string()),
-                last_success: Some(chrono::Utc::now()),
-            },
-            Ok(false) => HealthCheckResult {
-                name: "vapp_integration".to_string(),
-                status: CheckStatus::Warning,
-                duration_ms: duration.as_millis() as u64,
-                message: Some("vApp integration health check returned false".to_string()),
-                last_success: None,
-            },
-            Err(e) => HealthCheckResult {
-                name: "vapp_integration".to_string(),
-                status: CheckStatus::Critical,
-                duration_ms: duration.as_millis() as u64,
-                message: Some(format!("vApp integration error: {}", e)),
-                last_success: None,
-            },
-        }
-    }
 }
 
 // ============================================================================
@@ -498,9 +291,6 @@ impl VAppApiIntegration {
         // Create API server
         let api_server = ApiServer::new(ads, vapp_integration, api_server_config).await?;
 
-        // Create health monitor
-        let health_monitor = HealthMonitor::new();
-
         // Create integration configuration
         let integration_config = VAppIntegrationConfig {
             server_id: format!("vapp-api-{}", uuid::Uuid::new_v4()),
@@ -514,7 +304,6 @@ impl VAppApiIntegration {
         let integration = Self {
             api_server,
             integration_config,
-            health_monitor,
         };
 
         info!("✅ vApp API integration initialized successfully");
@@ -541,17 +330,6 @@ impl VAppApiIntegration {
 
         // Add metrics endpoint if monitoring is enabled
         router = router.route("/metrics", axum::routing::get(metrics_endpoint));
-
-        // Add middleware layers based on configuration
-        let middleware_builder = MiddlewareBuilder::new()
-            .with_rate_limiting(self.api_server.config().rate_limit_per_minute)
-            .with_validation(ValidationConfig::default())
-            .with_auth(AuthConfig {
-                enabled: self.api_server.config().api_key_required,
-                ..Default::default()
-            })
-            .enable_logging(true)
-            .enable_metrics(true);
 
         info!("✅ Production router built successfully");
         router

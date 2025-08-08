@@ -90,6 +90,9 @@ pub struct ApiServer {
 
 impl ApiServer {
     /// Create new API server with configuration
+    ///
+    /// # Errors
+    /// Returns error if server initialization fails
     #[instrument(skip(ads, vapp_integration), level = "info")]
     pub async fn new(
         ads: Arc<RwLock<IndexedMerkleTreeADS>>,
@@ -113,6 +116,7 @@ impl ApiServer {
 
     /// Build the complete router with all endpoints
     #[instrument(skip(self), level = "info")]
+    #[must_use]
     pub fn create_router(&self) -> Router<ApiState> {
         info!("🔧 Building API router");
 
@@ -199,11 +203,13 @@ impl ApiServer {
     }
 
     /// Get server configuration
-    pub fn config(&self) -> &ApiServerConfig {
+    #[must_use]
+    pub const fn config(&self) -> &ApiServerConfig {
         &self.config
     }
 
     /// Get server bind address
+    #[must_use]
     pub fn bind_address(&self) -> String {
         format!("{}:{}", self.config.host, self.config.port)
     }
@@ -215,7 +221,7 @@ impl ApiServer {
 
 /// GraphQL query/mutation handler
 #[instrument(skip(req), level = "info")]
-async fn graphql_handler(State(_state): State<ApiState>, req: GraphQLRequest) -> GraphQLResponse {
+async fn graphql_handler(State(state): State<ApiState>, req: GraphQLRequest) -> GraphQLResponse {
     info!("🔄 Processing GraphQL request");
     let schema = create_schema();
     schema.execute(req.into_inner()).await.into()
@@ -224,7 +230,7 @@ async fn graphql_handler(State(_state): State<ApiState>, req: GraphQLRequest) ->
 /// GraphQL subscription handler (WebSocket)
 #[instrument(level = "info")]
 async fn graphql_subscription_handler(
-    State(_state): State<ApiState>,
+    State(state): State<ApiState>,
     ws: axum::extract::WebSocketUpgrade,
 ) -> impl IntoResponse {
     info!("🔄 Establishing GraphQL subscription connection");
@@ -355,62 +361,77 @@ pub struct ApiServerBuilder {
 }
 
 impl ApiServerBuilder {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             config: ApiServerConfig::default(),
         }
     }
 
+    #[must_use]
     pub fn host(mut self, host: impl Into<String>) -> Self {
         self.config.host = host.into();
         self
     }
 
-    pub fn port(mut self, port: u16) -> Self {
+    #[must_use]
+    pub const fn port(mut self, port: u16) -> Self {
         self.config.port = port;
         self
     }
 
+    #[must_use]
     pub fn api_config(mut self, config: ApiConfig) -> Self {
         self.config.api_config = config;
         self
     }
 
-    pub fn enable_rest(mut self, enabled: bool) -> Self {
+    #[must_use]
+    pub const fn enable_rest(mut self, enabled: bool) -> Self {
         self.config.enable_rest = enabled;
         self
     }
 
-    pub fn enable_graphql(mut self, enabled: bool) -> Self {
+    #[must_use]
+    pub const fn enable_graphql(mut self, enabled: bool) -> Self {
         self.config.enable_graphql = enabled;
         self
     }
 
-    pub fn enable_playground(mut self, enabled: bool) -> Self {
+    #[must_use]
+    pub const fn enable_playground(mut self, enabled: bool) -> Self {
         self.config.enable_playground = enabled;
         self
     }
 
-    pub fn enable_subscriptions(mut self, enabled: bool) -> Self {
+    #[must_use]
+    pub const fn enable_subscriptions(mut self, enabled: bool) -> Self {
         self.config.enable_subscriptions = enabled;
         self
     }
 
+    #[must_use]
     pub fn cors_origins(mut self, origins: Vec<String>) -> Self {
         self.config.cors_origins = origins;
         self
     }
 
-    pub fn request_timeout(mut self, seconds: u64) -> Self {
+    #[must_use]
+    pub const fn request_timeout(mut self, seconds: u64) -> Self {
         self.config.request_timeout_seconds = seconds;
         self
     }
 
-    pub fn max_request_size(mut self, bytes: usize) -> Self {
+    #[must_use]
+    pub const fn max_request_size(mut self, bytes: usize) -> Self {
         self.config.max_request_size_bytes = bytes;
         self
     }
 
+    /// Build the API server with the current configuration
+    ///
+    /// # Errors
+    /// Returns error if server initialization fails
     pub async fn build(
         self,
         ads: Arc<RwLock<IndexedMerkleTreeADS>>,

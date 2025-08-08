@@ -347,7 +347,7 @@ impl IndexedMerkleTreeADS {
     /// Generate unique transaction ID
     fn generate_transaction_id() -> String {
         use sha2::{Digest, Sha256};
-        let timestamp = Utc::now().timestamp_nanos();
+        let timestamp = Utc::now().timestamp_nanos_opt().unwrap();
         let random_bytes = rand::random::<[u8; 8]>();
         let mut hasher = Sha256::new();
         hasher.update(timestamp.to_be_bytes());
@@ -465,7 +465,7 @@ impl IndexedMerkleTreeADS {
     }
 
     /// Get current block height (placeholder - integrate with actual vApp)
-    async fn get_current_block_height(&self) -> Result<u64, AdsError> {
+    fn get_current_block_height(&self) -> Result<u64, AdsError> {
         // This would integrate with your vApp's block tracking
         // For now, return a placeholder value
         Ok(1000) // Placeholder
@@ -528,7 +528,7 @@ impl AuthenticatedDataStructure for IndexedMerkleTreeADS {
         let witnesses = self.generate_witness_data(&insertion_result);
 
         // Get current block height
-        let block_height = self.get_current_block_height().await?;
+        let block_height = self.get_current_block_height()?;
 
         // Create state transition
         let transition_id = Self::generate_transaction_id();
@@ -648,7 +648,7 @@ impl AuthenticatedDataStructure for IndexedMerkleTreeADS {
         };
 
         // Record audit event
-        let block_height = self.get_current_block_height().await?;
+        let block_height = self.get_current_block_height()?;
         self.record_audit_event(
             value,
             AuditEventType::MembershipProof,
@@ -732,7 +732,7 @@ impl AuthenticatedDataStructure for IndexedMerkleTreeADS {
         };
 
         // Record audit event
-        let block_height = self.get_current_block_height().await?;
+        let block_height = self.get_current_block_height()?;
         self.record_audit_event(
             value,
             AuditEventType::NonMembershipProof,

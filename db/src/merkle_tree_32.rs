@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Postgres, Row, Transaction};
+use sqlx::{PgPool, Postgres, Transaction};
 use std::collections::HashMap;
 use tracing::{debug, info, instrument, warn};
 
@@ -61,28 +61,42 @@ impl MerkleTree32 {
     #[instrument(skip(pool), level = "info")]
     pub fn new(pool: PgPool) -> Self {
         info!("🌳 Initializing 32-level Merkle tree");
-        let height = 32;
-        let zero_hashes = Self::compute_zero_hashes(height);
+        let tree_height = 32;
+        let zero_hashes = Self::compute_zero_hashes(tree_height);
 
         debug!(
             "Precomputed {} zero hashes for tree optimization",
             zero_hashes.len()
         );
-        debug!("Tree capacity: 2^{} = {} leaves", height, (1u64 << height));
+        debug!(
+            "Tree capacity: 2^{} = {} leaves",
+            tree_height,
+            (1u64 << tree_height)
+        );
 
         Self {
             pool,
-            height,
+            height: tree_height,
             zero_hashes,
         }
+    }
+
+    /// Get the tree height (always 32)
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
+    /// Get a reference to the precomputed zero hashes
+    pub fn zero_hashes(&self) -> &Vec<[u8; 32]> {
+        &self.zero_hashes
     }
 
     /// Precompute zero hashes for empty subtrees at each level
     /// This eliminates database lookups for empty nodes, significantly improving performance
     #[instrument(level = "debug")]
-    fn compute_zero_hashes(height: usize) -> Vec<[u8; 32]> {
-        info!("🔢 Computing zero hashes for {} levels", height);
-        let mut zero_hashes = Vec::with_capacity(height + 1);
+    fn compute_zero_hashes(tree_height: usize) -> Vec<[u8; 32]> {
+        info!("🔢 Computing zero hashes for {} levels", tree_height);
+        let mut zero_hashes = Vec::with_capacity(tree_height + 1);
 
         // Level 0: hash of empty leaf (zero bytes)
         let mut hasher = Sha256::new();
@@ -93,7 +107,7 @@ impl MerkleTree32 {
         debug!("Level 0 zero hash: {:02x?}", &level0_hash[..8]);
 
         // Each level: hash of two zero hashes from level below
-        for level in 1..=height {
+        for level in 1..=tree_height {
             let mut hasher = Sha256::new();
             hasher.update(&zero_hashes[level - 1]);
             hasher.update(&zero_hashes[level - 1]);

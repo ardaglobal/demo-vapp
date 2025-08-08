@@ -376,7 +376,7 @@ async fn health_check(
         match ads.health_check().await {
             Ok(_) => ServiceStatus {
                 healthy: true,
-                latency_ms: Some(start_time.elapsed().as_millis() as u64),
+                latency_ms: Some(u64::try_from(start_time.elapsed().as_millis()).unwrap()),
                 last_check: Utc::now(),
                 error: None,
             },
@@ -395,7 +395,7 @@ async fn health_check(
         match vapp.health_check().await {
             Ok(_) => ServiceStatus {
                 healthy: true,
-                latency_ms: Some(start_time.elapsed().as_millis() as u64),
+                latency_ms: Some(u64::try_from(start_time.elapsed().as_millis()).unwrap()),
                 last_check: Utc::now(),
                 error: None,
             },
@@ -556,7 +556,7 @@ async fn batch_insert_nullifiers(
         if value <= 0 {
             return Err((
                 StatusCode::BAD_REQUEST,
-                format!("Invalid nullifier value: {}", value),
+                format!("Invalid nullifier value: {value}"),
             ));
         }
     }
@@ -597,10 +597,10 @@ async fn batch_insert_nullifiers(
         successful_operations: vapp_response.successful_operations,
         failed_operations,
         combined_metrics: ConstraintCount {
-            total_hashes: (vapp_response.successful_operations as u32) * 99,
-            range_checks: (vapp_response.successful_operations as u32) * 2,
-            equality_checks: (vapp_response.successful_operations as u32) * 10,
-            total_constraints: (vapp_response.successful_operations as u32) * 200,
+            total_hashes: u32::try_from(vapp_response.successful_operations).unwrap() * 99,
+            range_checks: u32::try_from(vapp_response.successful_operations).unwrap() * 2,
+            equality_checks: u32::try_from(vapp_response.successful_operations).unwrap() * 10,
+            total_constraints: u32::try_from(vapp_response.successful_operations).unwrap() * 200,
             vs_traditional: format!("{}x fewer constraints", 8),
         },
         processing_time_ms: vapp_response.processing_time_ms,
@@ -655,7 +655,7 @@ async fn check_membership(
                 exists: response.verification_status,
                 nullifier_value: value,
                 proof: membership_proof,
-                verification_time_ms: verification_time.as_millis() as u64,
+                verification_time_ms: u64::try_from(verification_time.as_millis()).unwrap(),
             }))
         }
         Err(_) => {
@@ -664,7 +664,7 @@ async fn check_membership(
                 exists: false,
                 nullifier_value: value,
                 proof: None,
-                verification_time_ms: verification_time.as_millis() as u64,
+                verification_time_ms: u64::try_from(verification_time.as_millis()).unwrap(),
             }))
         }
     }
@@ -736,7 +736,7 @@ async fn prove_non_membership(
                 proof_valid: vapp_response.verification_status,
                 gap_size,
             },
-            verification_time_ms: verification_time.as_millis() as u64,
+            verification_time_ms: u64::try_from(verification_time.as_millis()).unwrap(),
         };
 
         Ok(Json(response))
@@ -764,6 +764,7 @@ async fn get_tree_stats(
         .get_metrics()
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    drop(ads);
 
     let response = TreeStatsResponse {
         root_hash: hex::encode(commitment.root_hash),
@@ -959,7 +960,7 @@ async fn get_audit_trail(
 /// Get compliance report
 #[instrument(level = "info")]
 async fn get_compliance_report(
-    State(_state): State<ApiState>,
+    State(state): State<ApiState>,
     Query(filter): Query<FilterQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     // This would integrate with the compliance service
