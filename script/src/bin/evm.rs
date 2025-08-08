@@ -1,7 +1,7 @@
 //! An end-to-end example of using the SP1 SDK to generate a proof of a program that can have an
 //! EVM-Compatible proof generated which can be verified on-chain.
 //!
-//! NOTE: This binary now uses the zero-knowledge PublicValuesStruct where only the result is public.
+//! NOTE: This binary now uses the zero-knowledge `PublicValuesStruct` where only the result is public.
 //! The inputs a and b remain private within the zkVM execution and are not revealed in the proof.
 //!
 //! You can run this script using the following command:
