@@ -11,10 +11,15 @@
 //! ```
 
 use alloy_sol_types::SolType;
-use arithmetic_db::db::{get_value_by_result, init_db, store_arithmetic_transaction};
+use arithmetic_db::db::{
+    get_sindri_proof_by_result, get_value_by_result, init_db, store_arithmetic_transaction,
+    upsert_sindri_proof,
+};
 use arithmetic_lib::PublicValuesStruct;
 use clap::Parser;
+use sindri::{client::SindriClient, JobStatus, ProofInput};
 use sp1_sdk::{include_elf, ProverClient, SP1Stdin};
+use sqlx::PgPool;
 use std::io::{self, Write};
 
 /// The ELF (executable and linkable format) file for the Succinct RISC-V zkVM.
@@ -63,34 +68,15 @@ async fn main() {
         std::process::exit(1);
     }
 
-    // Setup the inputs.
-    let mut stdin = SP1Stdin::new();
-
     if args.execute {
         run_interactive_execute(&client, &pool).await;
         // This is now handled by run_interactive_execute
     } else if args.prove {
-        stdin.write(&args.a);
-        stdin.write(&args.b);
-
-        // Setup the program for proving.
-        let (pk, vk) = client.setup(ARITHMETIC_ELF);
-
-        // Generate the proof
-        let proof = client
-            .prove(&pk, &stdin)
-            .run()
-            .expect("failed to generate proof");
-
-        println!("Successfully generated proof!");
-
-        // Verify the proof.
-        client.verify(&proof, &vk).expect("failed to verify proof");
-        println!("Successfully verified proof!");
+        run_prove_via_sindri(&pool, args.a, args.b, args.result).await;
     }
 }
 
-async fn run_interactive_execute(client: &sp1_sdk::EnvProver, pool: &sqlx::PgPool) {
+async fn run_interactive_execute(client: &sp1_sdk::EnvProver, pool: &PgPool) {
     println!("=== Interactive Arithmetic Execution ===");
     println!("Enter two numbers to add them together.");
     println!("Results will be stored in the database.");
@@ -191,7 +177,7 @@ async fn run_interactive_execute(client: &sp1_sdk::EnvProver, pool: &sqlx::PgPoo
     }
 }
 
-async fn run_verify_mode(pool: &sqlx::PgPool, result: i32) {
+async fn run_verify_mode(pool: &PgPool, result: i32) {
     println!("=== Verify Mode ===");
 
     if result == 20 {
@@ -223,27 +209,147 @@ async fn run_verify_mode(pool: &sqlx::PgPool, result: i32) {
                 continue;
             };
 
-            verify_result(pool, lookup_result).await;
+            verify_result_via_sindri(pool, lookup_result).await;
             println!();
         }
     } else {
         // Single verify mode
-        verify_result(pool, result).await;
+        verify_result_via_sindri(pool, result).await;
     }
 }
 
-async fn verify_result(pool: &sqlx::PgPool, result: i32) {
-    println!("Looking for transactions with result: {result}");
+async fn verify_result_via_sindri(pool: &PgPool, result: i32) {
+    println!("Verifying proof for result: {result} via Sindri...");
 
-    match get_value_by_result(pool, result).await {
-        Ok(Some((a, b))) => {
-            println!("✓ Found in database: {a} + {b} = {result}");
+    match get_sindri_proof_by_result(pool, result).await {
+        Ok(Some(record)) => {
+            let client = SindriClient::default();
+            let proof_id: String = record.proof_id.clone();
+            match client.get_proof(&proof_id, None, None, None).await {
+                Ok(verification_result) => {
+                    println!(
+                        "Verification status from Sindri: {:?}",
+                        verification_result.status
+                    );
+                    // Update stored status
+                    let _ = upsert_sindri_proof(
+                        pool,
+                        result,
+                        &proof_id,
+                        Some(verification_result.circuit_id.clone()),
+                        Some(match verification_result.status {
+                            JobStatus::Ready => "Ready".to_string(),
+                            JobStatus::Failed => "Failed".to_string(),
+                            _ => "Other".to_string(),
+                        }),
+                    )
+                    .await;
+
+                    match verification_result.status {
+                        JobStatus::Ready => println!("✓ Proof is VALID for result = {result}"),
+                        JobStatus::Failed => println!(
+                            "✗ Proof verification FAILED for result = {result}: {:?}",
+                            verification_result.error
+                        ),
+                        other => println!("⏳ Proof status: {other:?}"),
+                    }
+                }
+                Err(e) => {
+                    println!("✗ Failed to verify proof via Sindri: {e}");
+                }
+            }
         }
         Ok(None) => {
-            println!("✗ No transactions found with result = {result}");
+            println!(
+                "✗ No Sindri proof stored for result = {result}. Run --prove to create one."
+            );
         }
+        Err(e) => println!("✗ Database error: {e}"),
+    }
+}
+
+#[allow(clippy::future_not_send)]
+async fn run_prove_via_sindri(pool: &PgPool, arg_a: i32, arg_b: i32, arg_result: i32) {
+    // Prefer proving by result if provided (not default), otherwise use provided a and b
+    let (a, b, result) = if arg_result == 20 {
+        let result = arithmetic_lib::addition(arg_a, arg_b);
+        (arg_a, arg_b, result)
+    } else {
+        match get_value_by_result(pool, arg_result).await {
+            Ok(Some((a, b))) => (a, b, arg_result),
+            Ok(None) => {
+                println!("✗ No stored transaction found with result = {arg_result}. Run --execute first.");
+                return;
+            }
+            Err(e) => {
+                println!("✗ Database error: {e}");
+                return;
+            }
+        }
+    };
+
+    println!("Proving that {a} + {b} = {result} via Sindri...");
+
+    // Create SP1 inputs and serialize for Sindri
+    let mut stdin = SP1Stdin::new();
+    stdin.write(&a);
+    stdin.write(&b);
+
+    let stdin_json = match serde_json::to_string(&stdin) {
+        Ok(s) => s,
         Err(e) => {
-            println!("✗ Database error: {e}");
+            println!("✗ Failed to serialize SP1Stdin: {e}");
+            return;
         }
+    };
+    let proof_input = ProofInput::from(stdin_json);
+
+    let client = SindriClient::default();
+    println!("Submitting proof request to Sindri...");
+    let proof_info = client
+        .prove_circuit(
+            "demo-vapp", // Circuit name as defined in sindri.json manifest
+            proof_input,
+            None,
+            None,
+            None,
+        )
+        .await;
+
+    let proof_info = match proof_info {
+        Ok(info) => info,
+        Err(e) => {
+            println!("✗ Failed to submit proof request: {e}");
+            return;
+        }
+    };
+
+    if proof_info.status == JobStatus::Failed {
+        println!("✗ Proof generation failed: {:?}", proof_info.error);
+        return;
+    }
+
+    println!("✓ Proof job submitted. Status: {:?}", proof_info.status);
+
+    // Store proof metadata by result for later verification
+    if let Err(e) = upsert_sindri_proof(
+        pool,
+        result,
+        &proof_info.proof_id,
+        Some(proof_info.circuit_id.clone()),
+        Some(match proof_info.status {
+            JobStatus::Ready => "Ready".to_string(),
+            JobStatus::Failed => "Failed".to_string(),
+            _ => "Other".to_string(),
+        }),
+    )
+    .await
+    {
+        println!("✗ Failed to store proof metadata: {e}");
+    } else {
+        println!(
+            "✓ Stored Sindri proof metadata for result = {} (proof_id = {:?})",
+            result, proof_info.proof_id
+        );
     }
 }

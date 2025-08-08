@@ -67,14 +67,14 @@ async fn main() -> Result<()> {
     if let Some(ref proof_data) = proof_info.proof {
         println!("\n🔐 Zero-Knowledge Proof:");
         let proof_str = serde_json::to_string_pretty(proof_data)
-            .unwrap_or_else(|_| format!("{:?}", proof_data));
+            .unwrap_or_else(|_| format!("{proof_data:?}"));
         // Truncate very long proofs for readability
         if proof_str.len() > 1000 {
             println!("   {}", &proof_str[..500]);
             println!("   ... [truncated] ...");
             println!("   {}", &proof_str[proof_str.len()-500..]);
         } else {
-            println!("   {}", proof_str);
+            println!("   {proof_str}");
         }
     }
 
@@ -82,8 +82,8 @@ async fn main() -> Result<()> {
     if let Some(ref public) = proof_info.public {
         println!("\n🔍 Public Values:");
         let public_str = serde_json::to_string_pretty(public)
-            .unwrap_or_else(|_| format!("{:?}", public));
-        println!("   {}", public_str);
+            .unwrap_or_else(|_| format!("{public:?}"));
+        println!("   {public_str}");
     }
 
     // Perform actual proof verification through Sindri API
@@ -92,7 +92,7 @@ async fn main() -> Result<()> {
     // Get the proof details for verification  
     let proof_id = &proof_info.proof_id;
     
-    match client.get_proof(&proof_id, None, None, None).await {
+    match client.get_proof(proof_id, None, None, None).await {
         Ok(verification_result) => {
             println!("✅ Proof verification completed!");
             println!("   • Verification Status: {:?}", verification_result.status);
@@ -112,7 +112,7 @@ async fn main() -> Result<()> {
             }
         },
         Err(e) => {
-            println!("⚠️  Could not verify proof through API: {:?}", e);
+            println!("⚠️  Could not verify proof through API: {e:?}");
             println!("✅ Proof generation completed, but verification status unknown");
         }
     }

@@ -20,3 +20,6 @@ pgo-data.profdata
 .envrc
 script/ADS
 ADS/
+
+# DB
+/db
