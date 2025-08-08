@@ -2,9 +2,8 @@ use alloy_sol_types::sol;
 
 sol! {
     /// The public values encoded as a struct that can be easily deserialized inside Solidity.
+    /// In true zero-knowledge fashion, only the result is public - the inputs a and b remain private.
     struct PublicValuesStruct {
-        int32 a;
-        int32 b;
         int32 result;
     }
 }

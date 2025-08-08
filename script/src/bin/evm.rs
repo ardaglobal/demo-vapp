@@ -1,6 +1,9 @@
 //! An end-to-end example of using the SP1 SDK to generate a proof of a program that can have an
 //! EVM-Compatible proof generated which can be verified on-chain.
 //!
+//! NOTE: This binary now uses the zero-knowledge PublicValuesStruct where only the result is public.
+//! The inputs a and b remain private within the zkVM execution and are not revealed in the proof.
+//!
 //! You can run this script using the following command:
 //! ```shell
 //! RUST_LOG=info cargo run --release --bin evm -- --system groth16
@@ -97,12 +100,14 @@ fn create_proof_fixture(
 ) {
     // Deserialize the public values.
     let bytes = proof.public_values.as_slice();
-    let PublicValuesStruct { a, b, result } = PublicValuesStruct::abi_decode(bytes).unwrap();
+    let PublicValuesStruct { result } = PublicValuesStruct::abi_decode(bytes).unwrap();
 
     // Create the testing fixture so we can test things end-to-end.
+    // Note: In zero-knowledge mode, we only have the result. For testing purposes,
+    // we'll use placeholder values for a and b since they're not part of the proof.
     let fixture = SP1ArithmeticProofFixture {
-        a,
-        b,
+        a: 0, // Placeholder - actual value is private
+        b: 0, // Placeholder - actual value is private
         result,
         vkey: vk.bytes32(),
         public_values: format!("0x{}", hex::encode(bytes)),

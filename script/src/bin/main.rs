@@ -17,7 +17,8 @@ use arithmetic_db::db::{
 };
 use arithmetic_lib::PublicValuesStruct;
 use clap::Parser;
-use sindri::{client::SindriClient, JobStatus, ProofInput};
+use sindri::{client::SindriClient, JobStatus, ProofInfo, ProofInput};
+use sindri::integrations::sp1_v5::SP1ProofInfo;
 use sp1_sdk::{include_elf, ProverClient, SP1Stdin};
 use sqlx::PgPool;
 use std::io::{self, Write};
@@ -45,6 +46,9 @@ struct Args {
 
     #[arg(long, default_value = "20")]
     result: i32,
+
+    #[arg(long)]
+    proof_id: Option<String>,
 }
 
 #[tokio::main]
@@ -56,12 +60,15 @@ async fn main() {
     // Parse the command line arguments.
     let args = Args::parse();
 
-    // Setup the prover client and database pool.
-    let client = ProverClient::from_env();
-    let pool = init_db().await.expect("Failed to initialize database");
-
     if args.verify {
-        run_verify_mode(&pool, args.result).await;
+        if let Some(proof_id) = args.proof_id {
+            // External verification flow - no database dependency
+            run_external_verify(&proof_id, args.result).await;
+        } else {
+            // Legacy database-based verification flow - requires database
+            let pool = init_db().await.expect("Failed to initialize database");
+            run_verify_mode(&pool, args.result).await;
+        }
         return;
     } else if args.execute == args.prove {
         eprintln!("Error: You must specify either --execute or --prove");
@@ -69,10 +76,23 @@ async fn main() {
     }
 
     if args.execute {
+        // Execute mode requires database for storing results
+        let client = ProverClient::from_env();
+        let pool = init_db().await.expect("Failed to initialize database");
         run_interactive_execute(&client, &pool).await;
-        // This is now handled by run_interactive_execute
     } else if args.prove {
-        run_prove_via_sindri(&pool, args.a, args.b, args.result).await;
+        // Intelligently determine if we need database based on arguments
+        let needs_database = (args.a != 0 && args.b != 0) && args.result == 0;
+        
+        if needs_database {
+            // Need database to lookup inputs by result
+            let pool = init_db().await.expect("Failed to initialize database - required to lookup inputs for the specified result");
+            run_prove_via_sindri(&pool, args.a, args.b, args.result).await;
+        } else {
+            // Have explicit inputs or using default calculation - no database needed
+            println!("ℹ️  Using provided inputs - database not required for proving");
+            run_prove_via_sindri_no_db(args.a, args.b, args.result).await;
+        }
     }
 }
 
@@ -138,12 +158,8 @@ async fn run_interactive_execute(client: &sp1_sdk::EnvProver, pool: &PgPool) {
                 // Read the output
                 match PublicValuesStruct::abi_decode(output.as_slice()) {
                     Ok(decoded) => {
-                        let PublicValuesStruct {
-                            a: out_a,
-                            b: out_b,
-                            result,
-                        } = decoded;
-                        println!("✓ Computation successful: {out_a} + {out_b} = {result}");
+                        let PublicValuesStruct { result } = decoded;
+                        println!("✓ Computation successful: {a} + {b} = {result}");
 
                         let expected = arithmetic_lib::addition(a, b);
                         if result == expected {
@@ -154,7 +170,7 @@ async fn run_interactive_execute(client: &sp1_sdk::EnvProver, pool: &PgPool) {
                         }
 
                         // Store in database
-                        match store_arithmetic_transaction(pool, out_a, out_b, result).await {
+                        match store_arithmetic_transaction(pool, a, b, result).await {
                             Ok(()) => {
                                 println!("✓ Stored in database");
                             }
@@ -178,7 +194,8 @@ async fn run_interactive_execute(client: &sp1_sdk::EnvProver, pool: &PgPool) {
 }
 
 async fn run_verify_mode(pool: &PgPool, result: i32) {
-    println!("=== Verify Mode ===");
+    println!("=== Database Verification Mode ===");
+    println!("⚠️  This mode requires database access. For external verification, use --proof-id instead.");
 
     if result == 20 {
         // Default value
@@ -246,7 +263,12 @@ async fn verify_result_via_sindri(pool: &PgPool, result: i32) {
                     .await;
 
                     match verification_result.status {
-                        JobStatus::Ready => println!("✓ Proof is VALID for result = {result}"),
+                        JobStatus::Ready => {
+                            println!("✓ Proof is READY on Sindri for result = {result}");
+                            
+                            // Perform local verification using Sindri's verification key
+                            perform_local_verification(&verification_result, result).await;
+                        }
                         JobStatus::Failed => println!(
                             "✗ Proof verification FAILED for result = {result}: {:?}",
                             verification_result.error
@@ -263,6 +285,103 @@ async fn verify_result_via_sindri(pool: &PgPool, result: i32) {
             println!("✗ No Sindri proof stored for result = {result}. Run --prove to create one.");
         }
         Err(e) => println!("✗ Database error: {e}"),
+    }
+}
+
+async fn run_external_verify(proof_id: &str, expected_result: i32) {
+    println!("=== External Verification Mode ===");
+    println!("Verifying proof ID: {proof_id}");
+    println!("Expected result: {expected_result}");
+    
+    let client = SindriClient::default();
+    match client.get_proof(proof_id, None, None, None).await {
+        Ok(verification_result) => {
+            println!(
+                "Verification status from Sindri: {:?}",
+                verification_result.status
+            );
+            
+            match verification_result.status {
+                JobStatus::Ready => {
+                    println!("✓ Proof is READY on Sindri for proof ID: {proof_id}");
+                    
+                    // Perform local verification using Sindri's verification key
+                    perform_local_verification(&verification_result, expected_result).await;
+                }
+                JobStatus::Failed => println!(
+                    "✗ Proof verification FAILED for proof ID {proof_id}: {:?}",
+                    verification_result.error
+                ),
+                other => println!("⏳ Proof status: {other:?}"),
+            }
+        }
+        Err(e) => {
+            println!("✗ Failed to retrieve proof from Sindri: {e}");
+            println!("💡 Make sure the proof ID is correct and the proof exists on Sindri");
+        }
+    }
+}
+
+#[allow(clippy::future_not_send)]
+#[allow(clippy::unused_async)]
+async fn perform_local_verification<T>(verification_result: &T, expected_result: i32) 
+where 
+    T: ProofInfo + SP1ProofInfo,
+{
+    println!("🔍 Performing local SP1 proof verification...");
+    
+    // Extract SP1 proof and verification key from Sindri response
+    match verification_result.to_sp1_proof_with_public() {
+        Ok(sp1_proof) => {
+            match verification_result.get_sp1_verifying_key() {
+                Ok(sindri_verifying_key) => {
+                    // Perform local verification using Sindri's verification key
+                    match verification_result.verify_sp1_proof_locally(&sindri_verifying_key) {
+                        Ok(()) => {
+                            // Verification successful - now validate the computation
+                            match PublicValuesStruct::abi_decode(sp1_proof.public_values.as_slice()) {
+                                Ok(decoded) => {
+                                    let PublicValuesStruct { result } = decoded;
+                                    
+                                    // In true zero-knowledge verification, we only see the result
+                                    // We cannot see the private inputs 'a' and 'b' that were used
+                                    let result_valid = result == expected_result;
+                                    
+                                    // Color codes for output
+                                    let color_code = if result_valid { "\x1b[32m" } else { "\x1b[31m" }; // Green for valid, Red for invalid
+                                    let reset_code = "\x1b[0m"; // Reset color
+                                    
+                                    if result_valid {
+                                        println!(
+                                            "{color_code}✓ ZERO-KNOWLEDGE PROOF VERIFIED: result = {result} (ZKP verified){reset_code}"
+                                        );
+                                        println!("🔐 Proof cryptographically verified - computation integrity confirmed");
+                                        println!("🎭 Private inputs remain hidden - only the result is revealed");
+                                        println!("📊 The prover demonstrated knowledge of inputs that produce result = {result}");
+                                    } else {
+                                        println!(
+                                            "{color_code}✗ Proof verification FAILED: Expected {expected_result}, got {result}{reset_code}"
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    println!("✗ Failed to decode public values from proof: {e}");
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            println!("✗ Local proof verification FAILED: {e}");
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("✗ Failed to extract verification key from Sindri response: {e}");
+                }
+            }
+        }
+        Err(e) => {
+            println!("✗ Failed to extract SP1 proof from Sindri response: {e}");
+        }
     }
 }
 
@@ -346,8 +465,76 @@ async fn run_prove_via_sindri(pool: &PgPool, arg_a: i32, arg_b: i32, arg_result:
         println!("✗ Failed to store proof metadata: {e}");
     } else {
         println!(
-            "✓ Stored Sindri proof metadata for result = {} (proof_id = {:?})",
+            "✓ Stored Sindri proof metadata for result = {} (proof_id = {})",
             result, proof_info.proof_id
         );
     }
+
+    // Print proof ID for external verification
+    println!("\n🔗 PROOF ID FOR EXTERNAL VERIFICATION:");
+    println!("   {}", proof_info.proof_id);
+    println!("\n📋 To verify this proof externally, use:");
+    println!("   cargo run --release -- --verify --proof-id {} --result {}", proof_info.proof_id, result);
+}
+
+async fn run_prove_via_sindri_no_db(arg_a: i32, arg_b: i32, arg_result: i32) {
+    use sp1_sdk::SP1Stdin;
+    
+    // Calculate result from inputs (no database lookup needed)
+    // For database-free mode, we always calculate from provided inputs
+    if arg_result != 20 {
+        println!("⚠️  Database-free mode: Using provided inputs and ignoring --result parameter");
+    }
+    let result = arithmetic_lib::addition(arg_a, arg_b);
+    let (a, b) = (arg_a, arg_b);
+
+    println!("Proving that {a} + {b} = {result} via Sindri (database-free mode)...");
+
+    // Create SP1 inputs and serialize for Sindri
+    let mut stdin = SP1Stdin::new();
+    stdin.write(&a);
+    stdin.write(&b);
+
+    let stdin_json = match serde_json::to_string(&stdin) {
+        Ok(s) => s,
+        Err(e) => {
+            println!("✗ Failed to serialize SP1Stdin: {e}");
+            return;
+        }
+    };
+    let proof_input = ProofInput::from(stdin_json);
+
+    let client = SindriClient::default();
+    println!("Submitting proof request to Sindri...");
+    let proof_info = client
+        .prove_circuit(
+            "demo-vapp", // Circuit name as defined in sindri.json manifest
+            proof_input,
+            None,
+            None,
+            None,
+        )
+        .await;
+
+    let proof_info = match proof_info {
+        Ok(info) => info,
+        Err(e) => {
+            println!("✗ Failed to submit proof request: {e}");
+            return;
+        }
+    };
+
+    if proof_info.status == JobStatus::Failed {
+        println!("✗ Proof generation failed: {:?}", proof_info.error);
+        return;
+    }
+
+    println!("✓ Proof job submitted. Status: {:?}", proof_info.status);
+    println!("ℹ️  Note: Proof metadata not stored (database-free mode)");
+
+    // Print proof ID for external verification
+    println!("\n🔗 PROOF ID FOR EXTERNAL VERIFICATION:");
+    println!("   {}", proof_info.proof_id);
+    println!("\n📋 To verify this proof externally, use:");
+    println!("   cargo run --release -- --verify --proof-id {} --result {}", proof_info.proof_id, result);
 }

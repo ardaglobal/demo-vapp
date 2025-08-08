@@ -23,7 +23,9 @@ pub fn main() {
     let result = addition(a, b);
 
     // Encode the public values of the program.
-    let bytes = PublicValuesStruct::abi_encode(&PublicValuesStruct { a, b, result });
+    // In true zero-knowledge fashion, we only commit the result as public.
+    // The inputs 'a' and 'b' remain private within the zkVM execution.
+    let bytes = PublicValuesStruct::abi_encode(&PublicValuesStruct { result });
 
     // Commit to the public values of the program. The final proof will have a commitment to all the
     // bytes that were committed to.

@@ -125,7 +125,30 @@ The `--prove` command will:
 
 ### Verify Sindri Proofs
 
-To verify proofs generated via Sindri:
+There are two ways to verify proofs generated via Sindri:
+
+#### External Verification (Recommended for sharing proofs)
+
+Use the proof ID printed during the prove flow:
+
+```sh
+cd script
+# Verify using proof ID (no database required)
+cargo run --release -- --verify --proof-id <PROOF_ID> --result <EXPECTED_RESULT>
+
+# Example:
+cargo run --release -- --verify --proof-id "proof_abc123def456" --result 15
+```
+
+This method:
+- ✅ Works for external users without database access
+- ✅ Only requires the proof ID and expected result
+- ✅ Performs full cryptographic verification using Sindri's verification key
+- ✅ Demonstrates true zero-knowledge properties
+
+#### Database Verification (Internal use)
+
+For internal use with database access:
 
 ```sh
 cd script
@@ -136,10 +159,10 @@ cargo run --release -- --verify
 cargo run --release -- --verify --result 15
 ```
 
-Verification will:
-1. Look up the stored Sindri proof metadata by result
-2. Query Sindri's API to get the current proof status
-3. Display verification results and update the stored status
+This method:
+1. Looks up the stored Sindri proof metadata by result
+2. Queries Sindri's API to get the current proof status
+3. Displays verification results and updates the stored status
 
 ### Generate an EVM-Compatible Proof
 
@@ -186,6 +209,22 @@ This project integrates with [Sindri](https://sindri.app) for serverless zero-kn
    ```bash
    export SINDRI_API_KEY=your_api_key_here
    ```
+
+### Continuous Integration
+
+The project includes a comprehensive GitHub Actions workflow (`.github/workflows/sindri.yml`) that:
+
+1. **Lints** the circuit using Sindri CLI
+2. **Builds** the SP1 program with the current branch/PR
+3. **Deploys** the circuit to Sindri with a unique tag
+4. **Generates** a zero-knowledge proof (7 + 13 = 20)
+5. **Verifies** the proof using external verification (no database required)
+
+**Branch Tagging Strategy:**
+- **Main branch**: `main-<commit-sha>`
+- **Pull requests**: `pr-<number>-<branch-name>`
+
+This ensures each deployment is uniquely tagged and traceable to the source code.
 
 ### What This Proves
 
