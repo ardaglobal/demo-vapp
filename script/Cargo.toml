@@ -17,6 +17,10 @@ path = "src/bin/evm.rs"
 name = "vkey"
 path = "src/bin/vkey.rs"
 
+[[bin]]
+name = "background"
+path = "src/bin/background.rs"
+
 [dependencies]
 alloy-sol-types = { workspace = true }
 arithmetic-db   = { path = "../db" }
@@ -32,6 +36,8 @@ sp1-sdk         = { workspace = true }
 sqlx            = { workspace = true }
 termion         = { workspace = true }
 tokio           = { workspace = true }
+tracing         = { workspace = true }
+tracing-subscriber = "0.3"
 
 [build-dependencies]
 sp1-build = { workspace = true }

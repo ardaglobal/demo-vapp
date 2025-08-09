@@ -616,6 +616,8 @@ dependencies = [
  "sqlx",
  "termion",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

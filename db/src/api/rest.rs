@@ -339,23 +339,30 @@ pub fn create_router(state: ApiState) -> Router {
         .route("/api/v1/nullifiers", post(insert_nullifier))
         .route("/api/v1/nullifiers/batch", post(batch_insert_nullifiers))
         .route(
-            "/api/v1/nullifiers/:value/membership",
+            "/api/v1/nullifiers/{value}/membership",
             get(check_membership),
         )
         .route(
-            "/api/v1/nullifiers/:value/non-membership",
+            "/api/v1/nullifiers/{value}/non-membership",
             get(prove_non_membership),
         )
-        .route("/api/v1/nullifiers/:value/audit", get(get_audit_trail))
+        .route("/api/v1/nullifiers/{value}/audit", get(get_audit_trail))
         // Tree operations
         .route("/api/v1/tree/root", get(get_tree_root))
         .route("/api/v1/tree/stats", get(get_tree_stats))
         .route("/api/v1/tree/state", get(get_tree_state))
-        .route("/api/v1/tree/proof/:index", get(get_merkle_proof))
+        .route("/api/v1/tree/proof/{index}", get(get_merkle_proof))
         // Advanced operations
         .route("/api/v1/state/commitment", get(get_state_commitment))
         .route("/api/v1/metrics", get(get_performance_metrics))
         .route("/api/v1/audit/compliance", get(get_compliance_report))
+        // Prometheus metrics endpoint
+        .route("/metrics", get(get_prometheus_metrics))
+        // Root-level health endpoints
+        .route("/health", get(health_check_simple))
+        .route("/health/detailed", get(health_check))
+        .route("/health/ready", get(health_check_ready))
+        .route("/health/live", get(health_check_live))
         .with_state(state)
 }
 
@@ -367,7 +374,7 @@ pub fn create_router(state: ApiState) -> Router {
 #[instrument(skip(state), level = "debug")]
 async fn health_check(
     State(state): State<ApiState>,
-) -> Result<Json<HealthResponse>, (StatusCode, String)> {
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let start_time = std::time::Instant::now();
 
     // Check ADS service health
@@ -419,13 +426,28 @@ async fn health_check(
         "degraded"
     };
 
-    Ok(Json(HealthResponse {
-        status: status.to_string(),
-        timestamp: Utc::now(),
-        version: state.config.version.clone(),
-        uptime_seconds: 0, // Would track actual uptime
-        services,
-    }))
+    // Convert services to checks format expected by the test
+    let checks: Vec<serde_json::Value> = services
+        .into_iter()
+        .map(|(name, service)| {
+            serde_json::json!({
+                "name": name,
+                "healthy": service.healthy,
+                "error": service.error,
+                "latency_ms": service.latency_ms,
+                "last_check": service.last_check.to_rfc3339()
+            })
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "service_id": "vapp-ads-server",
+        "status": status,
+        "timestamp": Utc::now().to_rfc3339(),
+        "version": state.config.version,
+        "uptime_seconds": 0,
+        "checks": checks
+    })))
 }
 
 /// API information endpoint
@@ -969,5 +991,114 @@ async fn get_compliance_report(
         "message": "Compliance reporting endpoint",
         "filter": filter,
         "note": "Full compliance integration pending"
+    })))
+}
+
+/// Prometheus metrics endpoint
+#[instrument(skip(state), level = "info")]
+async fn get_prometheus_metrics(
+    State(state): State<ApiState>,
+) -> Result<String, (StatusCode, String)> {
+    let metrics = {
+        let vapp = state.vapp_integration.read().await;
+        vapp.get_metrics()
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    };
+
+    // Generate Prometheus format
+    let prometheus_metrics = format!(
+        r"# HELP http_requests_total Total number of HTTP requests
+# TYPE http_requests_total counter
+http_requests_total {{}} {}
+
+# HELP insertion_operations_total Total number of insertion operations
+# TYPE insertion_operations_total counter
+insertion_operations_total {{}} {}
+
+# HELP proof_operations_total Total number of proof operations
+# TYPE proof_operations_total counter
+proof_operations_total {{}} {}
+
+# HELP merkle_tree_operations_total Total number of Merkle tree operations
+# TYPE merkle_tree_operations_total counter
+merkle_tree_operations_total {{}} {}
+
+# HELP constraint_count Current constraint count
+# TYPE constraint_count gauge
+constraint_count {{}} {}
+
+# HELP avg_insertion_time_seconds Average insertion time in seconds
+# TYPE avg_insertion_time_seconds gauge
+avg_insertion_time_seconds {{}} {}
+
+# HELP avg_proof_time_seconds Average proof generation time in seconds
+# TYPE avg_proof_time_seconds gauge
+avg_proof_time_seconds {{}} {}
+
+# HELP error_rate_percent Error rate percentage
+# TYPE error_rate_percent gauge
+error_rate_percent {{}} {}
+
+# HELP constraint_efficiency_ratio Constraint efficiency ratio
+# TYPE constraint_efficiency_ratio gauge
+constraint_efficiency_ratio {{}} {}
+",
+        metrics.operations_total,
+        metrics.insertions_total,
+        metrics.proofs_generated,
+        metrics.insertions_total + metrics.proofs_generated, // merkle tree ops
+        metrics.constraint_efficiency.avg_constraints_per_op, // constraint count
+        metrics.avg_insertion_time_ms / 1000.0,
+        metrics.avg_proof_time_ms / 1000.0,
+        metrics.error_rate * 100.0,
+        metrics.constraint_efficiency.efficiency_ratio,
+    );
+
+    Ok(prometheus_metrics)
+}
+
+/// Simple health check endpoint
+#[instrument(skip(state), level = "info")]
+async fn health_check_simple(
+    State(state): State<ApiState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    // Quick health check without detailed service status
+    let _ads = state.ads.read().await;
+    let _vapp = state.vapp_integration.read().await;
+
+    Ok(Json(serde_json::json!({
+        "status": "healthy",
+        "timestamp": chrono::Utc::now().to_rfc3339()
+    })))
+}
+
+/// Health readiness check endpoint
+#[instrument(skip(state), level = "info")]
+async fn health_check_ready(
+    State(state): State<ApiState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    // Check if services are ready to serve requests
+    let _ads = state.ads.read().await;
+    let _vapp = state.vapp_integration.read().await;
+
+    Ok(Json(serde_json::json!({
+        "status": "ready",
+        "timestamp": chrono::Utc::now().to_rfc3339()
+    })))
+}
+
+/// Health liveness check endpoint
+#[instrument(skip(state), level = "info")]
+async fn health_check_live(
+    State(state): State<ApiState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    // Basic liveness check - service is alive
+    let _ads = state.ads.read().await;
+    let _vapp = state.vapp_integration.read().await;
+
+    Ok(Json(serde_json::json!({
+        "status": "live",
+        "timestamp": chrono::Utc::now().to_rfc3339()
     })))
 }

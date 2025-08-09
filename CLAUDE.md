@@ -2,13 +2,14 @@
 
 ## Project Overview
 
-SP1 zero-knowledge proof project demonstrating arithmetic addition with indexed Merkle trees. Five main components:
+SP1 zero-knowledge proof project demonstrating arithmetic addition with indexed Merkle trees. Six main components:
 
 1. **RISC-V Program** (`program/`): Arithmetic addition in SP1 zkVM
 2. **Script** (`script/`): Proof generation using SP1 SDK and Sindri integration
 3. **Smart Contracts** (`contracts/`): Solidity proof verification
 4. **Database Module** (`db/`): PostgreSQL with indexed Merkle tree operations
 5. **API Layer** (`db/src/api/`): REST and GraphQL APIs for tree operations
+6. **Background Processor** (`db/src/background_processor.rs`): Asynchronous indexed Merkle tree construction
 
 ## Essential Commands
 
@@ -17,8 +18,11 @@ SP1 zero-knowledge proof project demonstrating arithmetic addition with indexed 
 # First-time setup
 cd program && cargo prove build --output-directory ../build
 
-# Interactive execution (stores in PostgreSQL)
+# Interactive execution (hot path: stores in PostgreSQL)
 cd script && cargo run --release -- --execute
+
+# Background processing (cold path: builds indexed Merkle tree)
+cd script && cargo run --bin background
 ```
 
 ### Zero-Knowledge Proofs
@@ -58,10 +62,25 @@ cp .env.example .env
 
 ## Architecture
 
+### Hot and Cold Path Design
+
+**Hot Path (CLI Performance):**
+- User input via `cargo run --release -- --execute` → immediate storage in PostgreSQL
+- Zero database-to-tree dependencies during user interaction
+- Fast, responsive CLI experience without Merkle tree overhead
+
+**Cold Path (Background Processing):**
+- Asynchronous background processor (`cargo run --bin background`)
+- Periodically reads new arithmetic transactions from database
+- Converts transactions to nullifiers and builds indexed Merkle tree
+- Configurable polling intervals and batch processing
+- No impact on user CLI performance
+
 ### Core Components
 - **arithmetic-lib** (`lib/`): Shared arithmetic computation logic
 - **arithmetic-program** (`program/`): RISC-V program for zkVM (private inputs → public result)
-- **arithmetic-script** (`script/`): Multiple binaries - `main.rs`, `evm.rs`, `vkey.rs`
+- **arithmetic-script** (`script/`): Multiple binaries - `main.rs`, `evm.rs`, `vkey.rs`, `background.rs`
+- **background-processor** (`db/src/background_processor.rs`): Asynchronous Merkle tree construction
 
 ### Zero-Knowledge Properties
 ```rust
@@ -130,11 +149,39 @@ export SINDRI_API_KEY=your_api_key_here
 
 **Features**: Rate limiting, authentication, health checks, Prometheus metrics
 
+## Background Processing
+
+**Configuration Options** (`script/src/bin/background.rs`):
+```bash
+# Run with custom settings
+cargo run --bin background -- --interval 60 --batch-size 50
+
+# One-shot processing (exit after processing current batch)
+cargo run --bin background -- --one-shot
+
+# Custom logging
+cargo run --bin background -- --log-level debug
+```
+
+**Database Tables:**
+- `arithmetic_transactions`: Hot path storage for user inputs
+- `nullifiers`: Indexed Merkle tree nodes (cold path output)
+- `processor_state`: Tracks last processed transaction ID for resume capability
+
+**Processing Flow:**
+1. Poll `arithmetic_transactions` for new entries since last processed ID
+2. Convert transaction data to deterministic nullifier values using hash function
+3. Insert nullifiers into indexed Merkle tree using 7-step algorithm
+4. Update `processor_state` with last processed transaction ID
+5. Repeat based on polling interval
+
 ## Key Features
 
+- **Hot/Cold Path Separation**: CLI performance isolated from Merkle tree operations
 - **Zero-Knowledge Proofs**: Private inputs (`a`, `b`) → public result only
 - **External Verification**: Database-free proof verification with shareable proof IDs  
 - **Sindri Integration**: Cloud proof generation with SP1 v5 support
 - **32-Level Merkle Trees**: 8x constraint reduction vs traditional implementations
+- **Background Processing**: Asynchronous indexed Merkle tree construction with resume capability
 - **Production APIs**: REST/GraphQL with rate limiting and authentication
 - **Comprehensive Testing**: End-to-end CI with automated ZK validation
