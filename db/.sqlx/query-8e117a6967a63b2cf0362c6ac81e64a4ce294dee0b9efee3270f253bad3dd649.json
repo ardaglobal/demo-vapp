@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO tree_state (tree_id, root_hash, next_available_index, tree_height, total_nullifiers)\n            VALUES ('default', $1, 0, 32, 0)\n            ON CONFLICT (tree_id) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8e117a6967a63b2cf0362c6ac81e64a4ce294dee0b9efee3270f253bad3dd649"
+}

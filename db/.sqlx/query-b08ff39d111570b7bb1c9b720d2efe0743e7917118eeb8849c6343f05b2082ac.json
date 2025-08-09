@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT tree_level, node_index, hash_value, updated_at as \"updated_at!\"\n            FROM merkle_nodes\n            WHERE tree_level = $1 AND node_index = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tree_level",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "node_index",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "hash_value",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 3,
+        "name": "updated_at!",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "b08ff39d111570b7bb1c9b720d2efe0743e7917118eeb8849c6343f05b2082ac"
+}

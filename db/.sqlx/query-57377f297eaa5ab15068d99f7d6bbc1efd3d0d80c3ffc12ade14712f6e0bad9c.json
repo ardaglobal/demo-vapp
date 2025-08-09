@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO merkle_nodes (tree_level, node_index, hash_value)\n            VALUES ($1, $2, $3)\n            ON CONFLICT (tree_level, node_index)\n            DO UPDATE SET hash_value = EXCLUDED.hash_value, updated_at = NOW()\n            RETURNING tree_level, node_index, hash_value, updated_at as \"updated_at!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tree_level",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "node_index",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "hash_value",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 3,
+        "name": "updated_at!",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8",
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "57377f297eaa5ab15068d99f7d6bbc1efd3d0d80c3ffc12ade14712f6e0bad9c"
+}

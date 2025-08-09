@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT low_value as value, low_next_index as next_index,\n                   low_next_value as next_value, low_tree_index as tree_index\n            FROM find_low_nullifier($1)\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "next_index",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "next_value",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "tree_index",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "33f748fcc1fbdc89adda60fe30a4caee9003e1407ce8485dd03fb1d951d4b2f6"
+}

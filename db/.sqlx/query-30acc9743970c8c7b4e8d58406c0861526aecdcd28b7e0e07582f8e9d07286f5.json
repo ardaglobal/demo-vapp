@@ -1,0 +1,61 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO nullifiers (value, next_index, next_value, tree_index)\n            VALUES ($1, $2, $3, $4)\n            RETURNING id, value, next_index, next_value as \"next_value!\", tree_index, created_at as \"created_at!\", is_active as \"is_active!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "value",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "next_index",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "next_value!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "tree_index",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_active!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "30acc9743970c8c7b4e8d58406c0861526aecdcd28b7e0e07582f8e9d07286f5"
+}

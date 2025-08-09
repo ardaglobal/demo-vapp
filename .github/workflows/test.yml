@@ -8,7 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  DATABASE_URL: postgresql://postgres:password@localhost:5432/postgres
+  SQLX_OFFLINE: true
 
 jobs:
   test:
@@ -65,4 +65,4 @@ jobs:
         run: |
           cargo test --verbose -- --nocapture
         env:
-          DATABASE_URL: ${{ env.DATABASE_URL }}
+          DATABASE_URL: postgresql://postgres:password@localhost:5432/postgres

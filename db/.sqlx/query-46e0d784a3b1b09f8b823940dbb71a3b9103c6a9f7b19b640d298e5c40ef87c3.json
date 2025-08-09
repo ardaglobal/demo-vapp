@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO merkle_nodes (tree_level, node_index, hash_value)\n                VALUES ($1, $2, $3)\n                ON CONFLICT (tree_level, node_index)\n                DO UPDATE SET hash_value = $3, updated_at = NOW()\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "46e0d784a3b1b09f8b823940dbb71a3b9103c6a9f7b19b640d298e5c40ef87c3"
+}

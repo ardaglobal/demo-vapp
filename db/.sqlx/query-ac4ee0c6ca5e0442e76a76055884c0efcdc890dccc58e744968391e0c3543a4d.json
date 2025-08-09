@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT updated_at FROM tree_state WHERE tree_id = 'default'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "ac4ee0c6ca5e0442e76a76055884c0efcdc890dccc58e744968391e0c3543a4d"
+}

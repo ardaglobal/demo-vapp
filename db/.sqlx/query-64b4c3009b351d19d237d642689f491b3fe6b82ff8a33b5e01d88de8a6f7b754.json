@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE tree_state\n            SET root_hash = $1, updated_at = NOW()\n            WHERE tree_id = 'default'\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "64b4c3009b351d19d237d642689f491b3fe6b82ff8a33b5e01d88de8a6f7b754"
+}
