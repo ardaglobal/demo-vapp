@@ -114,7 +114,11 @@ impl MerkleTree32 {
             let current_level_hash: [u8; 32] = hasher.finalize().into();
             zero_hashes.push(current_level_hash);
 
-            debug!("Level {} zero hash: {:02x?}", level, &current_level_hash[..8]);
+            debug!(
+                "Level {} zero hash: {:02x?}",
+                level,
+                &current_level_hash[..8]
+            );
         }
 
         info!("✅ Zero hash precomputation complete");

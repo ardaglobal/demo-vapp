@@ -2,8 +2,7 @@
 mod tests {
     use crate::ads_service::AdsServiceFactory;
     use crate::api::{
-        ApiServer, ApiServerBuilder, Environment,
-        VAppApiIntegration, VAppApiIntegrationBuilder,
+        ApiServer, ApiServerBuilder, Environment, VAppApiIntegration, VAppApiIntegrationBuilder,
     };
     use crate::vapp_integration::{
         MockComplianceService, MockNotificationService, MockProofService, MockSettlementService,

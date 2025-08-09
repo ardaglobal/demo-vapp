@@ -67,9 +67,7 @@ impl DbError {
             Self::Database(sqlx_error) => {
                 matches!(
                     sqlx_error,
-                    sqlx::Error::Io(_) | 
-                    sqlx::Error::PoolTimedOut |
-                    sqlx::Error::PoolClosed
+                    sqlx::Error::Io(_) | sqlx::Error::PoolTimedOut | sqlx::Error::PoolClosed
                 )
             }
             Self::PoolError(_) | Self::TransactionFailed(_) => true,
@@ -81,9 +79,7 @@ impl DbError {
     #[must_use]
     pub fn is_constraint_violation(&self) -> bool {
         match self {
-            Self::Database(sqlx::Error::Database(db_err)) => {
-                db_err.constraint().is_some()
-            }
+            Self::Database(sqlx::Error::Database(db_err)) => db_err.constraint().is_some(),
             Self::NullifierExists(_) | Self::ChainValidationFailed => true,
             _ => false,
         }
@@ -113,7 +109,7 @@ impl DbError {
 /// Convert database URL parse errors to DbError
 impl From<url::ParseError> for DbError {
     fn from(err: url::ParseError) -> Self {
-Self::ConfigError(format!("Invalid database URL: {err}"))
+        Self::ConfigError(format!("Invalid database URL: {err}"))
     }
 }
 
@@ -123,8 +119,14 @@ mod tests {
 
     #[test]
     fn test_error_codes() {
-        assert_eq!(DbError::NullifierExists(123).error_code(), "NULLIFIER_EXISTS");
-        assert_eq!(DbError::ChainValidationFailed.error_code(), "CHAIN_VALIDATION_FAILED");
+        assert_eq!(
+            DbError::NullifierExists(123).error_code(),
+            "NULLIFIER_EXISTS"
+        );
+        assert_eq!(
+            DbError::ChainValidationFailed.error_code(),
+            "CHAIN_VALIDATION_FAILED"
+        );
         assert_eq!(DbError::TreeFull.error_code(), "TREE_FULL");
     }
 

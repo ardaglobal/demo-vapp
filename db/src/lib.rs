@@ -33,55 +33,68 @@
 #![allow(clippy::struct_excessive_bools)]
 #![allow(clippy::suboptimal_flops)]
 
+pub mod ads_service;
+pub mod api;
+pub mod background_processor;
 pub mod db;
 pub mod error;
 pub mod merkle_tree;
 pub mod merkle_tree_32;
-pub mod ads_service;
 pub mod vapp_integration;
-pub mod api;
-pub mod background_processor;
 
 // Re-export main types for convenience
-pub use error::{DbError, DbResult};
-pub use merkle_tree::{
-    IndexedMerkleTree, AlgorithmInsertionResult, InsertionMetrics, InsertionProof, MerkleProof,
-    InsertionResult, LowNullifier, MerkleNode, MerkleNodeDb, MerkleTreeDb, 
-    Nullifier, NullifierDb, TreeState, TreeStateDb, TreeStats,
-};
-pub use merkle_tree_32::{
-    MerkleTree32, MerkleProof32, BatchUpdate, TreeMetrics, Tree32Stats,
-};
 pub use ads_service::{
-    AuthenticatedDataStructure, IndexedMerkleTreeADS, AdsServiceFactory, AdsConfig,
-    StateTransition, MembershipProof, NonMembershipProof, StateCommitment,
-    AuditTrail, AuditEvent, AuditEventType, AdsMetrics, AdsError,
-    WitnessData, ComplianceStatus,
-};
-pub use vapp_integration::{
-    VAppAdsIntegration, VAppConfig, Environment,
-    VAppInsertionResponse, VAppProofResponse, VAppBatchResponse,
-    ProofType, SettlementResult, ZkProof, ComplianceResult,
-    VAppError, SettlementError, ProofError, ComplianceError,
+    AdsConfig, AdsError, AdsMetrics, AdsServiceFactory, AuditEvent, AuditEventType, AuditTrail,
+    AuthenticatedDataStructure, ComplianceStatus, IndexedMerkleTreeADS, MembershipProof,
+    NonMembershipProof, StateCommitment, StateTransition, WitnessData,
 };
 pub use api::{
-    // REST API types
-    ApiState, ApiConfig, create_router,
-    InsertNullifierRequest, InsertNullifierResponse, 
-    BatchInsertRequest, BatchInsertResponse,
-    MembershipCheckResponse, NonMembershipResponse,
-    TreeStatsResponse, AuditTrailResponse, HealthResponse,
-    // GraphQL types
-    QueryRoot, MutationRoot, SubscriptionRoot, GraphQLSchema,
-    create_schema, NullifierType, StateTransitionType, 
-    MembershipProofType, NonMembershipProofType, TreeStatsType,
-    InsertNullifierInput, BatchInsertInput, NullifierQueryInput,
-    ProofResult, OperationResult,
+    create_router,
+    create_schema,
+    ApiConfig,
     // Server types
-    ApiServer, ApiServerConfig, ApiServerBuilder,
+    ApiServer,
+    ApiServerBuilder,
+    ApiServerConfig,
+    // REST API types
+    ApiState,
+    AuditTrailResponse,
+    BatchInsertInput,
+    BatchInsertRequest,
+    BatchInsertResponse,
+    GraphQLSchema,
+    HealthResponse,
+    InsertNullifierInput,
+    InsertNullifierRequest,
+    InsertNullifierResponse,
+    MembershipCheckResponse,
+    MembershipProofType,
+    MutationRoot,
+    NonMembershipProofType,
+    NonMembershipResponse,
+    NullifierQueryInput,
+    NullifierType,
+    OperationResult,
+    ProofResult,
+    // GraphQL types
+    QueryRoot,
+    StateTransitionType,
+    SubscriptionRoot,
+    TreeStatsResponse,
+    TreeStatsType,
 };
-pub use background_processor::{
-    BackgroundProcessor, ProcessorConfig, ProcessorBuilder,
+pub use background_processor::{BackgroundProcessor, ProcessorBuilder, ProcessorConfig};
+pub use error::{DbError, DbResult};
+pub use merkle_tree::{
+    AlgorithmInsertionResult, IndexedMerkleTree, InsertionMetrics, InsertionProof, InsertionResult,
+    LowNullifier, MerkleNode, MerkleNodeDb, MerkleProof, MerkleTreeDb, Nullifier, NullifierDb,
+    TreeState, TreeStateDb, TreeStats,
+};
+pub use merkle_tree_32::{BatchUpdate, MerkleProof32, MerkleTree32, Tree32Stats, TreeMetrics};
+pub use vapp_integration::{
+    ComplianceError, ComplianceResult, Environment, ProofError, ProofType, SettlementError,
+    SettlementResult, VAppAdsIntegration, VAppBatchResponse, VAppConfig, VAppError,
+    VAppInsertionResponse, VAppProofResponse, ZkProof,
 };
 
 #[cfg(test)]

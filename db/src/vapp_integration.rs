@@ -363,9 +363,9 @@ impl VAppAdsIntegration {
         let ads_config = AdsConfig {
             settlement_contract: "0x742d35cc6640CA5AaAaB2AAD9d8e7f2B6E37b5D1".to_string(), // Example
             chain_id: match config.environment {
-                Environment::Development => 31337, // Local
-                Environment::Staging => 11_155_111,  // Sepolia
-                Environment::Production => 1,      // Mainnet
+                Environment::Development => 31337,  // Local
+                Environment::Staging => 11_155_111, // Sepolia
+                Environment::Production => 1,       // Mainnet
             },
             audit_enabled: config.compliance_checks_enabled,
             metrics_enabled: true,

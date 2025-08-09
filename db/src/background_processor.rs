@@ -68,7 +68,7 @@ impl BackgroundProcessor {
 
         loop {
             interval.tick().await;
-            
+
             match self.process_batch().await {
                 Ok(processed_count) => {
                     if processed_count > 0 {
@@ -88,28 +88,31 @@ impl BackgroundProcessor {
         debug!("Checking for new arithmetic transactions...");
 
         let transactions = self.fetch_new_transactions().await?;
-        
+
         if transactions.is_empty() {
             debug!("No new transactions to process");
             return Ok(0);
         }
 
-        info!("Processing {} new arithmetic transactions", transactions.len());
+        info!(
+            "Processing {} new arithmetic transactions",
+            transactions.len()
+        );
 
         let mut processed_count = 0;
         let mut tree = IndexedMerkleTree::new(self.pool.clone());
 
         for transaction in transactions {
-            match self.process_single_transaction(&mut tree, &transaction).await {
+            match self
+                .process_single_transaction(&mut tree, &transaction)
+                .await
+            {
                 Ok(()) => {
                     processed_count += 1;
                     self.last_processed_id = Some(transaction.id);
                 }
                 Err(e) => {
-                    warn!(
-                        "Failed to process transaction ID {}: {}",
-                        transaction.id, e
-                    );
+                    warn!("Failed to process transaction ID {}: {}", transaction.id, e);
                     // Continue with next transaction
                 }
             }
@@ -162,7 +165,7 @@ impl BackgroundProcessor {
         transaction.b.hash(&mut hasher);
         transaction.result.hash(&mut hasher);
         transaction.id.hash(&mut hasher);
-        
+
         // Convert to positive i64 to comply with nullifier constraints
         let hash = hasher.finish();
         (hash as i64).abs()
@@ -176,7 +179,7 @@ impl BackgroundProcessor {
                  FROM arithmetic_transactions 
                  WHERE id > $1 
                  ORDER BY id ASC 
-                 LIMIT $2"
+                 LIMIT $2",
             )
             .bind(last_id)
             .bind(self.config.batch_size as i32)
@@ -185,15 +188,12 @@ impl BackgroundProcessor {
                 "SELECT id, a, b, result, created_at 
                  FROM arithmetic_transactions 
                  ORDER BY id ASC 
-                 LIMIT $1"
+                 LIMIT $1",
             )
             .bind(self.config.batch_size as i32)
         };
 
-        let transactions = query
-            .fetch_all(&self.pool)
-            .await
-            .map_err(DbError::from)?;
+        let transactions = query.fetch_all(&self.pool).await.map_err(DbError::from)?;
 
         debug!("Fetched {} new transactions", transactions.len());
         Ok(transactions)
@@ -290,11 +290,15 @@ mod tests {
     async fn test_background_processing() {
         let test_db = TestDatabase::new().await.unwrap();
         let pool = &test_db.pool;
-        
+
         // Store some test transactions
         store_arithmetic_transaction(pool, 5, 10, 15).await.unwrap();
-        store_arithmetic_transaction(pool, 20, 30, 50).await.unwrap();
-        store_arithmetic_transaction(pool, 100, 200, 300).await.unwrap();
+        store_arithmetic_transaction(pool, 20, 30, 50)
+            .await
+            .unwrap();
+        store_arithmetic_transaction(pool, 100, 200, 300)
+            .await
+            .unwrap();
 
         // Create background processor
         let config = ProcessorConfig {
