@@ -40,12 +40,6 @@ jobs:
           ~/.sp1/bin/sp1up
           echo "$HOME/.sp1/bin" >> $GITHUB_PATH
 
-      - name: Prepare SQLx queries
-        run: |
-          cd db
-          cargo sqlx prepare
-          cd ..
-
       - name: Build SP1 Program
         run: |
           cd program

@@ -23,6 +23,3 @@ ADS/
 
 # Builds
 **/build
-
-# SQLx generated files
-**/.sqlx

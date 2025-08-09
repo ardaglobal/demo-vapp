@@ -61,12 +61,6 @@ jobs:
           timeout 60s bash -c 'until pg_isready -h localhost -p 5432 -U postgres; do sleep 1; done'
           echo "PostgreSQL is ready!"
 
-      - name: Prepare SQLx queries
-        run: |
-          cd db
-          cargo sqlx prepare
-          cd ..
-
       - name: Run all tests
         run: |
           cargo test --verbose -- --nocapture
