@@ -63,9 +63,9 @@ jobs:
 
       - name: Prepare SQLx queries
         run: |
+          cd db
           cargo sqlx prepare
-        env:
-          DATABASE_URL: ${{ env.DATABASE_URL }}
+          cd ..
 
       - name: Run all tests
         run: |
