@@ -15,13 +15,47 @@ tikv-jemallocator = { version = "0.6.0", optional = true }
 default = [ "tikv-jemallocator" ]
 
 [dependencies]
-serde   = { workspace = true }
-sqlx    = { workspace = true }
-tokio   = { workspace = true }
+chrono = { version = "0.4", features = [ "serde" ] }
+serde = { workspace = true }
+sqlx = { workspace = true, features = [
+    "chrono",
+    "json",
+    "postgres",
+    "runtime-tokio-rustls",
+    "uuid",
+] }
+thiserror = "1.0"
+tokio = { workspace = true }
 tracing = { workspace = true }
+uuid = { version = "1.0", features = [ "serde", "v4" ] }
+
+# API dependencies
+async-graphql = { version = "7.0", features = [ "chrono" ] }
+async-graphql-axum = "7.0"
+async-trait = "0.1"
+axum = { version = "0.8", features = [ "ws" ] }
+futures-util = "0.3"
+hex = "0.4"
+http = "1.0"
+hyper = "1.0"
+rand = "0.8"
+regex = "1.0"
+serde_json = "1.0"
+sha2 = "0.10"
+tokio-stream = "0.1"
+tower = { version = "0.4", features = [ "util" ] }
+tower-http = { version = "0.5", features = [
+    "compression-gzip",
+    "cors",
+    "limit",
+    "timeout",
+    "trace",
+] }
+url = "2.5"
 
 [dev-dependencies]
 arithmetic-lib     = { path = "../lib" }
+axum-test          = "17.3.0"
 tempfile           = "3.10"
 tracing-subscriber = "0.3"
 tracing-test       = "0.2"

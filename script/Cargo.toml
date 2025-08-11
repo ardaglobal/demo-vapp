@@ -17,21 +17,27 @@ path = "src/bin/evm.rs"
 name = "vkey"
 path = "src/bin/vkey.rs"
 
+[[bin]]
+name = "background"
+path = "src/bin/background.rs"
+
 [dependencies]
-alloy-sol-types = { workspace = true }
-arithmetic-db   = { path = "../db" }
-arithmetic-lib  = { path = "../lib" }
-clap            = { workspace = true, features = [ "derive", "env" ] }
-dotenv          = { workspace = true }
-eyre            = { workspace = true }
-hex             = { workspace = true }
-serde           = { workspace = true }
-serde_json      = { workspace = true }
-sindri          = { version = "0.3.1", features = [ "sp1-v5" ] }
-sp1-sdk         = { workspace = true }
-sqlx            = { workspace = true }
-termion         = { workspace = true }
-tokio           = { workspace = true }
+alloy-sol-types    = { workspace = true }
+arithmetic-db      = { path = "../db" }
+arithmetic-lib     = { path = "../lib" }
+clap               = { workspace = true, features = [ "derive", "env" ] }
+dotenv             = { workspace = true }
+eyre               = { workspace = true }
+hex                = { workspace = true }
+serde              = { workspace = true }
+serde_json         = { workspace = true }
+sindri             = { version = "0.3.1", features = [ "sp1-v5" ] }
+sp1-sdk            = { workspace = true }
+sqlx               = { workspace = true }
+termion            = { workspace = true }
+tokio              = { workspace = true }
+tracing            = { workspace = true }
+tracing-subscriber = "0.3"
 
 [build-dependencies]
 sp1-build = { workspace = true }
