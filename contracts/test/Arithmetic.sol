@@ -48,13 +48,11 @@ contract ArithmeticGroth16Test is Test {
             abi.encode(true)
         );
 
-        (uint32 result, uint32 a, uint32 b) = arithmetic.verifyArithmeticProof(
+        int32 result = arithmetic.verifyArithmeticProof(
             fixture.publicValues,
             fixture.proof
         );
-        assert(result == fixture.result);
-        assert(a == fixture.a);
-        assert(b == fixture.b);
+        assert(result == int32(fixture.result));
     }
 
     function testRevert_InvalidArithmeticProof() public {
@@ -102,13 +100,11 @@ contract ArithmeticPlonkTest is Test {
             abi.encode(true)
         );
 
-        (uint32 result, uint32 a, uint32 b) = arithmetic.verifyArithmeticProof(
+        int32 result = arithmetic.verifyArithmeticProof(
             fixture.publicValues,
             fixture.proof
         );
-        assert(result == fixture.result);
-        assert(a == fixture.a);
-        assert(b == fixture.b);
+        assert(result == int32(fixture.result));
     }
 
     function testRevert_InvalidArithmeticProof() public {

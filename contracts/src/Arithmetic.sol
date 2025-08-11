@@ -5,9 +5,7 @@ import {ISP1Verifier} from "@sp1-contracts/ISP1Verifier.sol";
 import {EventHelpers} from "./EventHelpers.sol";
 
 struct PublicValuesStruct {
-    uint32 a;
-    uint32 b;
-    uint32 result;
+    int32 result;
 }
 
 /// @title Arithmetic.
@@ -209,7 +207,7 @@ contract Arithmetic is EventHelpers {
     function verifyArithmeticProof(
         bytes calldata _publicValues,
         bytes calldata _proofBytes
-    ) public view returns (uint32, uint32, uint32) {
+    ) public view returns (int32) {
         ISP1Verifier(verifier).verifyProof(
             arithmeticProgramVKey,
             _publicValues,
@@ -219,7 +217,7 @@ contract Arithmetic is EventHelpers {
             _publicValues,
             (PublicValuesStruct)
         );
-        return (publicValues.result, publicValues.a, publicValues.b);
+        return publicValues.result;
     }
 
     /// @notice Update state with ZK proof verification.
