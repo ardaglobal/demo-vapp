@@ -508,12 +508,6 @@ contract Arithmetic is EventHelpers {
         return authorizedPosters[account] || account == owner;
     }
 
-    /// @notice Get current state for a given state ID.
-    /// @param stateId The state identifier.
-    /// @return The current state root.
-    function getCurrentState(bytes32 stateId) external view returns (bytes32) {
-        return currentState[stateId];
-    }
 
     /// @notice Get the total number of states in history for a state ID.
     /// @param stateId The state identifier.
@@ -798,7 +792,7 @@ contract Arithmetic is EventHelpers {
     function getEventCountInRange(uint256 startTime, uint256 endTime) external view override returns (
         uint256 totalEvents
     ) {
-        if (startTime >= endTime || endTime > block.timestamp) {
+        if (startTime >= endTime) {
             return 0;
         }
         
