@@ -67,6 +67,13 @@ contract StateManagementTest is Test {
         // Grant authorization to test poster
         arithmetic.setAuthorization(authorizedPoster, true);
         
+        // Mock the verifier to always return true for successful verification
+        vm.mockCall(
+            verifier,
+            abi.encodeWithSelector(SP1VerifierGateway.verifyProof.selector),
+            abi.encode(true)
+        );
+        
         // Fund test accounts
         vm.deal(owner, 100 ether);
         vm.deal(authorizedPoster, 100 ether);

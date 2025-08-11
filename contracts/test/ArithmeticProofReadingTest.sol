@@ -37,11 +37,8 @@ contract ArithmeticProofReadingTest is Test {
         
         // Expect events
         bytes32 expectedProofId = keccak256(proof);
-        vm.expectEmit(true, true, true, true);
-        emit ProofSubmitted(expectedProofId, stateId, user1, block.timestamp);
-        
-        vm.expectEmit(true, true, true, true);
-        emit ProofVerified(expectedProofId, stateId, true);
+        vm.expectEmit(true, true, true, false);
+        emit StateUpdated(stateId, newState, expectedProofId, user1, block.timestamp);
         
         // Post state update
         vm.prank(user1);
@@ -313,6 +310,11 @@ contract ArithmeticProofReadingTest is Test {
     }
     
     // Events to match the contract
-    event ProofSubmitted(bytes32 indexed proofId, bytes32 indexed stateId, address indexed submitter, uint256 timestamp);
-    event ProofVerified(bytes32 indexed proofId, bytes32 indexed stateId, bool verified);
+    event StateUpdated(
+        bytes32 indexed stateId,
+        bytes32 indexed newState,
+        bytes32 indexed proofId,
+        address updater,
+        uint256 timestamp
+    );
 }

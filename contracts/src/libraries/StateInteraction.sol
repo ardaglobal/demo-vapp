@@ -14,6 +14,10 @@ library StateInteraction {
     error InvalidParameters();
     error ArrayLengthMismatch();
     error GasEstimationFailed();
+    error BatchTooLarge();
+    
+    /// @notice Maximum number of items that can be processed in a single batch operation
+    uint256 public constant MAX_BATCH_SIZE = 100;
     
     /// @notice Struct for state update parameters
     struct StateUpdateParams {
@@ -199,6 +203,10 @@ library StateInteraction {
         
         if (stateIds.length == 0) {
             revert InvalidParameters();
+        }
+        
+        if (stateIds.length > MAX_BATCH_SIZE) {
+            revert BatchTooLarge();
         }
         
         result.states = new bytes32[](stateIds.length);

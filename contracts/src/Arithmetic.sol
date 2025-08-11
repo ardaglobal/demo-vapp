@@ -83,6 +83,11 @@ contract Arithmetic is EventHelpers {
     string public constant EVENT_STATE_READ = "StateRead";
     string public constant EVENT_PROOF_READ = "ProofRead";
 
+    /// @notice Pre-computed hashes for gas-efficient event type comparisons.
+    bytes32 private constant STATE_UPDATE_HASH = keccak256(abi.encodePacked("state_update"));
+    bytes32 private constant BATCH_UPDATE_HASH = keccak256(abi.encodePacked("batch_update"));
+    bytes32 private constant PROOF_STORED_HASH = keccak256(abi.encodePacked("proof_stored"));
+
 
     /// @notice Global event statistics.
     EventStats public eventStats;
@@ -227,7 +232,7 @@ contract Arithmetic is EventHelpers {
         bytes32 newStateRoot,
         bytes calldata proof,
         bytes calldata publicValues
-    ) external {
+    ) external onlyAuthorized {
         ISP1Verifier(verifier).verifyProof(
             arithmeticProgramVKey,
             publicValues,
@@ -402,16 +407,58 @@ contract Arithmetic is EventHelpers {
         
         successes = new bool[](length);
         
+        // Cache frequently accessed values to reduce external calls
+        address cachedVerifier = verifier;
+        bytes32 cachedVKey = arithmeticProgramVKey;
+        address cachedSender = msg.sender;
+        uint256 cachedTimestamp = block.timestamp;
+        
+        // Pre-verify all proofs to fail fast if any are invalid
         for (uint256 i = 0; i < length;) {
-            successes[i] = _postStateUpdate(stateIds[i], newStates[i], proofs[i], results[i]);
+            try ISP1Verifier(cachedVerifier).verifyProof(
+                cachedVKey,
+                results[i],
+                proofs[i]
+            ) {
+                successes[i] = true;
+            } catch {
+                successes[i] = false;
+            }
             
             unchecked {
                 ++i;
             }
         }
         
-        // Emit batch event
-        emit BatchStateUpdated(stateIds, newStates, msg.sender, block.timestamp);
+        // Batch process all successful verifications
+        for (uint256 i = 0; i < length;) {
+            if (successes[i]) {
+                bytes32 proofHash = keccak256(proofs[i]);
+                
+                // Batch storage updates
+                currentState[stateIds[i]] = newStates[i];
+                stateHistory[stateIds[i]].push(newStates[i]);
+                storedProofs[proofHash] = proofs[i];
+                storedResults[proofHash] = results[i];
+                verifiedProofs[proofHash] = true;
+                
+                // Store proof metadata (optimized call)
+                _storeProofMetadata(proofHash, stateIds[i], cachedSender);
+                
+                // Emit individual state updated events
+                emit StateUpdated(stateIds[i], newStates[i], proofHash, cachedSender, cachedTimestamp);
+                
+                // Update event statistics
+                eventCountByStateId[stateIds[i]]++;
+            }
+            
+            unchecked {
+                ++i;
+            }
+        }
+        
+        // Emit batch event and update stats once
+        emit BatchStateUpdated(stateIds, newStates, cachedSender, cachedTimestamp);
         _updateEventStats("batch_update");
     }
 
@@ -442,6 +489,7 @@ contract Arithmetic is EventHelpers {
     /// @notice Transfer ownership of the contract.
     /// @param newOwner The new owner address.
     function transferOwnership(address newOwner) external onlyOwner {
+        require(newOwner != address(0), "new owner is zero address");
         address previousOwner = owner;
         owner = newOwner;
         
@@ -458,6 +506,13 @@ contract Arithmetic is EventHelpers {
     /// @return True if authorized.
     function isAuthorized(address account) external view returns (bool) {
         return authorizedPosters[account] || account == owner;
+    }
+
+    /// @notice Get current state for a given state ID.
+    /// @param stateId The state identifier.
+    /// @return The current state root.
+    function getCurrentState(bytes32 stateId) external view returns (bytes32) {
+        return currentState[stateId];
     }
 
     /// @notice Get the total number of states in history for a state ID.
@@ -630,9 +685,9 @@ contract Arithmetic is EventHelpers {
     /// @param stateId The associated state identifier.
     /// @param submitter The address submitting the proof.
     function _storeProofMetadata(bytes32 proofId, bytes32 stateId, address submitter) internal {
-        // Skip if proof already exists to avoid duplicate entries
+        // Revert if proof already exists to prevent duplicate submissions
         if (proofMetadata[proofId].exists) {
-            return;
+            revert ProofAlreadyExists();
         }
         
         proofMetadata[proofId] = ProofMetadata({
@@ -678,15 +733,12 @@ contract Arithmetic is EventHelpers {
         
         // Update specific event type counts
         bytes32 eventHash = keccak256(abi.encodePacked(eventType));
-        bytes32 stateUpdateHash = keccak256(abi.encodePacked("state_update"));
-        bytes32 batchUpdateHash = keccak256(abi.encodePacked("batch_update"));
-        bytes32 proofStoredHash = keccak256(abi.encodePacked("proof_stored"));
         
-        if (eventHash == stateUpdateHash) {
+        if (eventHash == STATE_UPDATE_HASH) {
             eventStats.totalStateUpdates++;
-        } else if (eventHash == batchUpdateHash) {
+        } else if (eventHash == BATCH_UPDATE_HASH) {
             eventStats.totalBatchUpdates++;
-        } else if (eventHash == proofStoredHash) {
+        } else if (eventHash == PROOF_STORED_HASH) {
             eventStats.totalProofStored++;
             eventStats.totalProofVerified++; // Proofs are verified when stored
         }

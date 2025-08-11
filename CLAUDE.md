@@ -10,7 +10,7 @@ SP1 zero-knowledge proof project demonstrating arithmetic addition with indexed 
 4. **Database Module** (`db/`): PostgreSQL with indexed Merkle tree operations
 5. **API Layer** (`db/src/api/`): REST and GraphQL APIs for tree operations
 6. **Background Processor** (`db/src/background_processor.rs`): Asynchronous indexed Merkle tree construction
-7. **State Management System** (`contracts/src/interfaces/`, `contracts/examples/`): Complete state lifecycle management with ZK proof verification
+7. **State Management System** (`contracts/src/interfaces/`): Complete state lifecycle management with ZK proof verification
 
 ## Essential Commands
 
@@ -85,7 +85,7 @@ cp .env.example .env
 - **arithmetic-program** (`program/`): RISC-V program for zkVM (private inputs → public result)
 - **arithmetic-script** (`script/`): Multiple binaries - `main.rs`, `evm.rs`, `vkey.rs`, `background.rs`
 - **background-processor** (`db/src/background_processor.rs`): Asynchronous Merkle tree construction
-- **state-management-system** (`contracts/src/interfaces/`, `contracts/examples/`): Complete state lifecycle management with proof verification
+- **state-management-system** (`contracts/src/interfaces/`): Complete state lifecycle management with proof verification
 
 ### Zero-Knowledge Properties
 ```rust
@@ -103,7 +103,6 @@ struct PublicValuesStruct {
 - **REST/GraphQL APIs**: Production-ready endpoints for tree operations
 - **Comprehensive State Management**: Complete state lifecycle with ZK proof verification
 - **Batch Operations**: Gas-optimized batch state updates and reads
-- **Integration Examples**: Production-ready integration patterns and best practices
 
 ### Key Files
 - `program/src/main.rs:25-28`: ZK public values (result only)
@@ -112,7 +111,6 @@ struct PublicValuesStruct {
 - `db/src/api/`: REST and GraphQL APIs
 - `contracts/src/Arithmetic.sol`: On-chain verification with state management
 - `contracts/src/interfaces/IStateManager.sol`: State management interface
-- `contracts/examples/`: Integration examples (StateConsumer, StateUpdater, ProofReader)
 - `contracts/test/StateManagement.t.sol`: Comprehensive state management tests
 
 ## Environment
@@ -148,7 +146,6 @@ export SINDRI_API_KEY=your_api_key_here
 - Database operations (unit, integration, performance)  
 - Merkle tree operations (7-step insertion algorithm)
 - API endpoints (REST/GraphQL)
-- Integration examples and error handling
 - Gas optimization and batch operations
 
 ## API Layer
@@ -221,28 +218,6 @@ The state management system provides a comprehensive solution for storing, readi
 - Event system for monitoring and analytics
 - Proof metadata and enumeration capabilities
 
-### Integration Examples
-
-**StateConsumer** (`contracts/examples/StateConsumer.sol`):
-- Demonstrates safe state reading patterns
-- Local caching for gas optimization
-- Batch reading operations
-- Comprehensive error handling
-- Authorization and access control
-
-**StateUpdater** (`contracts/examples/StateUpdater.sol`):
-- Shows proper state update patterns
-- Pre-validation and proof verification
-- Queue-based batch processing
-- Gas optimization strategies
-- Update statistics and monitoring
-
-**ProofReader** (`contracts/examples/ProofReader.sol`):
-- Proof reading and validation patterns
-- Proof enumeration and filtering
-- Metadata access and caching
-- Batch proof operations
-- External verification patterns
 
 ### Key Features
 
@@ -273,10 +248,6 @@ cd contracts && forge script script/DeployStateManager.s.sol --broadcast
 # Run state management tests
 cd contracts && forge test --match-contract StateManagementTest
 
-# Run integration example tests
-cd contracts && forge test --match-contract StateConsumerTest
-cd contracts && forge test --match-contract StateUpdaterTest
-cd contracts && forge test --match-contract ProofReaderTest
 
 # Run gas optimization tests
 cd contracts && forge test --match-test test_Gas
@@ -288,11 +259,6 @@ cd contracts && forge test --match-test test_Gas
 ```solidity
 // Direct update through Arithmetic contract
 arithmetic.postStateUpdate(stateId, newState, proof, result);
-
-// Through StateUpdater for additional validation
-(bytes32 updateId, bool success) = stateUpdater.submitStateUpdate(
-    stateId, newState, proof, result
-);
 ```
 
 **Batch Operations**:
@@ -308,9 +274,6 @@ bytes32[] memory states = arithmetic.batchReadStates(stateIds);
 
 **Safe State Reading**:
 ```solidity
-// Through StateConsumer with caching
-(bytes32 value, bool exists, bool fromCache) = stateConsumer.readState(stateId);
-
 // Direct from Arithmetic contract
 bytes32 currentState = arithmetic.getCurrentState(stateId);
 ```
@@ -340,12 +303,10 @@ bool isVerified = arithmetic.isProofVerified(proofId);
 ### Integration Best Practices
 
 1. **Always use batch operations** when processing multiple states
-2. **Implement local caching** for frequently accessed states
-3. **Use try-catch blocks** for external contract calls
-4. **Validate inputs** before submitting to state manager
-5. **Monitor gas usage** and optimize storage patterns
-6. **Implement proper access control** for state updates
-7. **Use events for monitoring** and analytics
+2. **Validate inputs** before submitting to state manager
+3. **Monitor gas usage** and optimize storage patterns
+4. **Implement proper access control** for state updates
+5. **Use events for monitoring** and analytics
 
 ### Error Handling
 

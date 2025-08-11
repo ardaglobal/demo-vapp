@@ -38,7 +38,7 @@ contract StateInteractionWrapper {
         }
         
         bytes memory callData = abi.encodeWithSignature(
-            "readCurrentState(bytes32)",
+            "getCurrentState(bytes32)",
             stateId
         );
         
