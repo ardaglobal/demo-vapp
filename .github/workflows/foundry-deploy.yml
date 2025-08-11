@@ -5,11 +5,11 @@ on:
   push:
     branches: [main]
     paths:
-      - 'contracts/**'
+      - "contracts/**"
   pull_request:
     branches: [main]
     paths:
-      - 'contracts/**'
+      - "contracts/**"
 
 env:
   FOUNDRY_PROFILE: ci
@@ -43,8 +43,7 @@ jobs:
 
       - name: Run tests
         run: |
-            echo "Skipping tests"
-        #   forge test
+          forge test -vvv
 
       - name: Deploy contract
         run: |
@@ -52,4 +51,4 @@ jobs:
             --broadcast \
             --rpc-url ${{ secrets.SEPOLIA_RPC_URL }} \
             --private-key ${{ secrets.PRIVATE_KEY }} \
-            --constructor-args ${{ secrets.SEPOLIA_GROTH16_VERIFIER }} ${{ secrets.PROGRAM_VKEY }} 
+            --constructor-args ${{ secrets.SEPOLIA_GROTH16_VERIFIER }} ${{ secrets.PROGRAM_VKEY }}
