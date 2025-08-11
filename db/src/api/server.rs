@@ -214,6 +214,12 @@ impl ApiServer {
     pub fn bind_address(&self) -> String {
         format!("{}:{}", self.config.host, self.config.port)
     }
+
+    /// Get server state for testing purposes
+    #[must_use]
+    pub const fn state(&self) -> &ApiState {
+        &self.state
+    }
 }
 
 // ============================================================================

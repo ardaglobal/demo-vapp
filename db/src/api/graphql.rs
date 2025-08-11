@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use tracing::{info, instrument};
 
-use crate::ads_service::AdsError;
+use crate::ads_service::{AdsError, AuthenticatedDataStructure};
 use crate::api::rest::ApiState;
 use crate::vapp_integration::VAppError;
 
@@ -332,8 +332,11 @@ impl QueryRoot {
 
         info!("🔍 GraphQL: Querying nullifier {}", input.value);
 
-        let vapp = state.vapp_integration.read().await;
-        match vapp.verify_nullifier_presence(input.value).await {
+        let verification_result = {
+            let vapp = state.vapp_integration.read().await;
+            vapp.verify_nullifier_presence(input.value).await
+        };
+        match verification_result {
             Ok(_) => {
                 // Nullifier exists, get details
                 Ok(Some(NullifierType {
@@ -361,8 +364,11 @@ impl QueryRoot {
             nullifier_value
         );
 
-        let vapp = state.vapp_integration.read().await;
-        match vapp.verify_nullifier_presence(nullifier_value).await {
+        let verification_result = {
+            let vapp = state.vapp_integration.read().await;
+            vapp.verify_nullifier_presence(nullifier_value).await
+        };
+        match verification_result {
             Ok(response) => {
                 if let Some(proof) = response.membership_proof {
                     Ok(Some(MembershipProofType {
@@ -406,8 +412,11 @@ impl QueryRoot {
             nullifier_value
         );
 
-        let vapp = state.vapp_integration.read().await;
-        match vapp.verify_nullifier_absence(nullifier_value).await {
+        let verification_result = {
+            let vapp = state.vapp_integration.read().await;
+            vapp.verify_nullifier_absence(nullifier_value).await
+        };
+        match verification_result {
             Ok(response) => {
                 if let Some(proof) = response.non_membership_proof {
                     let gap_size = if proof.low_nullifier.next_value == 0 {
@@ -460,9 +469,12 @@ impl QueryRoot {
     async fn tree_stats(&self, ctx: &Context<'_>) -> FieldResult<TreeStatsType> {
         let state = ctx.data::<ApiState>()?;
 
-        let ads = state.ads.read().await;
-        let commitment = ads.get_state_commitment().await?;
-        let metrics = ads.get_metrics().await?;
+        let (commitment, metrics) = {
+            let ads = state.ads.read().await;
+            let commitment = ads.get_state_commitment().await?;
+            let metrics = ads.get_metrics().await?;
+            (commitment, metrics)
+        };
 
         Ok(TreeStatsType {
             root_hash: hex::encode(commitment.root_hash),
@@ -496,8 +508,10 @@ impl QueryRoot {
     async fn tree_root(&self, ctx: &Context<'_>) -> FieldResult<String> {
         let state = ctx.data::<ApiState>()?;
 
-        let vapp = state.vapp_integration.read().await;
-        let commitment = vapp.get_current_state_commitment().await?;
+        let commitment = {
+            let vapp = state.vapp_integration.read().await;
+            vapp.get_current_state_commitment().await?
+        };
 
         Ok(hex::encode(commitment.root_hash))
     }
@@ -507,8 +521,10 @@ impl QueryRoot {
     async fn state_commitment(&self, ctx: &Context<'_>) -> FieldResult<StateCommitmentType> {
         let state = ctx.data::<ApiState>()?;
 
-        let vapp = state.vapp_integration.read().await;
-        let commitment = vapp.get_current_state_commitment().await?;
+        let commitment = {
+            let vapp = state.vapp_integration.read().await;
+            vapp.get_current_state_commitment().await?
+        };
 
         Ok(StateCommitmentType {
             root_hash: hex::encode(commitment.root_hash),
@@ -536,8 +552,11 @@ impl QueryRoot {
     ) -> FieldResult<Option<AuditTrailType>> {
         let state = ctx.data::<ApiState>()?;
 
-        let ads = state.ads.read().await;
-        match ads.get_audit_trail(input.nullifier_value).await {
+        let audit_result = {
+            let ads = state.ads.read().await;
+            ads.get_audit_trail(input.nullifier_value).await
+        };
+        match audit_result {
             Ok(audit_trail) => {
                 let events: Vec<AuditEventType> = audit_trail
                     .operation_history
@@ -580,8 +599,10 @@ impl QueryRoot {
     async fn performance_metrics(&self, ctx: &Context<'_>) -> FieldResult<PerformanceMetricsType> {
         let state = ctx.data::<ApiState>()?;
 
-        let vapp = state.vapp_integration.read().await;
-        let metrics = vapp.get_metrics().await?;
+        let metrics = {
+            let vapp = state.vapp_integration.read().await;
+            vapp.get_metrics().await?
+        };
 
         Ok(PerformanceMetricsType {
             avg_insertion_time_ms: metrics.avg_insertion_time_ms,
@@ -649,8 +670,10 @@ impl MutationRoot {
 
         info!("🔄 GraphQL: Inserting nullifier {}", input.value);
 
-        let vapp = state.vapp_integration.read().await;
-        let response = vapp.process_nullifier_insertion(input.value).await?;
+        let response = {
+            let vapp = state.vapp_integration.read().await;
+            vapp.process_nullifier_insertion(input.value).await?
+        };
 
         Ok(StateTransitionType {
             id: response.state_transition.id,
@@ -697,8 +720,11 @@ impl MutationRoot {
             }));
         }
 
-        let vapp = state.vapp_integration.read().await;
-        match vapp.process_batch_insertions(&input.values).await {
+        let batch_result = {
+            let vapp = state.vapp_integration.read().await;
+            vapp.process_batch_insertions(&input.values).await
+        };
+        match batch_result {
             Ok(response) => {
                 let message = format!(
                     "Batch completed: {}/{} operations successful in {}ms",

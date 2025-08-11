@@ -12,7 +12,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, instrument, warn};
 
-use crate::ads_service::IndexedMerkleTreeADS;
+use crate::ads_service::{AuthenticatedDataStructure, IndexedMerkleTreeADS};
 use crate::vapp_integration::VAppAdsIntegration;
 
 // ============================================================================

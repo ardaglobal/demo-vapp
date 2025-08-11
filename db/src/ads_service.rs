@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -1024,75 +1023,6 @@ impl IndexedMerkleTreeADS {
 
         info!("✅ Health check passed");
         Ok(true)
-    }
-
-    /// Get state commitment for settlement contracts
-    #[instrument(skip(self), level = "info")]
-    pub async fn get_state_commitment(&self) -> Result<StateCommitment, AdsError> {
-        let tree_guard = self.tree.read().await;
-        let tree_state = tree_guard.get_stats().await?;
-        let root_hash = tree_guard.get_root().await?;
-
-        let nullifier_count = tree_state.total_nullifiers as u64;
-
-        // Create commitment hash from root and count
-        let mut hasher = Sha256::new();
-        hasher.update(&root_hash);
-        hasher.update(&nullifier_count.to_be_bytes());
-        let commitment_hash: [u8; 32] = hasher.finalize().into();
-
-        let commitment = StateCommitment {
-            root_hash,
-            nullifier_count,
-            tree_height: 32,
-            last_updated: chrono::Utc::now(),
-            commitment_hash,
-            settlement_data: SettlementData {
-                contract_address: "0x0000000000000000000000000000000000000000".to_string(),
-                chain_id: 1,
-                nonce: 0,
-                gas_price: 20_000_000_000, // 20 gwei in wei
-            },
-        };
-
-        info!(
-            "Generated state commitment with root: {:x?}",
-            &root_hash[..8]
-        );
-        Ok(commitment)
-    }
-
-    /// Get audit trail for a nullifier
-    #[instrument(skip(self), level = "info")]
-    pub async fn get_audit_trail(&self, nullifier_value: i64) -> Result<AuditTrail, AdsError> {
-        // For now, return a basic audit trail
-        // In a full implementation, this would query audit events from database
-        let now = chrono::Utc::now();
-        let trail = AuditTrail {
-            nullifier_value,
-            operation_history: vec![AuditEvent {
-                event_id: uuid::Uuid::new_v4().to_string(),
-                event_type: AuditEventType::Insertion,
-                timestamp: now,
-                root_before: [0u8; 32],
-                root_after: [1u8; 32],
-                block_height: 0,
-                operator: "system".to_string(),
-                transaction_hash: None,
-                metadata: serde_json::json!({"nullifier": nullifier_value}),
-            }],
-            compliance_status: ComplianceStatus {
-                is_compliant: true,
-                last_audit: now,
-                jurisdiction: "US".to_string(),
-                notes: vec!["System generated audit trail".to_string()],
-            },
-            created_at: now,
-            last_accessed: now,
-        };
-
-        info!("Retrieved audit trail for nullifier: {}", nullifier_value);
-        Ok(trail)
     }
 }
 
