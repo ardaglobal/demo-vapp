@@ -1284,6 +1284,7 @@ async fn submit_transaction(
             }
             Err(e) => {
                 warn!("Proof generation failed: {}", e);
+                proof_status = Some("Failed".to_string());
             }
         }
     }
@@ -1325,7 +1326,7 @@ async fn get_transaction_by_result(
     let pool = state.vapp_integration.read().await.pool.clone();
 
     match get_value_by_result(&pool, result).await {
-        Ok(Some((a, b))) => {
+        Ok(Some((a, b, created_at))) => {
             // Check if there's an associated proof
             let proof_info = get_sindri_proof_by_result(&pool, result)
                 .await
@@ -1338,7 +1339,7 @@ async fn get_transaction_by_result(
                 b,
                 found: true,
                 metadata: TransactionMetadata {
-                    stored_at: Some(Utc::now()), // Would need actual timestamp from DB
+                    stored_at: Some(created_at),
                     has_proof: proof_info.is_some(),
                     proof_id: proof_info.as_ref().map(|p| p.proof_id.clone()),
                     verification_status: proof_info.as_ref().and_then(|p| p.status.clone()),
@@ -1384,21 +1385,58 @@ async fn get_proof_info(
     match client.get_proof(&proof_id, None, None, None).await {
         Ok(proof_info) => {
             let verification_data = if proof_info.status == JobStatus::Ready {
-                // Try to extract public values if available
-                match proof_info.to_sp1_proof_with_public() {
-                    Ok(sp1_proof) => {
-                        match PublicValuesStruct::abi_decode(sp1_proof.public_values.as_slice()) {
-                            Ok(decoded) => Some(ProofVerificationData {
-                                is_verified: true,
-                                public_result: decoded.result,
-                                verification_message: "Proof cryptographically verified"
-                                    .to_string(),
-                                cryptographic_proof_valid: true,
+                // Perform local verification
+                if let Ok(sp1_proof) = proof_info.to_sp1_proof_with_public() {
+                    if let Ok(vk) = proof_info.get_sp1_verifying_key() {
+                        match proof_info.verify_sp1_proof_locally(&vk) {
+                            Ok(()) => {
+                                // Proof verification succeeded, extract public values
+                                match PublicValuesStruct::abi_decode(
+                                    sp1_proof.public_values.as_slice(),
+                                ) {
+                                    Ok(decoded) => Some(ProofVerificationData {
+                                        is_verified: true,
+                                        public_result: decoded.result,
+                                        verification_message: "Proof cryptographically verified"
+                                            .to_string(),
+                                        cryptographic_proof_valid: true,
+                                    }),
+                                    Err(decode_err) => Some(ProofVerificationData {
+                                        is_verified: false,
+                                        public_result: 0,
+                                        verification_message: format!(
+                                            "Failed to decode public values: {}",
+                                            decode_err
+                                        ),
+                                        cryptographic_proof_valid: true, // Crypto verification passed, decode failed
+                                    }),
+                                }
+                            }
+                            Err(verify_err) => Some(ProofVerificationData {
+                                is_verified: false,
+                                public_result: 0,
+                                verification_message: format!(
+                                    "Cryptographic proof verification failed: {}",
+                                    verify_err
+                                ),
+                                cryptographic_proof_valid: false,
                             }),
-                            Err(_) => None,
                         }
+                    } else {
+                        Some(ProofVerificationData {
+                            is_verified: false,
+                            public_result: 0,
+                            verification_message: "Failed to get verifying key".to_string(),
+                            cryptographic_proof_valid: false,
+                        })
                     }
-                    Err(_) => None,
+                } else {
+                    Some(ProofVerificationData {
+                        is_verified: false,
+                        public_result: 0,
+                        verification_message: "Failed to convert to SP1 proof".to_string(),
+                        cryptographic_proof_valid: false,
+                    })
                 }
             } else {
                 None

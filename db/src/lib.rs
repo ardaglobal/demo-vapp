@@ -121,3 +121,6 @@ mod error_tests;
 
 #[cfg(test)]
 mod api_tests;
+
+#[cfg(test)]
+mod proof_verification_tests;

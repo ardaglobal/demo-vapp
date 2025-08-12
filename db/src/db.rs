@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use std::env;
 use std::str::FromStr;
@@ -25,6 +26,30 @@ pub struct SindriProofRecord {
     pub status: Option<String>,
 }
 
+/// Initialize the database connection with a specific URL
+///
+/// # Errors
+/// Returns error if connection fails or migrations fail
+pub async fn init_db_with_url(database_url: &str) -> Result<PgPool, sqlx::Error> {
+    debug!("Connecting to PostgreSQL database...");
+
+    // Configure pool with production settings
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(20)
+        .min_connections(5)
+        .acquire_timeout(std::time::Duration::from_secs(30))
+        .idle_timeout(std::time::Duration::from_secs(600))
+        .max_lifetime(std::time::Duration::from_secs(1800))
+        .connect_with(sqlx::postgres::PgConnectOptions::from_str(database_url)?)
+        .await?;
+
+    // Run migrations
+    run_migrations(&pool).await?;
+
+    debug!("Database ready");
+    Ok(pool)
+}
+
 /// Initialize the database connection
 ///
 /// # Errors
@@ -35,23 +60,7 @@ pub async fn init_db() -> Result<PgPool, sqlx::Error> {
         sqlx::Error::Configuration("DATABASE_URL environment variable must be set".into())
     })?;
 
-    debug!("Connecting to PostgreSQL database...");
-
-    // Configure pool with production settings
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(20)
-        .min_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(30))
-        .idle_timeout(std::time::Duration::from_secs(600))
-        .max_lifetime(std::time::Duration::from_secs(1800))
-        .connect_with(sqlx::postgres::PgConnectOptions::from_str(&database_url)?)
-        .await?;
-
-    // Run migrations
-    run_migrations(&pool).await?;
-
-    debug!("Database ready");
-    Ok(pool)
+    init_db_with_url(&database_url).await
 }
 
 /// Run database migrations
@@ -131,13 +140,15 @@ pub async fn get_transactions_by_result(
 pub async fn get_value_by_result(
     pool: &PgPool,
     result: i32,
-) -> Result<Option<(i32, i32)>, sqlx::Error> {
+) -> Result<Option<(i32, i32, DateTime<Utc>)>, sqlx::Error> {
     debug!("Looking for single transaction with result: {result}");
 
-    let row = sqlx::query("SELECT a, b FROM arithmetic_transactions WHERE result = $1 LIMIT 1")
-        .bind(result)
-        .fetch_optional(pool)
-        .await?;
+    let row = sqlx::query(
+        "SELECT a, b, created_at FROM arithmetic_transactions WHERE result = $1 LIMIT 1",
+    )
+    .bind(result)
+    .fetch_optional(pool)
+    .await?;
 
     row.map_or_else(
         || {
@@ -147,8 +158,9 @@ pub async fn get_value_by_result(
         |row| {
             let a: i32 = row.get("a");
             let b: i32 = row.get("b");
-            debug!("Found transaction: a={a}, b={b}");
-            Ok(Some((a, b)))
+            let created_at: DateTime<Utc> = row.get("created_at");
+            debug!("Found transaction: a={a}, b={b}, created_at={created_at}");
+            Ok(Some((a, b, created_at)))
         },
     )
 }

@@ -62,9 +62,12 @@ mod db_tests {
             .expect("Failed to get value by result");
 
         assert!(value.is_some());
-        let (retrieved_a, retrieved_b) = value.unwrap();
+        let (retrieved_a, retrieved_b, created_at) = value.unwrap();
         assert_eq!(retrieved_a, a);
         assert_eq!(retrieved_b, b);
+        // Verify that created_at is recent (within last minute)
+        let now = chrono::Utc::now();
+        assert!(now.signed_duration_since(created_at).num_seconds() < 60);
     }
 
     #[tokio::test]
@@ -642,7 +645,7 @@ mod integration_tests {
                 value.is_some(),
                 "Workflow verification failed: result {expected_result} not found"
             );
-            let (stored_a, stored_b) = value.unwrap();
+            let (stored_a, stored_b, _created_at) = value.unwrap();
 
             // Verify the stored values match what we expect
             assert_eq!(stored_a, a);
