@@ -34,10 +34,10 @@ tracing = { workspace = true }
 uuid = { version = "1.0", features = [ "serde", "v4" ] }
 
 # SP1 and arithmetic dependencies  
-sp1-sdk = { workspace = true }
 alloy-sol-types = { workspace = true }
-sindri = { version = "0.3.1", features = [ "sp1-v5" ] }
-arithmetic-lib = { path = "../lib" }
+arithmetic-lib  = { path = "../lib" }
+sindri          = { version = "0.3.1", features = [ "sp1-v5" ] }
+sp1-sdk         = { workspace = true }
 
 # API dependencies
 async-graphql = { version = "7.0", features = [ "chrono" ] }
@@ -64,9 +64,9 @@ tower-http = { version = "0.5", features = [
 url = "2.5"
 
 # Server binary dependencies
-clap = { version = "4.0", features = ["derive"] }
-dotenv = "0.15"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap               = { version = "4.0", features = [ "derive" ] }
+dotenv             = "0.15"
+tracing-subscriber = { version = "0.3", features = [ "env-filter" ] }
 
 [dev-dependencies]
 arithmetic-lib     = { path = "../lib" }
