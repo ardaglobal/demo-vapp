@@ -196,7 +196,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     };
 
     // Create the router using the REST API directly
-    let app = arithmetic_db::api::create_router(api_state);
+    let mut app = arithmetic_db::api::create_router(api_state);
+
+    // Apply CORS if enabled
+    if args.cors {
+        app = app.layer(tower_http::cors::CorsLayer::permissive());
+    }
 
     // Bind and serve
     let bind_address = server.bind_address();
@@ -223,7 +228,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("   • POST   /api/v1/transactions      - Submit new transactions");
     println!("   • GET    /api/v1/results/{{result}}  - Get transaction by result");
     println!("   • GET    /api/v1/proofs/{{proof_id}} - Get proof information");
-    println!("   • GET    /api/v1/results/{{result}}/verify - Verify proof for result");
+    println!("   • POST   /api/v1/results/{{result}}/verify - Verify proof for result");
     println!("   • POST   /api/v1/verify            - Verify proof by ID");
     println!("   • GET    /api/v1/health             - Health check");
     println!("   • GET    /api/v1/info               - API information");

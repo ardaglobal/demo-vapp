@@ -457,7 +457,7 @@ pub fn create_router(state: ApiState) -> Router {
         // Transaction operations (vApp-specific)
         .route("/api/v1/transactions", post(submit_transaction))
         .route("/api/v1/results/{result}", get(get_transaction_by_result))
-        .route("/api/v1/results/{result}/verify", get(verify_result_proof))
+        .route("/api/v1/results/{result}/verify", post(verify_result_proof))
         .route("/api/v1/proofs/{proof_id}", get(get_proof_info))
         .route("/api/v1/verify", post(verify_proof))
         // Nullifier operations
@@ -1247,8 +1247,11 @@ async fn submit_transaction(
     let transaction_id = uuid::Uuid::new_v4().to_string();
 
     // Always store transaction in database for hot path
-    let pool = &state.vapp_integration.read().await.pool;
-    if let Err(e) = store_arithmetic_transaction(pool, request.a, request.b, result).await {
+    let pool = {
+        let guard = state.vapp_integration.read().await;
+        guard.pool.clone()
+    };
+    if let Err(e) = store_arithmetic_transaction(&pool, request.a, request.b, result).await {
         error!("Failed to store transaction: {}", e);
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1268,7 +1271,7 @@ async fn submit_transaction(
 
                 // Store proof metadata in database
                 if let Err(e) = crate::db::upsert_sindri_proof(
-                    pool,
+                    &pool,
                     result,
                     &id,
                     Some("demo-vapp".to_string()),
@@ -1319,12 +1322,12 @@ async fn get_transaction_by_result(
 ) -> Result<Json<TransactionByResultResponse>, (StatusCode, String)> {
     info!("🔍 API: Looking up transaction for result = {}", result);
 
-    let pool = &state.vapp_integration.read().await.pool;
+    let pool = state.vapp_integration.read().await.pool.clone();
 
-    match get_value_by_result(pool, result).await {
+    match get_value_by_result(&pool, result).await {
         Ok(Some((a, b))) => {
             // Check if there's an associated proof
-            let proof_info = get_sindri_proof_by_result(pool, result)
+            let proof_info = get_sindri_proof_by_result(&pool, result)
                 .await
                 .ok()
                 .flatten();
@@ -1427,9 +1430,9 @@ async fn verify_result_proof(
 ) -> Result<Json<VerifyProofResponse>, (StatusCode, String)> {
     info!("🔐 API: Verifying proof for result = {}", result);
 
-    let pool = &state.vapp_integration.read().await.pool;
+    let pool = state.vapp_integration.read().await.pool.clone();
 
-    match get_sindri_proof_by_result(pool, result).await {
+    match get_sindri_proof_by_result(&pool, result).await {
         Ok(Some(stored_proof)) => verify_proof_internal(&stored_proof.proof_id, result).await,
         Ok(None) => Err((
             StatusCode::NOT_FOUND,

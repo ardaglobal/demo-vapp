@@ -26,7 +26,9 @@ cd script && cargo run --release -- --execute
 cd script && cargo run --bin background
 
 # REST API Server
-cd db && cargo run --bin server --release
+# Prerequisites: DATABASE_URL environment variable must be set
+# Note: Database migrations are applied automatically on startup
+cd db && cargo run --bin server --release -- --host 0.0.0.0 --port 8080 --cors --graphql --playground
 ```
 
 ### Zero-Knowledge Proofs
@@ -173,7 +175,7 @@ The project includes a comprehensive REST API server that provides HTTP endpoint
 **Transaction Operations**:
 - `POST /api/v1/transactions` - Submit new transactions (a + b), optionally generate ZK proofs
 - `GET /api/v1/results/{result}` - Query transaction inputs (a,b) by result value
-- `GET /api/v1/results/{result}/verify` - Verify stored proof for a specific result
+- `POST /api/v1/results/{result}/verify` - Verify stored proof for a specific result
 
 **Proof Operations**:
 - `GET /api/v1/proofs/{proof_id}` - Retrieve proof information by Sindri proof ID
@@ -203,7 +205,7 @@ curl -X POST http://localhost:8080/api/v1/transactions \
 curl http://localhost:8080/api/v1/results/15
 
 # Verify proof for result
-curl http://localhost:8080/api/v1/results/15/verify
+curl -X POST http://localhost:8080/api/v1/results/15/verify
 
 # Get proof information
 curl http://localhost:8080/api/v1/proofs/proof_abc123
