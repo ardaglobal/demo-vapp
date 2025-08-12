@@ -15,9 +15,17 @@ library StateInteraction {
     error ArrayLengthMismatch();
     error GasEstimationFailed();
     error BatchTooLarge();
+    error ERC165NotSupported();
+    error InterfaceDetectionFailed();
     
     /// @notice Maximum number of items that can be processed in a single batch operation
     uint256 public constant MAX_BATCH_SIZE = 100;
+    
+    /// @notice ERC-165 interface identifier for IERC165
+    bytes4 private constant _INTERFACE_ID_ERC165 = 0x01ffc9a7;
+    
+    /// @notice Interface identifier for IStateManager
+    bytes4 private constant _INTERFACE_ID_STATE_MANAGER = 0xea6d670b;
     
     /// @notice Struct for state update parameters
     struct StateUpdateParams {
@@ -258,11 +266,10 @@ library StateInteraction {
     }
     
     /// @notice Estimate gas cost for state update
-    /// @param stateId The state identifier
     /// @param proof The ZK proof
     /// @return gasEstimate The estimated gas cost
     function estimateUpdateGas(
-        bytes32 stateId,
+        bytes32 /* stateId */,
         bytes calldata proof
     ) external pure returns (uint256 gasEstimate) {
         uint256 baseGas = 21000;
@@ -281,9 +288,9 @@ library StateInteraction {
                     ERROR HANDLING AND VALIDATION
     //////////////////////////////////////////////////////////////*/
     
-    /// @notice Check if contract exists and has required functions
+    /// @notice Check if contract exists and supports the IStateManager interface
     /// @param contractAddr The contract address to check
-    /// @return hasInterface True if contract supports the interface
+    /// @return hasInterface True if contract supports the IStateManager interface
     function checkContractInterface(
         address contractAddr
     ) external view returns (bool hasInterface) {
@@ -291,9 +298,61 @@ library StateInteraction {
             return false;
         }
         
-        bytes memory callData = abi.encodeWithSignature("postStateUpdate(bytes32,bytes32,bytes,bytes)", bytes32(0), bytes32(0), "", "");
+        // First try ERC-165 detection
+        if (_supportsERC165(contractAddr)) {
+            return _supportsInterface(contractAddr, _INTERFACE_ID_STATE_MANAGER);
+        }
         
-        (bool success,) = contractAddr.staticcall{gas: 10000}(callData);
+        // Fallback: Try a minimal read-only function with full gas
+        return _fallbackInterfaceCheck(contractAddr);
+    }
+    
+    /// @notice Check if contract supports ERC-165
+    /// @param contractAddr The contract address to check
+    /// @return supported True if contract supports ERC-165
+    function _supportsERC165(address contractAddr) private view returns (bool supported) {
+        // Check if contract supports ERC-165 by calling supportsInterface(0x01ffc9a7)
+        return _supportsInterface(contractAddr, _INTERFACE_ID_ERC165);
+    }
+    
+    /// @notice Check if contract supports a specific interface via ERC-165
+    /// @param contractAddr The contract address to check
+    /// @param interfaceId The interface identifier to check
+    /// @return supported True if the interface is supported
+    function _supportsInterface(
+        address contractAddr,
+        bytes4 interfaceId
+    ) private view returns (bool supported) {
+        bytes memory callData = abi.encodeWithSignature(
+            "supportsInterface(bytes4)",
+            interfaceId
+        );
+        
+        (bool success, bytes memory returnData) = contractAddr.staticcall(callData);
+        
+        // Return false if call failed or didn't return exactly 32 bytes (bool)
+        if (!success || returnData.length != 32) {
+            return false;
+        }
+        
+        // Decode the boolean result
+        return abi.decode(returnData, (bool));
+    }
+    
+    /// @notice Fallback interface check using a read-only function
+    /// @param contractAddr The contract address to check
+    /// @return hasInterface True if contract appears to support the interface
+    function _fallbackInterfaceCheck(
+        address contractAddr
+    ) private view returns (bool hasInterface) {
+        // Use a minimal read-only function designed for probing
+        // Try getCurrentState with a zero state ID - this should not revert for valid contracts
+        bytes memory callData = abi.encodeWithSignature(
+            "getCurrentState(bytes32)",
+            bytes32(0)
+        );
+        
+        (bool success,) = contractAddr.staticcall(callData);
         
         return success;
     }
