@@ -1,6 +1,8 @@
-# SP1 Project Template
+# Arda Demo vApp
 
-This is a template for creating an end-to-end [SP1](https://github.com/succinctlabs/sp1) project
+A simple counter demo demonstrating the [vApp Archtiecture](https://arxiv.org/pdf/2504.14809) 
+
+Based off the template for creating an end-to-end [SP1](https://github.com/succinctlabs/sp1) project
 that can generate a proof of any RISC-V program.
 
 ## Requirements
@@ -13,8 +15,6 @@ that can generate a proof of any RISC-V program.
 ```sh
 ./install-dependencies.sh
 ```
-
-
 
 ## Running the Project
 
@@ -241,23 +241,3 @@ The zero-knowledge proofs demonstrate that:
 - **Optimized:** Sindri's infrastructure is optimized for proof generation
 - **Verified:** Server-side verification ensures proof correctness
 - **Production Ready:** Suitable for production ZK applications
-
-## Using the Prover Network
-
-We highly recommend using the [Succinct Prover Network](https://docs.succinct.xyz/docs/network/introduction) for any non-trivial programs or benchmarking purposes. For more information, see the [key setup guide](https://docs.succinct.xyz/docs/network/developers/key-setup) to get started.
-
-To get started, copy the example environment file:
-
-```sh
-cp .env.example .env
-```
-
-Then, set the `SP1_PROVER` environment variable to `network` and set the `NETWORK_PRIVATE_KEY`
-environment variable to your whitelisted private key.
-
-For example, to generate an EVM-compatible proof using the prover network, run the following
-command:
-
-```sh
-SP1_PROVER=network NETWORK_PRIVATE_KEY=... cargo run --release --bin evm
-```
