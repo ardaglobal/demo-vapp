@@ -232,6 +232,8 @@ External actors can verify proofs without access to the database:
 
 This enables trustless verification where external parties can cryptographically verify computation results without seeing private inputs or requiring database access.
 
+**Note**: Proof generation requires a valid `SINDRI_API_KEY` environment variable. Without it, transactions will be stored successfully but proof generation will fail with a 401 Unauthorized error. The REST API endpoints remain fully functional for transaction storage and retrieval.
+
 ## Background Processing
 
 **Configuration Options** (`script/src/bin/background.rs`):

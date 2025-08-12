@@ -242,6 +242,62 @@ The zero-knowledge proofs demonstrate that:
 - **Verified:** Server-side verification ensures proof correctness
 - **Production Ready:** Suitable for production ZK applications
 
+## REST API Server
+
+The project includes a comprehensive REST API server for external actors to interact with the vApp. The server provides HTTP endpoints for transaction submission, proof verification, and system monitoring.
+
+### Starting the Server
+
+```sh
+cd db
+cargo run --bin server --release
+```
+
+The server will start on `http://localhost:8080` by default.
+
+### API Endpoints
+
+**Transaction Operations:**
+- `POST /api/v1/transactions` - Submit new transactions (a + b), optionally generate ZK proofs
+- `GET /api/v1/results/{result}` - Query transaction inputs by result value
+- `GET /api/v1/results/{result}/verify` - Verify stored proof for a specific result
+
+**Proof Operations:**
+- `GET /api/v1/proofs/{proof_id}` - Retrieve proof information by Sindri proof ID
+- `POST /api/v1/verify` - Verify proof independently with proof ID and expected result
+
+**System Operations:**
+- `GET /api/v1/health` - Health check and service status
+- `GET /api/v1/info` - API information and capabilities
+
+### Usage Examples
+
+```sh
+# Submit a transaction with proof generation
+curl -X POST http://localhost:8080/api/v1/transactions \
+  -H 'Content-Type: application/json' \
+  -d '{"a": 5, "b": 10, "generate_proof": true}'
+
+# Query transaction by result
+curl http://localhost:8080/api/v1/results/15
+
+# Verify proof for result
+curl http://localhost:8080/api/v1/results/15/verify
+
+# Health check
+curl http://localhost:8080/api/v1/health
+```
+
+### External Actor Workflow
+
+1. **Submit Transaction:** External actors POST to `/api/v1/transactions`
+2. **Get Proof ID:** Response includes proof ID and verification command
+3. **Share Proof:** Proof ID can be shared for trustless verification
+4. **Verify Independently:** Others can verify using proof ID without database access
+5. **Read from Smart Contract:** Can also read verified proofs from on-chain storage
+
+This enables trustless verification where external parties can cryptographically verify computation results without seeing private inputs or requiring database access.
+
 ## Using the Prover Network
 
 We highly recommend using the [Succinct Prover Network](https://docs.succinct.xyz/docs/network/introduction) for any non-trivial programs or benchmarking purposes. For more information, see the [key setup guide](https://docs.succinct.xyz/docs/network/developers/key-setup) to get started.
