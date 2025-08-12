@@ -13,7 +13,14 @@ use tokio::sync::RwLock;
 use tracing::{error, info, instrument, warn};
 
 use crate::ads_service::{AuthenticatedDataStructure, IndexedMerkleTreeADS};
+use crate::db::{get_sindri_proof_by_result, get_value_by_result, store_arithmetic_transaction};
 use crate::vapp_integration::VAppAdsIntegration;
+use alloy_sol_types::SolType;
+use arithmetic_lib::{addition, PublicValuesStruct};
+use sindri::integrations::sp1_v5::SP1ProofInfo;
+use sindri::ProofInput;
+use sindri::{client::SindriClient, JobStatus};
+use sp1_sdk::SP1Stdin;
 
 // ============================================================================
 // API STATE AND CONFIGURATION
@@ -325,6 +332,118 @@ pub struct ServiceStatus {
     pub error: Option<String>,
 }
 
+/// Request to submit a new transaction
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TransactionRequest {
+    pub a: i32,
+    pub b: i32,
+    pub generate_proof: Option<bool>,
+}
+
+/// Response from transaction submission
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TransactionResponse {
+    pub transaction_id: String,
+    pub a: i32,
+    pub b: i32,
+    pub result: i32,
+    pub proof_id: Option<String>,
+    pub proof_status: Option<String>,
+    pub verification_info: VerificationInfo,
+}
+
+/// Verification information for external actors
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VerificationInfo {
+    pub can_verify_externally: bool,
+    pub verification_command: Option<String>,
+    pub db_stored: bool,
+    pub merkle_tree_updated: bool,
+}
+
+/// Response for getting transaction by result
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TransactionByResultResponse {
+    pub result: i32,
+    pub a: i32,
+    pub b: i32,
+    pub found: bool,
+    pub metadata: TransactionMetadata,
+}
+
+/// Transaction metadata
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TransactionMetadata {
+    pub stored_at: Option<DateTime<Utc>>,
+    pub has_proof: bool,
+    pub proof_id: Option<String>,
+    pub verification_status: Option<String>,
+}
+
+/// Proof information response
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProofResponse {
+    pub proof_id: String,
+    pub status: String,
+    pub result: Option<i32>,
+    pub verification_data: Option<ProofVerificationData>,
+    pub circuit_info: ProofCircuitInfo,
+}
+
+/// Proof verification data
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProofVerificationData {
+    pub is_verified: bool,
+    pub public_result: i32,
+    pub verification_message: String,
+    pub cryptographic_proof_valid: bool,
+}
+
+/// Proof circuit information
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProofCircuitInfo {
+    pub circuit_id: String,
+    pub circuit_name: String,
+    pub proof_system: String,
+}
+
+/// Request for proof verification
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VerifyProofRequest {
+    pub proof_id: String,
+    pub expected_result: i32,
+}
+
+/// Response for proof verification
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VerifyProofResponse {
+    pub valid: bool,
+    pub proof_id: String,
+    pub actual_result: Option<i32>,
+    pub expected_result: i32,
+    pub verification_details: VerificationDetails,
+    pub zero_knowledge_properties: ZkProperties,
+}
+
+/// Detailed verification information
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VerificationDetails {
+    pub sindri_status: String,
+    pub cryptographic_proof_valid: bool,
+    pub result_matches_expected: bool,
+    pub verification_time_ms: u64,
+}
+
+/// Zero-knowledge proof properties
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ZkProperties {
+    pub privacy_preserved: bool,
+    pub inputs_hidden: bool,
+    pub soundness: bool,
+    pub completeness: bool,
+    pub description: String,
+}
+
 // ============================================================================
 // ROUTER SETUP
 // ============================================================================
@@ -335,6 +454,12 @@ pub fn create_router(state: ApiState) -> Router {
         // Health and info endpoints
         .route("/api/v1/health", get(health_check))
         .route("/api/v1/info", get(api_info))
+        // Transaction operations (vApp-specific)
+        .route("/api/v1/transactions", post(submit_transaction))
+        .route("/api/v1/results/{result}", get(get_transaction_by_result))
+        .route("/api/v1/results/{result}/verify", post(verify_result_proof))
+        .route("/api/v1/proofs/{proof_id}", get(get_proof_info))
+        .route("/api/v1/verify", post(verify_proof))
         // Nullifier operations
         .route("/api/v1/nullifiers", post(insert_nullifier))
         .route("/api/v1/nullifiers/batch", post(batch_insert_nullifiers))
@@ -1101,4 +1226,365 @@ async fn health_check_live(
         "status": "live",
         "timestamp": chrono::Utc::now().to_rfc3339()
     })))
+}
+
+// ============================================================================
+// VAPP TRANSACTION HANDLERS
+// ============================================================================
+
+/// Submit a new transaction (a + b)
+#[instrument(skip(state, request), level = "info")]
+async fn submit_transaction(
+    State(state): State<ApiState>,
+    Json(request): Json<TransactionRequest>,
+) -> Result<Json<TransactionResponse>, (StatusCode, String)> {
+    info!(
+        "🧮 API: Submitting transaction {} + {}",
+        request.a, request.b
+    );
+
+    let result = addition(request.a, request.b);
+    let transaction_id = uuid::Uuid::new_v4().to_string();
+
+    // Always store transaction in database for hot path
+    let pool = {
+        let guard = state.vapp_integration.read().await;
+        guard.pool.clone()
+    };
+    if let Err(e) = store_arithmetic_transaction(&pool, request.a, request.b, result).await {
+        error!("Failed to store transaction: {}", e);
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to store transaction: {}", e),
+        ));
+    }
+
+    let mut proof_id = None;
+    let mut proof_status = None;
+
+    // Generate proof if requested
+    if request.generate_proof.unwrap_or(false) {
+        match generate_sindri_proof(request.a, request.b, result).await {
+            Ok((id, status)) => {
+                proof_id = Some(id.clone());
+                proof_status = Some(status);
+
+                // Store proof metadata in database
+                if let Err(e) = crate::db::upsert_sindri_proof(
+                    &pool,
+                    result,
+                    &id,
+                    Some("demo-vapp".to_string()),
+                    proof_status.clone(),
+                )
+                .await
+                {
+                    warn!("Failed to store proof metadata: {}", e);
+                }
+            }
+            Err(e) => {
+                warn!("Proof generation failed: {}", e);
+                proof_status = Some("Failed".to_string());
+            }
+        }
+    }
+
+    let verification_command = proof_id.as_ref().map(|pid| {
+        format!(
+            "cargo run --release -- --verify --proof-id {} --result {}",
+            pid, result
+        )
+    });
+
+    let response = TransactionResponse {
+        transaction_id,
+        a: request.a,
+        b: request.b,
+        result,
+        proof_id: proof_id.clone(),
+        proof_status: proof_status.clone(),
+        verification_info: VerificationInfo {
+            can_verify_externally: proof_id.is_some(),
+            verification_command,
+            db_stored: true,
+            merkle_tree_updated: false, // Updated by background processor
+        },
+    };
+
+    info!("✅ API: Transaction submitted - result = {}", result);
+    Ok(Json(response))
+}
+
+/// Get transaction inputs by result value
+#[instrument(skip(state), level = "info")]
+async fn get_transaction_by_result(
+    State(state): State<ApiState>,
+    Path(result): Path<i32>,
+) -> Result<Json<TransactionByResultResponse>, (StatusCode, String)> {
+    info!("🔍 API: Looking up transaction for result = {}", result);
+
+    let pool = state.vapp_integration.read().await.pool.clone();
+
+    match get_value_by_result(&pool, result).await {
+        Ok(Some((a, b, created_at))) => {
+            // Check if there's an associated proof
+            let proof_info = get_sindri_proof_by_result(&pool, result)
+                .await
+                .ok()
+                .flatten();
+
+            let response = TransactionByResultResponse {
+                result,
+                a,
+                b,
+                found: true,
+                metadata: TransactionMetadata {
+                    stored_at: Some(created_at),
+                    has_proof: proof_info.is_some(),
+                    proof_id: proof_info.as_ref().map(|p| p.proof_id.clone()),
+                    verification_status: proof_info.as_ref().and_then(|p| p.status.clone()),
+                },
+            };
+
+            info!("✅ API: Found transaction {} + {} = {}", a, b, result);
+            Ok(Json(response))
+        }
+        Ok(None) => {
+            let response = TransactionByResultResponse {
+                result,
+                a: 0,
+                b: 0,
+                found: false,
+                metadata: TransactionMetadata {
+                    stored_at: None,
+                    has_proof: false,
+                    proof_id: None,
+                    verification_status: None,
+                },
+            };
+
+            Ok(Json(response))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database error: {}", e),
+        )),
+    }
+}
+
+/// Get proof information by proof ID
+#[instrument(skip(_state), level = "info")]
+async fn get_proof_info(
+    State(_state): State<ApiState>,
+    Path(proof_id): Path<String>,
+) -> Result<Json<ProofResponse>, (StatusCode, String)> {
+    info!("🔍 API: Getting proof info for ID: {}", proof_id);
+
+    let client = SindriClient::default();
+
+    match client.get_proof(&proof_id, None, None, None).await {
+        Ok(proof_info) => {
+            let verification_data = if proof_info.status == JobStatus::Ready {
+                // Perform local verification
+                if let Ok(sp1_proof) = proof_info.to_sp1_proof_with_public() {
+                    if let Ok(vk) = proof_info.get_sp1_verifying_key() {
+                        match proof_info.verify_sp1_proof_locally(&vk) {
+                            Ok(()) => {
+                                // Proof verification succeeded, extract public values
+                                match PublicValuesStruct::abi_decode(
+                                    sp1_proof.public_values.as_slice(),
+                                ) {
+                                    Ok(decoded) => Some(ProofVerificationData {
+                                        is_verified: true,
+                                        public_result: decoded.result,
+                                        verification_message: "Proof cryptographically verified"
+                                            .to_string(),
+                                        cryptographic_proof_valid: true,
+                                    }),
+                                    Err(decode_err) => Some(ProofVerificationData {
+                                        is_verified: false,
+                                        public_result: 0,
+                                        verification_message: format!(
+                                            "Failed to decode public values: {}",
+                                            decode_err
+                                        ),
+                                        cryptographic_proof_valid: true, // Crypto verification passed, decode failed
+                                    }),
+                                }
+                            }
+                            Err(verify_err) => Some(ProofVerificationData {
+                                is_verified: false,
+                                public_result: 0,
+                                verification_message: format!(
+                                    "Cryptographic proof verification failed: {}",
+                                    verify_err
+                                ),
+                                cryptographic_proof_valid: false,
+                            }),
+                        }
+                    } else {
+                        Some(ProofVerificationData {
+                            is_verified: false,
+                            public_result: 0,
+                            verification_message: "Failed to get verifying key".to_string(),
+                            cryptographic_proof_valid: false,
+                        })
+                    }
+                } else {
+                    Some(ProofVerificationData {
+                        is_verified: false,
+                        public_result: 0,
+                        verification_message: "Failed to convert to SP1 proof".to_string(),
+                        cryptographic_proof_valid: false,
+                    })
+                }
+            } else {
+                None
+            };
+
+            let response = ProofResponse {
+                proof_id: proof_id.clone(),
+                status: format!("{:?}", proof_info.status),
+                result: verification_data.as_ref().map(|v| v.public_result),
+                verification_data,
+                circuit_info: ProofCircuitInfo {
+                    circuit_id: proof_info.circuit_id,
+                    circuit_name: "demo-vapp".to_string(),
+                    proof_system: "SP1".to_string(),
+                },
+            };
+
+            Ok(Json(response))
+        }
+        Err(e) => Err((StatusCode::NOT_FOUND, format!("Proof not found: {}", e))),
+    }
+}
+
+/// Verify proof for a specific result
+#[instrument(skip(state), level = "info")]
+async fn verify_result_proof(
+    State(state): State<ApiState>,
+    Path(result): Path<i32>,
+) -> Result<Json<VerifyProofResponse>, (StatusCode, String)> {
+    info!("🔐 API: Verifying proof for result = {}", result);
+
+    let pool = state.vapp_integration.read().await.pool.clone();
+
+    match get_sindri_proof_by_result(&pool, result).await {
+        Ok(Some(stored_proof)) => verify_proof_internal(&stored_proof.proof_id, result).await,
+        Ok(None) => Err((
+            StatusCode::NOT_FOUND,
+            format!("No proof found for result = {}", result),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database error: {}", e),
+        )),
+    }
+}
+
+/// Verify proof by proof ID
+#[instrument(skip(_state, request), level = "info")]
+async fn verify_proof(
+    State(_state): State<ApiState>,
+    Json(request): Json<VerifyProofRequest>,
+) -> Result<Json<VerifyProofResponse>, (StatusCode, String)> {
+    info!("🔐 API: Verifying proof ID: {}", request.proof_id);
+
+    verify_proof_internal(&request.proof_id, request.expected_result).await
+}
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/// Generate a proof via Sindri
+async fn generate_sindri_proof(a: i32, b: i32, _result: i32) -> Result<(String, String), String> {
+    let mut stdin = SP1Stdin::new();
+    stdin.write(&a);
+    stdin.write(&b);
+
+    let stdin_json = serde_json::to_string(&stdin)
+        .map_err(|e| format!("Failed to serialize SP1Stdin: {}", e))?;
+    let proof_input = ProofInput::from(stdin_json);
+
+    let client = SindriClient::default();
+    let proof_info = client
+        .prove_circuit("demo-vapp", proof_input, None, None, None)
+        .await
+        .map_err(|e| format!("Failed to submit proof: {}", e))?;
+
+    let status = match proof_info.status {
+        JobStatus::Ready => "Ready".to_string(),
+        JobStatus::Failed => "Failed".to_string(),
+        _ => "Pending".to_string(),
+    };
+
+    Ok((proof_info.proof_id, status))
+}
+
+/// Internal proof verification logic
+async fn verify_proof_internal(
+    proof_id: &str,
+    expected_result: i32,
+) -> Result<Json<VerifyProofResponse>, (StatusCode, String)> {
+    let start_time = std::time::Instant::now();
+    let client = SindriClient::default();
+
+    match client.get_proof(proof_id, None, None, None).await {
+        Ok(proof_info) => {
+            let sindri_status = format!("{:?}", proof_info.status);
+            let mut actual_result = None;
+            let mut cryptographic_proof_valid = false;
+
+            if proof_info.status == JobStatus::Ready {
+                // Perform local verification
+                if let Ok(sp1_proof) = proof_info.to_sp1_proof_with_public() {
+                    if let Ok(vk) = proof_info.get_sp1_verifying_key() {
+                        if matches!(proof_info.verify_sp1_proof_locally(&vk), Ok(())) {
+                            cryptographic_proof_valid = true;
+
+                            // Extract result from public values
+                            if let Ok(decoded) =
+                                PublicValuesStruct::abi_decode(sp1_proof.public_values.as_slice())
+                            {
+                                actual_result = Some(decoded.result);
+                            }
+                        } else {
+                            cryptographic_proof_valid = false;
+                        }
+                    }
+                }
+            }
+
+            let result_matches = actual_result.map(|r| r == expected_result).unwrap_or(false);
+            let verification_time = start_time.elapsed();
+
+            let response = VerifyProofResponse {
+                valid: cryptographic_proof_valid && result_matches,
+                proof_id: proof_id.to_string(),
+                actual_result,
+                expected_result,
+                verification_details: VerificationDetails {
+                    sindri_status,
+                    cryptographic_proof_valid,
+                    result_matches_expected: result_matches,
+                    verification_time_ms: verification_time.as_millis() as u64,
+                },
+                zero_knowledge_properties: ZkProperties {
+                    privacy_preserved: true,
+                    inputs_hidden: true,
+                    soundness: cryptographic_proof_valid,
+                    completeness: result_matches,
+                    description: "SP1 zero-knowledge proof preserves input privacy while proving computation correctness".to_string(),
+                },
+            };
+
+            Ok(Json(response))
+        }
+        Err(e) => Err((
+            StatusCode::NOT_FOUND,
+            format!("Proof verification failed: {}", e),
+        )),
+    }
 }

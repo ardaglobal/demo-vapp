@@ -395,7 +395,7 @@ async fn run_prove_via_sindri(pool: &PgPool, arg_a: i32, arg_b: i32, arg_result:
         (arg_a, arg_b, result)
     } else {
         match get_value_by_result(pool, arg_result).await {
-            Ok(Some((a, b))) => (a, b, arg_result),
+            Ok(Some((a, b, _))) => (a, b, arg_result),
             Ok(None) => {
                 println!("✗ No stored transaction found with result = {arg_result}. Run --execute first.");
                 return;

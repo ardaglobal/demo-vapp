@@ -24,6 +24,11 @@ cd script && cargo run --release -- --execute
 
 # Background processing (cold path: builds indexed Merkle tree)
 cd script && cargo run --bin background
+
+# REST API Server
+# Prerequisites: DATABASE_URL environment variable must be set
+# Note: Database migrations are applied automatically on startup
+cd db && cargo run --bin server --release -- --host 0.0.0.0 --port 8080 --cors --graphql --playground
 ```
 
 ### Zero-Knowledge Proofs
@@ -159,6 +164,78 @@ export SINDRI_API_KEY=your_api_key_here
 
 **Features**: Rate limiting, authentication, health checks, Prometheus metrics
 
+## REST API Server
+
+**Server Binary** (`db/src/bin/server.rs`):
+
+The project includes a comprehensive REST API server that provides HTTP endpoints for external actors to interact with the vApp. The server integrates with the existing database, Merkle tree infrastructure, and Sindri proof generation.
+
+### API Endpoints
+
+**Transaction Operations**:
+- `POST /api/v1/transactions` - Submit new transactions (a + b), optionally generate ZK proofs
+- `GET /api/v1/results/{result}` - Query transaction inputs (a,b) by result value
+- `POST /api/v1/results/{result}/verify` - Verify stored proof for a specific result
+
+**Proof Operations**:
+- `GET /api/v1/proofs/{proof_id}` - Retrieve proof information by Sindri proof ID
+- `POST /api/v1/verify` - Verify proof independently with proof ID and expected result
+
+**System Operations**:
+- `GET /api/v1/health` - Health check and service status
+- `GET /api/v1/info` - API information and capabilities
+- `GET /api/v1/tree/stats` - Merkle tree statistics and performance metrics
+
+**GraphQL** (Optional):
+- `POST /graphql` - GraphQL endpoint for complex queries
+- `GET /playground` - Interactive GraphQL playground (development only)
+
+### Usage Examples
+
+```bash
+# Start the server
+cd db && cargo run --bin server --release
+
+# Submit a transaction with proof generation
+curl -X POST http://localhost:8080/api/v1/transactions \
+  -H 'Content-Type: application/json' \
+  -d '{"a": 5, "b": 10, "generate_proof": true}'
+
+# Query transaction by result
+curl http://localhost:8080/api/v1/results/15
+
+# Verify proof for result
+curl -X POST http://localhost:8080/api/v1/results/15/verify
+
+# Get proof information
+curl http://localhost:8080/api/v1/proofs/proof_abc123
+
+# Health check
+curl http://localhost:8080/api/v1/health
+```
+
+### Server Configuration
+
+The server supports various configuration options via command line arguments:
+- `--host`: Bind host address (default: 0.0.0.0)
+- `--port`: Bind port (default: 8080)
+- `--cors`: Enable CORS (default: true)
+- `--graphql`: Enable GraphQL endpoint (default: true)
+- `--playground`: Enable GraphQL playground (default: true)
+- `--log-level`: Log level (trace, debug, info, warn, error)
+
+### External Verification
+
+External actors can verify proofs without access to the database:
+1. Submit transaction with `generate_proof: true`
+2. Receive proof ID in response
+3. Share proof ID with external verifiers
+4. External verifiers use proof verification endpoints or CLI tools
+
+This enables trustless verification where external parties can cryptographically verify computation results without seeing private inputs or requiring database access.
+
+**Note**: Proof generation requires a valid `SINDRI_API_KEY` environment variable. Without it, transactions will be stored successfully but proof generation will fail with a 401 Unauthorized error. The REST API endpoints remain fully functional for transaction storage and retrieval.
+
 ## Background Processing
 
 **Configuration Options** (`script/src/bin/background.rs`):
@@ -196,6 +273,7 @@ cargo run --bin background -- --log-level debug
 - **Production APIs**: REST/GraphQL with rate limiting and authentication
 - **Comprehensive Testing**: End-to-end CI with automated ZK validation
 - **State Management**: Complete state lifecycle management with proof verification and batch operations
+- **RESTful API Server**: HTTP API server for external transaction submission and proof verification
 
 ## State Management System
 

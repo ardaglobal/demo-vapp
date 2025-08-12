@@ -550,6 +550,7 @@ checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
 name = "arithmetic-db"
 version = "0.1.0"
 dependencies = [
+ "alloy-sol-types",
  "arithmetic-lib",
  "async-graphql",
  "async-graphql-axum",
@@ -557,6 +558,8 @@ dependencies = [
  "axum 0.8.4",
  "axum-test",
  "chrono",
+ "clap",
+ "dotenv",
  "futures-util",
  "hex",
  "http 1.3.1",
@@ -567,6 +570,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "sindri",
+ "sp1-sdk",
  "sqlx",
  "tempfile",
  "thiserror 1.0.69",
