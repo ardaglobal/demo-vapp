@@ -1,6 +1,16 @@
-# SP1 Project Template Contracts
+# SP1 Arithmetic Contracts
 
-This is a template for writing a contract that uses verification of [SP1](https://github.com/succinctlabs/sp1) PlonK proofs onchain using the [SP1VerifierGateway](https://github.com/succinctlabs/sp1-contracts/blob/main/contracts/src/SP1VerifierGateway.sol).
+Smart contracts for zero-knowledge arithmetic proof verification with comprehensive state management built on [SP1](https://github.com/succinctlabs/sp1) and [SP1VerifierGateway](https://github.com/succinctlabs/sp1-contracts/blob/main/contracts/src/SP1VerifierGateway.sol).
+
+## Contract Architecture
+
+- **Arithmetic.sol**: Main contract implementing SP1 proof verification with state management
+- **interfaces/IStateManager.sol**: Standardized interface for state operations and proof management
+- **examples/**: Production-ready integration contracts
+  - **StateConsumer.sol**: Safe state reading with caching and batch operations
+  - **StateUpdater.sol**: State updates with validation and queue-based processing  
+  - **ProofReader.sol**: Proof access with verification and enumeration
+- **test/StateManagement.t.sol**: Comprehensive test suite for state management functionality
 
 ## Requirements
 
@@ -9,8 +19,39 @@ This is a template for writing a contract that uses verification of [SP1](https:
 ## Test
 
 ```sh
+# Run all tests
 forge test -v
+
+# Test state management functionality specifically  
+forge test --match-contract StateManagementTest -vv
+
+# Test integration examples
+forge test --match-contract StateConsumerTest
+forge test --match-contract StateUpdaterTest
+forge test --match-contract ProofReaderTest
 ```
+
+## Usage
+
+The Arithmetic contract provides complete state management with ZK proof verification:
+
+```solidity
+// Update state with ZK proof verification
+arithmetic.postStateUpdate(stateId, newState, proof, publicValues);
+
+// Read current state  
+bytes32 currentState = arithmetic.getCurrentState(stateId);
+
+// Batch operations (gas efficient)
+arithmetic.batchUpdateStates(stateIds, newStates, proofs, results);
+bytes32[] memory states = arithmetic.batchReadStates(stateIds);
+
+// Proof verification
+bool verified = arithmetic.isProofVerified(proofId);
+bytes memory storedProof = arithmetic.getStoredProof(proofId);
+```
+
+See `examples/README.md` for detailed integration patterns and best practices.
 
 ## Deployment
 

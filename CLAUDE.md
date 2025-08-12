@@ -2,14 +2,15 @@
 
 ## Project Overview
 
-SP1 zero-knowledge proof project demonstrating arithmetic addition with indexed Merkle trees. Six main components:
+SP1 zero-knowledge proof project demonstrating arithmetic addition with indexed Merkle trees and comprehensive state management. Seven main components:
 
 1. **RISC-V Program** (`program/`): Arithmetic addition in SP1 zkVM
 2. **Script** (`script/`): Proof generation using SP1 SDK and Sindri integration
-3. **Smart Contracts** (`contracts/`): Solidity proof verification
+3. **Smart Contracts** (`contracts/`): Solidity proof verification with state management
 4. **Database Module** (`db/`): PostgreSQL with indexed Merkle tree operations
 5. **API Layer** (`db/src/api/`): REST and GraphQL APIs for tree operations
 6. **Background Processor** (`db/src/background_processor.rs`): Asynchronous indexed Merkle tree construction
+7. **State Management System** (`contracts/src/interfaces/`): Complete state lifecycle management with ZK proof verification
 
 ## Essential Commands
 
@@ -40,8 +41,11 @@ cd script && cargo run --release --bin vkey
 
 ### Testing
 ```bash
-# Smart contracts
+# Smart contracts (includes state management tests)
 cd contracts && forge test
+
+# Run specific state management tests
+cd contracts && forge test --match-contract StateManagementTest
 
 # Database tests
 cd db && cargo test
@@ -81,6 +85,7 @@ cp .env.example .env
 - **arithmetic-program** (`program/`): RISC-V program for zkVM (private inputs → public result)
 - **arithmetic-script** (`script/`): Multiple binaries - `main.rs`, `evm.rs`, `vkey.rs`, `background.rs`
 - **background-processor** (`db/src/background_processor.rs`): Asynchronous Merkle tree construction
+- **state-management-system** (`contracts/src/interfaces/`): Complete state lifecycle management with proof verification
 
 ### Zero-Knowledge Properties
 ```rust
@@ -96,13 +101,17 @@ struct PublicValuesStruct {
 - **Sindri Integration**: Cloud proof generation with SP1 v5
 - **32-Level Merkle Trees**: 8x fewer constraints than traditional 256-level trees
 - **REST/GraphQL APIs**: Production-ready endpoints for tree operations
+- **Comprehensive State Management**: Complete state lifecycle with ZK proof verification
+- **Batch Operations**: Gas-optimized batch state updates and reads
 
 ### Key Files
 - `program/src/main.rs:25-28`: ZK public values (result only)
 - `script/src/bin/main.rs`: Main CLI with Sindri integration
 - `db/src/merkle_tree.rs`: 32-level indexed Merkle tree
 - `db/src/api/`: REST and GraphQL APIs
-- `contracts/src/Arithmetic.sol`: On-chain verification
+- `contracts/src/Arithmetic.sol`: On-chain verification with state management
+- `contracts/src/interfaces/IStateManager.sol`: State management interface
+- `contracts/test/StateManagement.t.sol`: Comprehensive state management tests
 
 ## Environment
 
@@ -133,10 +142,11 @@ export SINDRI_API_KEY=your_api_key_here
 
 **Test Coverage**:
 - Smart contracts (Foundry with proof fixtures)
+- State management system (comprehensive test suite)
 - Database operations (unit, integration, performance)  
 - Merkle tree operations (7-step insertion algorithm)
 - API endpoints (REST/GraphQL)
-- Error handling and edge cases
+- Gas optimization and batch operations
 
 ## API Layer
 
@@ -185,3 +195,131 @@ cargo run --bin background -- --log-level debug
 - **Background Processing**: Asynchronous indexed Merkle tree construction with resume capability
 - **Production APIs**: REST/GraphQL with rate limiting and authentication
 - **Comprehensive Testing**: End-to-end CI with automated ZK validation
+- **State Management**: Complete state lifecycle management with proof verification and batch operations
+
+## State Management System
+
+### Overview
+
+The state management system provides a comprehensive solution for storing, reading, and validating zero-knowledge proof-verified state transitions on-chain. Built on top of the SP1 arithmetic proof verification, it offers enterprise-grade state management with gas optimization and security best practices.
+
+### Core Components
+
+**IStateManager Interface** (`contracts/src/interfaces/IStateManager.sol`):
+- Standardized interface for state management operations
+- Core state functions: `updateState()`, `getCurrentState()`, `getStoredProof()`, `getStoredResult()`
+- Batch operations: `batchUpdateStates()`, `batchReadStates()`
+- Proof management: `getProofById()`, `isProofVerified()`, `getVerificationResult()`
+
+**Arithmetic Contract** (`contracts/src/Arithmetic.sol`):
+- Implements IStateManager interface
+- SP1 proof verification with state storage
+- Access control and authorization system
+- Event system for monitoring and analytics
+- Proof metadata and enumeration capabilities
+
+
+### Key Features
+
+**Gas Optimization**:
+- Batch operations for multiple state updates/reads
+- Local caching to reduce contract calls
+- Optimized storage patterns
+- Gas cost estimates in documentation
+
+**Security**:
+- Comprehensive access control system
+- Proof validation before state updates
+- Parameter validation and sanitization
+- Reentrancy protection patterns
+
+**Monitoring & Analytics**:
+- Detailed event system for all operations
+- Usage statistics and performance metrics
+- Error tracking and diagnostics
+- Integration with monitoring tools
+
+### State Management Commands
+
+```bash
+# Deploy state management contracts
+cd contracts && forge script script/DeployStateManager.s.sol --broadcast
+
+# Run state management tests
+cd contracts && forge test --match-contract StateManagementTest
+
+
+# Run gas optimization tests
+cd contracts && forge test --match-test test_Gas
+```
+
+### Usage Patterns
+
+**Single State Update**:
+```solidity
+// Direct update through Arithmetic contract
+arithmetic.postStateUpdate(stateId, newState, proof, result);
+```
+
+**Batch Operations**:
+```solidity
+// Batch state updates (gas efficient)
+bool[] memory successes = arithmetic.batchUpdateStates(
+    stateIds, newStates, proofs, results
+);
+
+// Batch state reads
+bytes32[] memory states = arithmetic.batchReadStates(stateIds);
+```
+
+**Safe State Reading**:
+```solidity
+// Direct from Arithmetic contract
+bytes32 currentState = arithmetic.getCurrentState(stateId);
+```
+
+**Proof Verification**:
+```solidity
+// Check proof verification status
+bool isVerified = arithmetic.isProofVerified(proofId);
+
+// Get proof with verification result
+(bool verified, bytes memory result) = arithmetic.getVerificationResult(proofId);
+```
+
+### Gas Cost Estimates
+
+**State Operations**:
+- Single state update: ~200,000 - 400,000 gas
+- Batch update (10 states): ~2,000,000 - 3,000,000 gas
+- Single state read: ~5,000 - 25,000 gas
+- Batch read (10 states): ~50,000 - 150,000 gas
+
+**Proof Operations**:
+- Proof storage: ~50,000 - 100,000 gas
+- Proof reading: ~10,000 - 50,000 gas
+- Verification check: ~2,000 - 5,000 gas
+
+### Integration Best Practices
+
+1. **Always use batch operations** when processing multiple states
+2. **Validate inputs** before submitting to state manager
+3. **Monitor gas usage** and optimize storage patterns
+4. **Implement proper access control** for state updates
+5. **Use events for monitoring** and analytics
+
+### Error Handling
+
+The system provides comprehensive error handling:
+- Custom error types for gas optimization
+- Detailed error messages for debugging
+- Graceful failure handling in batch operations
+- Event-based error reporting and monitoring
+
+### Security Considerations
+
+- **Access Control**: Multi-layered authorization system
+- **Proof Validation**: Comprehensive proof verification before state updates  
+- **Parameter Validation**: Input sanitization and bounds checking
+- **Reentrancy Protection**: Safe external call patterns
+- **State Consistency**: Validation of state transitions
