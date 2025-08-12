@@ -20,6 +20,7 @@ use crate::ads_service::{
 /// Main vApp server integration for ADS services
 pub struct VAppAdsIntegration {
     ads: Arc<RwLock<IndexedMerkleTreeADS>>,
+    pub pool: PgPool,
     config: VAppConfig,
     settlement_service: Arc<dyn SettlementService>,
     proof_service: Arc<dyn ProofGenerationService>,
@@ -375,11 +376,12 @@ impl VAppAdsIntegration {
         };
 
         // Create ADS service
-        let factory = AdsServiceFactory::with_config(pool, ads_config);
+        let factory = AdsServiceFactory::with_config(pool.clone(), ads_config);
         let ads = factory.create_indexed_merkle_tree().await?;
 
         let integration = Self {
             ads: Arc::new(RwLock::new(ads)),
+            pool,
             config,
             settlement_service,
             proof_service,
