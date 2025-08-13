@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        INSERT INTO arithmetic_transactions (a, b, result)\n        VALUES ($1, $2, $3)\n        ON CONFLICT (a, b, result) DO UPDATE SET a = EXCLUDED.a\n        RETURNING id\n        ",
+  "query": "\n        INSERT INTO arithmetic_transactions (a, b, result)\n        VALUES ($1, $2, $3)\n        ON CONFLICT (a, b, result) DO UPDATE SET updated_at = CURRENT_TIMESTAMP\n        RETURNING id\n        ",
   "describe": {
     "columns": [
       {
@@ -20,5 +20,5 @@
       false
     ]
   },
-  "hash": "fcd10bfc55783e2fe85bf8d445b12a1560a97719c45cf9505fc7ef4d67a87222"
+  "hash": "83d49f1db01c063faa25692ce50a39eab149de4f8625d812fe6d08d946b09c58"
 }
