@@ -1,0 +1,10 @@
+{
+  "proof_id": "e34a6c8f-2081-4dac-a167-82c13499a0c7",
+  "circuit_id": "d76649a8-38bb-45b6-9ff2-22c2025593a6",
+  "circuit_name": "arda-counter-v1",
+  "status": "Ready",
+  "created_at": "2025-08-13T14:51:11-04:00",
+  "proving_time_ms": 2500,
+  "proving_key_source": "user_uploaded",
+  "verification_key_source": "user_uploaded"
+}

@@ -1,0 +1,6 @@
+{
+  "a": 42,
+  "b": 13,
+  "prev_state_root": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+  "batch_data": "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+}

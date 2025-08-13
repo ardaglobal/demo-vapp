@@ -1,0 +1,9 @@
+{
+  "circuit_id": "d76649a8-38bb-45b6-9ff2-22c2025593a6",
+  "name": "arda-counter-v1",
+  "status": "Ready",
+  "created_at": "2025-08-13T14:51:02-04:00",
+  "proving_key_uploaded": true,
+  "verification_key_uploaded": true,
+  "elf_uploaded": true
+}

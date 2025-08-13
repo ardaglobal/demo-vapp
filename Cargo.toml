@@ -1,5 +1,7 @@
 [workspace]
-members  = [ "db", "lib", "program", "script" ]
+members = [ "db", "lib", "program", "script" ]
+# Note: circuits/counter is intentionally excluded to avoid workspace conflicts
+# It's built independently with its own target
 resolver = "2"
 
 [workspace.dependencies]

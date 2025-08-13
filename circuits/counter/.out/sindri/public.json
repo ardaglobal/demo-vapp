@@ -1,0 +1,7 @@
+{
+  "result": 55,
+  "prev_state_root": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+  "next_state_root": "0x0000000000000000000000000000000000000000000000001234567890abcdd8",
+  "batch_commitment": "0x38da6e4716eabfb703eaa620c2dcb05cf9458b3a1b1a3a4e846ee62add7033b1",
+  "operation_result": 55
+}

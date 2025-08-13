@@ -1,0 +1,21 @@
+{
+  "$schema": "https://sindri.app/api/v1/sindri-manifest-schema.json",
+  "name": "arda-counter-v1",
+  "circuitType": "sp1",
+  "artifactPaths": {
+    "elf": "../../target/riscv32im-unknown-none-elf/release/counter",
+    "provingKey": "keys/proving.key",
+    "verificationKey": "keys/verifying.key"
+  },
+  "publicOutputs": [
+    "prev_state_root",
+    "next_state_root", 
+    "batch_commitment",
+    "operation_result"
+  ],
+  "metadata": {
+    "version": "1.0.0",
+    "description": "Arda Global vApp arithmetic state transition circuit with BYO proving key",
+    "commit": "$GIT_SHA"
+  }
+}

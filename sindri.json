@@ -1,8 +1,26 @@
 {
-    "$schema": "https://sindri.app/api/v1/sindri-manifest-schema.json",
-    "name": "demo-vapp",
-    "circuitType": "sp1",
-    "provingScheme": "core",
-    "sp1Version": "5.0.0",
-    "elfPath": "build/arithmetic-program"
+  "$schema": "https://sindri.app/api/v1/sindri-manifest-schema.json",
+  "name": "arda-demo-vapp",
+  "description": "Arda Global Demo vApp - Root configuration for multi-circuit project",
+  "version": "1.0.0",
+  "metadata": {
+    "organization": "Arda Global",
+    "project": "demo-vapp",
+    "description": "Bring Your Own Proving Key (BYO-PK) demonstration with SP1 and Sindri",
+    "circuits": [
+      {
+        "name": "counter",
+        "path": "circuits/counter",
+        "description": "Arithmetic counter circuit with state transitions"
+      }
+    ],
+    "features": [
+      "BYO Proving Key",
+      "SP1 zkVM",
+      "Sindri Remote Proving",
+      "On-chain Verification",
+      "vApp State Transitions"
+    ],
+    "documentation": "https://github.com/ardaglobal/demo-vapp/blob/main/README.md"
+  }
 }

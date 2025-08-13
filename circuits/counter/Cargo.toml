@@ -1,0 +1,14 @@
+[package]
+edition = "2021"
+name    = "counter"
+version = "0.1.0"
+
+# No dependencies for this demo - pure no_std Rust
+# In production with SP1, you would use:
+# sp1-zkvm = { workspace = true }
+# alloy-sol-types = { workspace = true }
+# arithmetic-lib = { path = "../../lib" }
+
+[[bin]]
+name = "counter"
+path = "src/main.rs"
