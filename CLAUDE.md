@@ -101,6 +101,38 @@ struct PublicValuesStruct {
 
 **ZK Guarantees**: Privacy (inputs hidden), Soundness (proof correctness), Completeness (valid proofs always verify)
 
+### Zero-Knowledge Verification Mental Model
+
+Understanding the verification flow through analogy:
+
+**1. In Digital Signing:**
+- *Private key:* Can only sign messages
+- *Public key:* Can only verify signatures
+- The only "computation" being proven is "I signed this message"
+
+**2. In ZK Proving:**
+- *Proving key:* Can only generate proofs for a specific compiled program (circuit) with specific public inputs and some private witness
+- *Verification key:* Can only verify proofs for that exact program, using the same public inputs
+- The "computation" being proven is whatever the compiled program defines — e.g., "I took oldRoot and a private batch of transactions, applied the rules, and got newRoot"
+
+**3. Key Difference from Normal Signatures:**
+- In signatures, the message can be arbitrary; the private key doesn't "know" or "care" about what's inside, it just signs bytes
+- In ZK, the PK/VK pair encodes the program itself — the rules for what constitutes a valid computation
+- Change the program → you must regenerate both PK and VK
+
+**4. Why Both PK and VK Contain the "Same Compiled Program Steps":**
+When you do the "setup" for a circuit (trusted or transparent), the compiler:
+- Turns your high-level program into a low-level constraint system (R1CS, AIR, etc.)
+- Generates a proving key containing all the extra metadata needed to construct a proof from a witness
+- Generates a verification key containing the compressed commitments needed to check that a proof corresponds to that exact constraint system
+- Because they are derived from the same constraints, PK and VK are inseparable as a pair — a VK from one circuit can't verify proofs from another
+
+**5. In Your vApp Case:**
+- *PK* = off-chain, owned by your prover (Arda sequencer/prover cluster)
+- *VK* = on-chain, baked into the global settlement contract for that namespace
+- *Proof* = ephemeral artifact generated per batch, posted with public inputs
+- *Verification* = anyone with VK + proof + public inputs can check correctness — no need for the PK or the private data
+
 ### Key Features
 - **Database-Free Verification**: External users verify with proof ID + expected result
 - **Sindri Integration**: Cloud proof generation with SP1 v5
