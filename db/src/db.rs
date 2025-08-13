@@ -4,6 +4,8 @@ use std::env;
 use std::str::FromStr;
 use tracing::debug;
 
+use crate::error::DbError;
+
 #[cfg(all(not(target_env = "msvc"), feature = "tikv-jemallocator"))]
 use tikv_jemallocator::Jemalloc;
 
@@ -253,7 +255,7 @@ pub async fn store_transaction_with_state_update(
     a: i32,
     b: i32,
     result: i32,
-) -> Result<StateTransition, sqlx::Error> {
+) -> Result<StateTransition, DbError> {
     debug!("Storing transaction with state update: a={a}, b={b}, result={result}");
 
     // First, store the arithmetic transaction
@@ -261,7 +263,7 @@ pub async fn store_transaction_with_state_update(
         r"
         INSERT INTO arithmetic_transactions (a, b, result)
         VALUES ($1, $2, $3)
-        ON CONFLICT (a, b, result) DO UPDATE SET a = EXCLUDED.a
+        ON CONFLICT (a, b, result) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
         RETURNING id
         ",
         a,
@@ -287,7 +289,11 @@ pub async fn store_transaction_with_state_update(
     .await?;
 
     if !state_row.success.unwrap_or(false) {
-        return Err(sqlx::Error::RowNotFound);
+        let error_msg = format!(
+            "State update failed for transaction_id={}, a={}, b={}, result={}, previous_state={:?}, new_state={:?}",
+            transaction_id, a, b, result, state_row.previous_state, state_row.new_state
+        );
+        return Err(DbError::TransactionFailed(error_msg));
     }
 
     let previous_state = state_row.previous_state.unwrap_or(0);
@@ -405,4 +411,24 @@ pub async fn validate_state_integrity(pool: &PgPool) -> Result<(bool, String), s
         is_valid, message
     );
     Ok((is_valid, message))
+}
+
+/// Get the total number of transactions in the database
+///
+/// # Errors
+/// Returns error if database operation fails
+pub async fn get_transaction_count(pool: &PgPool) -> Result<i64, sqlx::Error> {
+    debug!("Getting total transaction count");
+
+    let row = sqlx::query!(
+        r"
+        SELECT COUNT(*) as count FROM arithmetic_transactions
+        "
+    )
+    .fetch_one(pool)
+    .await?;
+
+    let count = row.count.unwrap_or(0);
+    debug!("Total transaction count: {}", count);
+    Ok(count)
 }

@@ -14,8 +14,8 @@ use tracing::{error, info, instrument, warn};
 
 use crate::ads_service::{AuthenticatedDataStructure, IndexedMerkleTreeADS};
 use crate::db::{
-    get_current_global_state, get_sindri_proof_by_result, get_state_history, get_value_by_result,
-    store_transaction_with_state_update, validate_state_integrity,
+    get_current_global_state, get_sindri_proof_by_result, get_state_history, get_transaction_count,
+    get_value_by_result, store_transaction_with_state_update, validate_state_integrity,
 };
 use crate::vapp_integration::VAppAdsIntegration;
 use alloy_sol_types::SolType;
@@ -1320,6 +1320,21 @@ async fn submit_transaction(
         )
     });
 
+    // Get actual transaction count from database
+    let transaction_count = match get_transaction_count(&pool).await {
+        Ok(count) => count,
+        Err(e) => {
+            warn!("Failed to get transaction count, using fallback: {}", e);
+            // Fallback: use the new_state as an approximation if result is 1
+            // or 1 if we can't determine it properly
+            if result == 1 {
+                state_transition.new_state
+            } else {
+                1
+            }
+        }
+    };
+
     let response = TransactionResponse {
         transaction_id,
         a: request.a,
@@ -1337,8 +1352,7 @@ async fn submit_transaction(
         },
         state_info: StateInfo {
             state_updated: true,
-            transaction_count: state_transition.new_state
-                / if result == 0 { 1 } else { result } as i64, // Estimate
+            transaction_count,
             continuous_ledger: true,
             state_description: format!(
                 "State transition: {} + {} = {}, global state: {} → {}",
