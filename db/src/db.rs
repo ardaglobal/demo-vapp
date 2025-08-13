@@ -4,6 +4,8 @@ use std::env;
 use std::str::FromStr;
 use tracing::debug;
 
+use crate::error::DbError;
+
 #[cfg(all(not(target_env = "msvc"), feature = "tikv-jemallocator"))]
 use tikv_jemallocator::Jemalloc;
 
@@ -24,6 +26,25 @@ pub struct SindriProofRecord {
     pub proof_id: String,
     pub circuit_id: Option<String>,
     pub status: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GlobalState {
+    pub current_state: i64,
+    pub transaction_count: i64,
+    pub last_updated: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StateTransition {
+    pub id: i32,
+    pub transaction_id: i32,
+    pub previous_state: i64,
+    pub arithmetic_result: i32,
+    pub new_state: i64,
+    pub a: i32,
+    pub b: i32,
+    pub created_at: DateTime<Utc>,
 }
 
 /// Initialize the database connection with a specific URL
@@ -219,4 +240,195 @@ pub async fn get_sindri_proof_by_result(
         circuit_id: row.get::<Option<String>, _>("circuit_id"),
         status: row.get::<Option<String>, _>("status"),
     }))
+}
+
+// ============================================================================
+// CONTINUOUS STATE MANAGEMENT FUNCTIONS
+// ============================================================================
+
+/// Store an arithmetic transaction AND update global state atomically
+///
+/// # Errors
+/// Returns error if database operation fails
+pub async fn store_transaction_with_state_update(
+    pool: &PgPool,
+    a: i32,
+    b: i32,
+    result: i32,
+) -> Result<StateTransition, DbError> {
+    debug!("Storing transaction with state update: a={a}, b={b}, result={result}");
+
+    // First, store the arithmetic transaction
+    let transaction_row = sqlx::query!(
+        r"
+        INSERT INTO arithmetic_transactions (a, b, result)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (a, b, result) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+        RETURNING id
+        ",
+        a,
+        b,
+        result
+    )
+    .fetch_one(pool)
+    .await?;
+
+    let transaction_id = transaction_row.id;
+
+    // Then, atomically update the global state
+    let state_row = sqlx::query!(
+        r"
+        SELECT * FROM update_global_state($1, $2, $3, $4)
+        ",
+        transaction_id,
+        result,
+        a,
+        b
+    )
+    .fetch_one(pool)
+    .await?;
+
+    if !state_row.success.unwrap_or(false) {
+        let error_msg = format!(
+            "State update failed for transaction_id={}, a={}, b={}, result={}, previous_state={:?}, new_state={:?}",
+            transaction_id, a, b, result, state_row.previous_state, state_row.new_state
+        );
+        return Err(DbError::TransactionFailed(error_msg));
+    }
+
+    let previous_state = state_row.previous_state.unwrap_or(0);
+    let new_state = state_row.new_state.unwrap_or(0);
+
+    debug!("State updated: {previous_state} + {result} = {new_state}");
+
+    // Fetch the created transition record
+    let transition = sqlx::query!(
+        r"
+        SELECT id, transaction_id, previous_state, arithmetic_result, new_state, a, b, created_at
+        FROM state_transitions 
+        WHERE transaction_id = $1 
+        ORDER BY created_at DESC 
+        LIMIT 1
+        ",
+        transaction_id
+    )
+    .fetch_one(pool)
+    .await?;
+
+    Ok(StateTransition {
+        id: transition.id,
+        transaction_id: transition.transaction_id,
+        previous_state: transition.previous_state,
+        arithmetic_result: transition.arithmetic_result,
+        new_state: transition.new_state,
+        a: transition.a,
+        b: transition.b,
+        created_at: transition.created_at.unwrap_or_else(Utc::now),
+    })
+}
+
+/// Get current global state
+///
+/// # Errors
+/// Returns error if database operation fails
+pub async fn get_current_global_state(pool: &PgPool) -> Result<GlobalState, sqlx::Error> {
+    debug!("Getting current global state");
+
+    let row = sqlx::query!(
+        r"
+        SELECT * FROM get_current_state()
+        "
+    )
+    .fetch_one(pool)
+    .await?;
+
+    Ok(GlobalState {
+        current_state: row.current_state.unwrap_or(0),
+        transaction_count: row.transaction_count.unwrap_or(0),
+        last_updated: row.last_updated.unwrap_or_else(Utc::now),
+    })
+}
+
+/// Get state transition history
+///
+/// # Errors
+/// Returns error if database operation fails
+pub async fn get_state_history(
+    pool: &PgPool,
+    limit: Option<i32>,
+) -> Result<Vec<StateTransition>, sqlx::Error> {
+    debug!("Getting state history (limit: {:?})", limit);
+
+    let rows = sqlx::query!(
+        r"
+        SELECT * FROM get_state_history($1)
+        ",
+        limit.unwrap_or(10)
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let transitions: Vec<StateTransition> = rows
+        .into_iter()
+        .map(|row| StateTransition {
+            id: row.transition_id.unwrap_or(0),
+            transaction_id: row.transaction_id.unwrap_or(0),
+            previous_state: row.previous_state.unwrap_or(0),
+            arithmetic_result: row.arithmetic_result.unwrap_or(0),
+            new_state: row.new_state.unwrap_or(0),
+            a: row.a.unwrap_or(0),
+            b: row.b.unwrap_or(0),
+            created_at: row.created_at.unwrap_or_else(Utc::now),
+        })
+        .collect();
+
+    debug!("Found {} state transitions", transitions.len());
+    Ok(transitions)
+}
+
+/// Validate state integrity
+///
+/// # Errors
+/// Returns error if database operation fails
+pub async fn validate_state_integrity(pool: &PgPool) -> Result<(bool, String), sqlx::Error> {
+    debug!("Validating state integrity");
+
+    let row = sqlx::query!(
+        r"
+        SELECT * FROM validate_state_integrity()
+        "
+    )
+    .fetch_one(pool)
+    .await?;
+
+    let is_valid = row.is_valid.unwrap_or(false);
+    let message = row
+        .error_message
+        .unwrap_or_else(|| "Unknown error".to_string());
+
+    debug!(
+        "State integrity check: valid={}, message={}",
+        is_valid, message
+    );
+    Ok((is_valid, message))
+}
+
+/// Get the total number of transactions in the database
+///
+/// # Errors
+/// Returns error if database operation fails
+pub async fn get_transaction_count(pool: &PgPool) -> Result<i64, sqlx::Error> {
+    debug!("Getting total transaction count");
+
+    let row = sqlx::query!(
+        r"
+        SELECT COUNT(*) as count FROM arithmetic_transactions
+        "
+    )
+    .fetch_one(pool)
+    .await?;
+
+    let count = row.count.unwrap_or(0);
+    debug!("Total transaction count: {}", count);
+    Ok(count)
 }

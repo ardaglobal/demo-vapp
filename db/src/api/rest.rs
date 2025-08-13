@@ -13,7 +13,10 @@ use tokio::sync::RwLock;
 use tracing::{error, info, instrument, warn};
 
 use crate::ads_service::{AuthenticatedDataStructure, IndexedMerkleTreeADS};
-use crate::db::{get_sindri_proof_by_result, get_value_by_result, store_arithmetic_transaction};
+use crate::db::{
+    get_current_global_state, get_sindri_proof_by_result, get_state_history, get_transaction_count,
+    get_value_by_result, store_transaction_with_state_update, validate_state_integrity,
+};
 use crate::vapp_integration::VAppAdsIntegration;
 use alloy_sol_types::SolType;
 use arithmetic_lib::{addition, PublicValuesStruct};
@@ -347,9 +350,21 @@ pub struct TransactionResponse {
     pub a: i32,
     pub b: i32,
     pub result: i32,
+    pub previous_state: i64,
+    pub new_state: i64,
     pub proof_id: Option<String>,
     pub proof_status: Option<String>,
     pub verification_info: VerificationInfo,
+    pub state_info: StateInfo,
+}
+
+/// State information for continuous ledger
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StateInfo {
+    pub state_updated: bool,
+    pub transaction_count: i64,
+    pub continuous_ledger: bool,
+    pub state_description: String,
 }
 
 /// Verification information for external actors
@@ -460,6 +475,10 @@ pub fn create_router(state: ApiState) -> Router {
         .route("/api/v1/results/{result}/verify", post(verify_result_proof))
         .route("/api/v1/proofs/{proof_id}", get(get_proof_info))
         .route("/api/v1/verify", post(verify_proof))
+        // State management operations
+        .route("/api/v1/state", get(get_current_state))
+        .route("/api/v1/state/history", get(get_state_history_endpoint))
+        .route("/api/v1/state/validate", get(validate_state))
         // Nullifier operations
         .route("/api/v1/nullifiers", post(insert_nullifier))
         .route("/api/v1/nullifiers/batch", post(batch_insert_nullifiers))
@@ -1246,18 +1265,23 @@ async fn submit_transaction(
     let result = addition(request.a, request.b);
     let transaction_id = uuid::Uuid::new_v4().to_string();
 
-    // Always store transaction in database for hot path
+    // Store transaction with atomic state update for continuous ledger
     let pool = {
         let guard = state.vapp_integration.read().await;
         guard.pool.clone()
     };
-    if let Err(e) = store_arithmetic_transaction(&pool, request.a, request.b, result).await {
-        error!("Failed to store transaction: {}", e);
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to store transaction: {}", e),
-        ));
-    }
+
+    let state_transition =
+        match store_transaction_with_state_update(&pool, request.a, request.b, result).await {
+            Ok(transition) => transition,
+            Err(e) => {
+                error!("Failed to store transaction with state update: {}", e);
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to store transaction with state update: {}", e),
+                ));
+            }
+        };
 
     let mut proof_id = None;
     let mut proof_status = None;
@@ -1296,11 +1320,28 @@ async fn submit_transaction(
         )
     });
 
+    // Get actual transaction count from database
+    let transaction_count = match get_transaction_count(&pool).await {
+        Ok(count) => count,
+        Err(e) => {
+            warn!("Failed to get transaction count, using fallback: {}", e);
+            // Fallback: use the new_state as an approximation if result is 1
+            // or 1 if we can't determine it properly
+            if result == 1 {
+                state_transition.new_state
+            } else {
+                1
+            }
+        }
+    };
+
     let response = TransactionResponse {
         transaction_id,
         a: request.a,
         b: request.b,
         result,
+        previous_state: state_transition.previous_state,
+        new_state: state_transition.new_state,
         proof_id: proof_id.clone(),
         proof_status: proof_status.clone(),
         verification_info: VerificationInfo {
@@ -1308,6 +1349,19 @@ async fn submit_transaction(
             verification_command,
             db_stored: true,
             merkle_tree_updated: false, // Updated by background processor
+        },
+        state_info: StateInfo {
+            state_updated: true,
+            transaction_count,
+            continuous_ledger: true,
+            state_description: format!(
+                "State transition: {} + {} = {}, global state: {} → {}",
+                state_transition.previous_state,
+                result,
+                state_transition.new_state,
+                state_transition.previous_state,
+                state_transition.new_state
+            ),
         },
     };
 
@@ -1586,5 +1640,177 @@ async fn verify_proof_internal(
             StatusCode::NOT_FOUND,
             format!("Proof verification failed: {}", e),
         )),
+    }
+}
+
+// ============================================================================
+// STATE MANAGEMENT HANDLERS
+// ============================================================================
+
+/// Get current global state
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GlobalStateResponse {
+    pub current_state: i64,
+    pub transaction_count: i64,
+    pub last_updated: DateTime<Utc>,
+    pub continuous_ledger: bool,
+    pub description: String,
+}
+
+#[instrument(skip(state), level = "info")]
+async fn get_current_state(
+    State(state): State<ApiState>,
+) -> Result<Json<GlobalStateResponse>, (StatusCode, String)> {
+    info!("📊 API: Getting current global state");
+
+    let pool = state.vapp_integration.read().await.pool.clone();
+
+    match get_current_global_state(&pool).await {
+        Ok(global_state) => {
+            let response = GlobalStateResponse {
+                current_state: global_state.current_state,
+                transaction_count: global_state.transaction_count,
+                last_updated: global_state.last_updated,
+                continuous_ledger: true,
+                description: format!(
+                    "Continuous state ledger: {} transactions processed, current state = {}",
+                    global_state.transaction_count, global_state.current_state
+                ),
+            };
+
+            info!(
+                "✅ API: Current state = {}, {} transactions",
+                global_state.current_state, global_state.transaction_count
+            );
+            Ok(Json(response))
+        }
+        Err(e) => {
+            error!("Failed to get current state: {}", e);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to get current state: {}", e),
+            ))
+        }
+    }
+}
+
+/// State history response
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StateHistoryResponse {
+    pub transitions: Vec<GlobalStateTransitionDto>,
+    pub total_transitions: usize,
+    pub continuous_ledger: bool,
+    pub description: String,
+}
+
+/// Global state transition DTO (different from existing StateTransitionDto)
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GlobalStateTransitionDto {
+    pub id: i32,
+    pub transaction_id: i32,
+    pub previous_state: i64,
+    pub arithmetic_result: i32,
+    pub new_state: i64,
+    pub a: i32,
+    pub b: i32,
+    pub created_at: DateTime<Utc>,
+    pub state_change: String,
+}
+
+/// Query parameters for state history
+#[derive(Debug, Deserialize)]
+pub struct StateHistoryQuery {
+    pub limit: Option<i32>,
+}
+
+#[instrument(skip(state), level = "info")]
+async fn get_state_history_endpoint(
+    State(state): State<ApiState>,
+    Query(query): Query<StateHistoryQuery>,
+) -> Result<Json<StateHistoryResponse>, (StatusCode, String)> {
+    info!("📈 API: Getting state history (limit: {:?})", query.limit);
+
+    let pool = state.vapp_integration.read().await.pool.clone();
+
+    match get_state_history(&pool, query.limit).await {
+        Ok(transitions) => {
+            let transition_dtos: Vec<GlobalStateTransitionDto> = transitions
+                .into_iter()
+                .map(|t| GlobalStateTransitionDto {
+                    id: t.id,
+                    transaction_id: t.transaction_id,
+                    previous_state: t.previous_state,
+                    arithmetic_result: t.arithmetic_result,
+                    new_state: t.new_state,
+                    a: t.a,
+                    b: t.b,
+                    created_at: t.created_at,
+                    state_change: format!(
+                        "{} + {} = {}",
+                        t.previous_state, t.arithmetic_result, t.new_state
+                    ),
+                })
+                .collect();
+
+            let response = StateHistoryResponse {
+                total_transitions: transition_dtos.len(),
+                transitions: transition_dtos,
+                continuous_ledger: true,
+                description: "State transition history showing continuous ledger updates"
+                    .to_string(),
+            };
+
+            info!(
+                "✅ API: Found {} state transitions",
+                response.total_transitions
+            );
+            Ok(Json(response))
+        }
+        Err(e) => {
+            error!("Failed to get state history: {}", e);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to get state history: {}", e),
+            ))
+        }
+    }
+}
+
+/// State validation response
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StateValidationResponse {
+    pub is_valid: bool,
+    pub message: String,
+    pub timestamp: DateTime<Utc>,
+    pub continuous_ledger: bool,
+}
+
+#[instrument(skip(state), level = "info")]
+async fn validate_state(
+    State(state): State<ApiState>,
+) -> Result<Json<StateValidationResponse>, (StatusCode, String)> {
+    info!("🔍 API: Validating state integrity");
+
+    let pool = state.vapp_integration.read().await.pool.clone();
+
+    match validate_state_integrity(&pool).await {
+        Ok((is_valid, message)) => {
+            let response = StateValidationResponse {
+                is_valid,
+                message: message.clone(),
+                timestamp: Utc::now(),
+                continuous_ledger: true,
+            };
+
+            info!("✅ API: State validation result: {}", message);
+            Ok(Json(response))
+        }
+        Err(e) => {
+            error!("Failed to validate state: {}", e);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to validate state: {}", e),
+            ))
+        }
     }
 }

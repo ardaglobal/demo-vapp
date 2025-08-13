@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT * FROM validate_state_integrity()\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "is_valid",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "expected_state",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "actual_state",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "transaction_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "error_message",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "5d335033d617cd65680951a2402a30b758d11a57781d035f70d1d3e2c42b8e4a"
+}

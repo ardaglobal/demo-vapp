@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, transaction_id, previous_state, arithmetic_result, new_state, a, b, created_at\n        FROM state_transitions \n        WHERE transaction_id = $1 \n        ORDER BY created_at DESC \n        LIMIT 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "transaction_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "previous_state",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "arithmetic_result",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "new_state",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "a",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "b",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "e358802d2e030a90062fa9718e8e5ac667c0d5d31a7dcea29b30fd6e981fa10e"
+}
