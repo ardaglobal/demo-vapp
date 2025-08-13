@@ -137,7 +137,7 @@ export SINDRI_API_KEY=your_api_key_here
 - ~200 ZK constraints per operation (vs ~1600 traditional)
 - Atomic transactions with O(log n) operations
 
-**Key Tables**: `arithmetic_transactions`, `nullifiers`, `merkle_nodes`, `tree_state`, `sindri_proofs`
+**Key Tables**: `arithmetic_transactions`, `nullifiers`, `merkle_nodes`, `tree_state`, `sindri_proofs`, `global_state`, `state_transitions`
 
 **API Layer**: REST (`/api/v1/`) and GraphQL (`/graphql`) endpoints for tree operations
 
@@ -177,6 +177,11 @@ The project includes a comprehensive REST API server that provides HTTP endpoint
 - `GET /api/v1/results/{result}` - Query transaction inputs (a,b) by result value
 - `POST /api/v1/results/{result}/verify` - Verify stored proof for a specific result
 
+**State Operations**:
+- `GET /api/v1/state` - Get current global state counter
+- `GET /api/v1/state/history` - State transition history with audit trail
+- `GET /api/v1/state/validate` - State integrity validation across all transactions
+
 **Proof Operations**:
 - `GET /api/v1/proofs/{proof_id}` - Retrieve proof information by Sindri proof ID
 - `POST /api/v1/verify` - Verify proof independently with proof ID and expected result
@@ -196,10 +201,19 @@ The project includes a comprehensive REST API server that provides HTTP endpoint
 # Start the server
 cd db && cargo run --bin server --release
 
-# Submit a transaction with proof generation
+# Submit a transaction with proof generation (continuous state)
 curl -X POST http://localhost:8080/api/v1/transactions \
   -H 'Content-Type: application/json' \
   -d '{"a": 5, "b": 10, "generate_proof": true}'
+
+# Get current global state
+curl http://localhost:8080/api/v1/state
+
+# Get state transition history
+curl http://localhost:8080/api/v1/state/history
+
+# Validate state integrity
+curl http://localhost:8080/api/v1/state/validate
 
 # Query transaction by result
 curl http://localhost:8080/api/v1/results/15
@@ -254,6 +268,8 @@ cargo run --bin background -- --log-level debug
 - `arithmetic_transactions`: Hot path storage for user inputs
 - `nullifiers`: Indexed Merkle tree nodes (cold path output)
 - `processor_state`: Tracks last processed transaction ID for resume capability
+- `global_state`: Continuous ledger state tracking
+- `state_transitions`: Audit trail for all state changes
 
 **Processing Flow:**
 1. Poll `arithmetic_transactions` for new entries since last processed ID
@@ -273,15 +289,51 @@ cargo run --bin background -- --log-level debug
 - **Production APIs**: REST/GraphQL with rate limiting and authentication
 - **Comprehensive Testing**: End-to-end CI with automated ZK validation
 - **State Management**: Complete state lifecycle management with proof verification and batch operations
+- **Continuous Ledger State**: Global state counter with atomic transitions and audit trail
 - **RESTful API Server**: HTTP API server for external transaction submission and proof verification
 
 ## State Management System
 
 ### Overview
 
-The state management system provides a comprehensive solution for storing, reading, and validating zero-knowledge proof-verified state transitions on-chain. Built on top of the SP1 arithmetic proof verification, it offers enterprise-grade state management with gas optimization and security best practices.
+The state management system provides both on-chain (smart contracts) and off-chain (database) solutions for storing, reading, and validating zero-knowledge proof-verified state transitions. Built on top of SP1 arithmetic proof verification, it offers enterprise-grade state management with gas optimization, continuous ledger functionality, and security best practices.
 
-### Core Components
+### Continuous Ledger State
+
+**Database-Level State Management**:
+- **Global State Counter**: Maintains running total across all transactions (`global_state` table)
+- **Continuous Ledger**: Each transaction builds on previous state: `previous_state + result = new_state`
+- **Atomic Transitions**: PostgreSQL functions ensure consistency and prevent race conditions
+- **Audit Trail**: Complete history of all state transitions (`state_transitions` table)
+- **State Integrity**: Built-in validation ensures mathematical consistency across all transactions
+
+**State Progression Example**:
+```
+Initial state: 0
+Transaction 1: 0 + 15 = 15 (inputs: 7 + 8)
+Transaction 2: 15 + 25 = 40 (inputs: 12 + 13)  
+Transaction 3: 40 + 10 = 50 (inputs: 3 + 7)
+```
+
+**Enhanced Transaction Response**:
+```json
+{
+  "previous_state": 40,
+  "new_state": 50,
+  "state_info": {
+    "state_updated": true,
+    "continuous_ledger": true,
+    "state_description": "State transition: 40 + 10 = 50"
+  }
+}
+```
+
+**State API Endpoints**:
+- `GET /api/v1/state` - Current global state counter
+- `GET /api/v1/state/history` - Full state transition audit trail
+- `GET /api/v1/state/validate` - State integrity validation
+
+### Smart Contract Components
 
 **IStateManager Interface** (`contracts/src/interfaces/IStateManager.sol`):
 - Standardized interface for state management operations
@@ -297,7 +349,7 @@ The state management system provides a comprehensive solution for storing, readi
 - Proof metadata and enumeration capabilities
 
 
-### Key Features
+### Smart Contract Features
 
 **Gas Optimization**:
 - Batch operations for multiple state updates/reads
