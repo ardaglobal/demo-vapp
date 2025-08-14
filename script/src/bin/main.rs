@@ -232,157 +232,150 @@ async fn run_verify_mode(pool: &PgPool, result: i32) {
     }
 }
 
-async fn verify_result_via_sindri(pool: &PgPool, result: i32) {
-    println!("Verifying proof for result: {result} via Sindri...");
-
-    match get_sindri_proof_by_result(pool, result).await {
-        Ok(Some(record)) => {
-            let client = SindriClient::default();
-            let proof_id: String = record.proof_id.clone();
-            match client.get_proof(&proof_id, None, None, None).await {
-                Ok(verification_result) => {
-                    println!(
-                        "Verification status from Sindri: {:?}",
-                        verification_result.status
-                    );
-                    // Update stored status
-                    let _ = upsert_sindri_proof(
-                        pool,
-                        result,
-                        &proof_id,
-                        Some(verification_result.circuit_id.clone()),
-                        Some(match verification_result.status {
-                            JobStatus::Ready => "Ready".to_string(),
-                            JobStatus::Failed => "Failed".to_string(),
-                            _ => "Other".to_string(),
-                        }),
-                    )
-                    .await;
-
-                    match verification_result.status {
-                        JobStatus::Ready => {
-                            println!("✓ Proof is READY on Sindri for result = {result}");
-
-                            // Perform local verification using Sindri's verification key
-                            perform_local_verification(&verification_result, result).await;
-                        }
-                        JobStatus::Failed => println!(
-                            "✗ Proof verification FAILED for result = {result}: {:?}",
-                            verification_result.error
-                        ),
-                        other => println!("⏳ Proof status: {other:?}"),
-                    }
-                }
-                Err(e) => {
-                    println!("✗ Failed to verify proof via Sindri: {e}");
-                }
-            }
-        }
-        Ok(None) => {
-            println!("✗ No Sindri proof stored for result = {result}. Run --prove to create one.");
-        }
-        Err(e) => println!("✗ Database error: {e}"),
-    }
-}
-
-async fn run_external_verify(proof_id: &str, expected_result: i32) {
-    println!("=== External Verification Mode ===");
-    println!("Verifying proof ID: {proof_id}");
-    println!("Expected result: {expected_result}");
-
+/// Get proof from Sindri by proof_id
+async fn get_sindri_proof(proof_id: &str) -> Option<sindri::ProofInfo> {
     let client = SindriClient::default();
     match client.get_proof(proof_id, None, None, None).await {
         Ok(verification_result) => {
-            println!(
-                "Verification status from Sindri: {:?}",
-                verification_result.status
-            );
-
+            println!("Verification status from Sindri: {:?}", verification_result.status);
+            
             match verification_result.status {
                 JobStatus::Ready => {
-                    println!("✓ Proof is READY on Sindri for proof ID: {proof_id}");
-
-                    // Perform local verification using Sindri's verification key
-                    perform_local_verification(&verification_result, expected_result).await;
+                    println!("✓ Proof is READY on Sindri");
+                    Some(verification_result)
                 }
-                JobStatus::Failed => println!(
-                    "✗ Proof verification FAILED for proof ID {proof_id}: {:?}",
-                    verification_result.error
-                ),
-                other => println!("⏳ Proof status: {other:?}"),
+                JobStatus::Failed => {
+                    println!("✗ Proof verification FAILED: {:?}", verification_result.error);
+                    None
+                }
+                other => {
+                    println!("⏳ Proof status: {other:?}");
+                    None
+                }
             }
         }
         Err(e) => {
             println!("✗ Failed to retrieve proof from Sindri: {e}");
-            println!("💡 Make sure the proof ID is correct and the proof exists on Sindri");
+            None
         }
     }
 }
 
-#[allow(clippy::future_not_send)]
-#[allow(clippy::unused_async)]
-async fn perform_local_verification<T>(verification_result: &T, expected_result: i32)
+/// Core verification function - handles the actual proof verification
+async fn verify_proof_core<T>(proof_info: &T, expected_result: i32) -> bool
 where
     T: ProofInfo + SP1ProofInfo,
 {
     println!("🔍 Performing local SP1 proof verification...");
 
     // Extract SP1 proof and verification key from Sindri response
-    match verification_result.to_sp1_proof_with_public() {
-        Ok(sp1_proof) => {
-            match verification_result.get_sp1_verifying_key() {
-                Ok(sindri_verifying_key) => {
-                    // Perform local verification using Sindri's verification key
-                    match verification_result.verify_sp1_proof_locally(&sindri_verifying_key) {
-                        Ok(()) => {
-                            // Verification successful - now validate the computation
-                            match PublicValuesStruct::abi_decode(sp1_proof.public_values.as_slice())
-                            {
-                                Ok(decoded) => {
-                                    let PublicValuesStruct { result } = decoded;
-
-                                    // In true zero-knowledge verification, we only see the result
-                                    // We cannot see the private inputs 'a' and 'b' that were used
-                                    let result_valid = result == expected_result;
-
-                                    // Color codes for output
-                                    let color_code =
-                                        if result_valid { "\x1b[32m" } else { "\x1b[31m" }; // Green for valid, Red for invalid
-                                    let reset_code = "\x1b[0m"; // Reset color
-
-                                    if result_valid {
-                                        println!(
-                                            "{color_code}✓ ZERO-KNOWLEDGE PROOF VERIFIED: result = {result} (ZKP verified){reset_code}"
-                                        );
-                                        println!("🔐 Proof cryptographically verified - computation integrity confirmed");
-                                        println!("🎭 Private inputs remain hidden - only the result is revealed");
-                                        println!("📊 The prover demonstrated knowledge of inputs that produce result = {result}");
-                                    } else {
-                                        println!(
-                                            "{color_code}✗ Proof verification FAILED: Expected {expected_result}, got {result}{reset_code}"
-                                        );
-                                    }
-                                }
-                                Err(e) => {
-                                    println!("✗ Failed to decode public values from proof: {e}");
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            println!("✗ Local proof verification FAILED: {e}");
-                        }
-                    }
-                }
-                Err(e) => {
-                    println!("✗ Failed to extract verification key from Sindri response: {e}");
-                }
-            }
-        }
+    let sp1_proof = match proof_info.to_sp1_proof_with_public() {
+        Ok(proof) => proof,
         Err(e) => {
-            println!("✗ Failed to extract SP1 proof from Sindri response: {e}");
+            println!("✗ Failed to extract SP1 proof: {e}");
+            return false;
         }
+    };
+
+    let sindri_verifying_key = match proof_info.get_sp1_verifying_key() {
+        Ok(vk) => vk,
+        Err(e) => {
+            println!("✗ Failed to extract verification key: {e}");
+            return false;
+        }
+    };
+
+    // Perform local verification using Sindri's verification key
+    if let Err(e) = proof_info.verify_sp1_proof_locally(&sindri_verifying_key) {
+        println!("✗ Local proof verification FAILED: {e}");
+        return false;
+    }
+
+    // Verification successful - now validate the computation result
+    let decoded = match PublicValuesStruct::abi_decode(sp1_proof.public_values.as_slice()) {
+        Ok(decoded) => decoded,
+        Err(e) => {
+            println!("✗ Failed to decode public values from proof: {e}");
+            return false;
+        }
+    };
+
+    let PublicValuesStruct { result } = decoded;
+    let result_valid = result == expected_result;
+
+    // Color codes for output
+    let color_code = if result_valid { "\x1b[32m" } else { "\x1b[31m" };
+    let reset_code = "\x1b[0m";
+
+    if result_valid {
+        println!("{color_code}✓ ZERO-KNOWLEDGE PROOF VERIFIED: result = {result} (ZKP verified){reset_code}");
+        println!("🔐 Proof cryptographically verified - computation integrity confirmed");
+        println!("🎭 Private inputs remain hidden - only the result is revealed");
+        println!("📊 The prover demonstrated knowledge of inputs that produce result = {result}");
+        true
+    } else {
+        println!("{color_code}✗ Proof verification FAILED: Expected {expected_result}, got {result}{reset_code}");
+        false
     }
 }
+
+/// Verify proof by looking up result in database
+async fn verify_result_via_sindri(pool: &PgPool, result: i32) {
+    println!("Verifying proof for result: {result} via Sindri...");
+
+    // Get proof_id from database
+    let proof_id = match get_sindri_proof_by_result(pool, result).await {
+        Ok(Some(record)) => record.proof_id,
+        Ok(None) => {
+            println!("✗ No Sindri proof stored for result = {result}. Run --prove to create one.");
+            return;
+        }
+        Err(e) => {
+            println!("✗ Database error: {e}");
+            return;
+        }
+    };
+
+    // Get proof from Sindri
+    let proof_info = match get_sindri_proof(&proof_id).await {
+        Some(proof) => proof,
+        None => return, // Error already printed
+    };
+
+    // Perform verification
+    let verification_success = verify_proof_core(&proof_info, result).await;
+
+    // Update database with latest status (only for database-driven verification)
+    if verification_success {
+        let _ = upsert_sindri_proof(
+            pool,
+            result,
+            &proof_id,
+            Some(proof_info.circuit_id.clone()),
+            Some("Ready".to_string()),
+        ).await;
+    }
+}
+
+/// Verify proof directly by proof_id (no database required)
+async fn run_external_verify(proof_id: &str, expected_result: i32) {
+    println!("=== External Verification Mode ===");
+    println!("Verifying proof ID: {proof_id}");
+    println!("Expected result: {expected_result}");
+
+    // Get proof from Sindri
+    let proof_info = match get_sindri_proof(proof_id).await {
+        Some(proof) => proof,
+        None => {
+            println!("💡 Make sure the proof ID is correct and the proof exists on Sindri");
+            return;
+        }
+    };
+
+    // Perform verification (no database updates for external verification)
+    verify_proof_core(&proof_info, expected_result).await;
+}
+
 
 /// Core proving function that handles Sindri circuit proving without database dependencies
 ///
