@@ -9,12 +9,23 @@
 //! ```shell
 //! RUST_LOG=info cargo run --release -- --prove
 //! ```
+//! 
+//! Customize background processor (execute mode only):
+//! ```shell
+//! RUST_LOG=info cargo run --release -- --execute --bg-interval 10 --bg-batch-size 50
+//! ```
+//! 
+//! Run background processor once then exit:
+//! ```shell
+//! RUST_LOG=info cargo run --release -- --execute --bg-one-shot
+//! ```
 
 use alloy_sol_types::SolType;
 use arithmetic_db::db::{
     get_sindri_proof_by_result, get_value_by_result, init_db, store_arithmetic_transaction,
     upsert_sindri_proof,
 };
+use arithmetic_db::ProcessorBuilder;
 use arithmetic_lib::PublicValuesStruct;
 use clap::Parser;
 use sindri::integrations::sp1_v5::SP1ProofInfo;
@@ -22,6 +33,9 @@ use sindri::{client::SindriClient, JobStatus, ProofInfo, ProofInput};
 use sp1_sdk::{include_elf, HashableKey, Prover, ProverClient, SP1Stdin};
 use sqlx::PgPool;
 use std::io::{self, Write};
+use std::time::Duration;
+use tokio::task::JoinHandle;
+use tracing::info;
 
 /// The ELF (executable and linkable format) file for the Succinct RISC-V zkVM.
 pub const ARITHMETIC_ELF: &[u8] = include_elf!("arithmetic-program");
@@ -51,6 +65,14 @@ struct Args {
     // Proof ID for external verification
     #[arg(long)]
     proof_id: Option<String>,
+
+    // Background processor configuration (only used with --execute)
+    #[arg(long, default_value = "30", help = "Background processor polling interval in seconds")]
+    bg_interval: u64,
+    #[arg(long, default_value = "100", help = "Background processor batch size for processing transactions")]
+    bg_batch_size: usize,
+    #[arg(long, help = "Run background processor once and exit (default: continuous mode)")]
+    bg_one_shot: bool,
 }
 
 #[tokio::main]
@@ -68,6 +90,15 @@ async fn main() {
         // Execute mode requires database for storing results
         let client = ProverClient::from_env();
         let pool = init_db().await.expect("Failed to initialize database");
+        
+        // Start background processor for indexed Merkle tree construction with user configuration
+        let _background_handle = start_background_processor(
+            pool.clone(),
+            args.bg_interval,
+            args.bg_batch_size,
+            !args.bg_one_shot  // continuous = !one_shot
+        ).await;
+        
         run_interactive_execute(&client, &pool).await;
     }
     
@@ -104,6 +135,38 @@ async fn main() {
     }
 }
 
+/// Start background processor for indexed Merkle tree construction
+/// Returns a join handle for the background task
+async fn start_background_processor(
+    pool: PgPool, 
+    interval_secs: u64, 
+    batch_size: usize, 
+    continuous: bool
+) -> JoinHandle<()> {
+    info!("🚀 Starting background processor for indexed Merkle tree construction...");
+    info!("⚙️  Configuration: interval={}s, batch_size={}, continuous={}", 
+          interval_secs, batch_size, continuous);
+    
+    // Create and configure processor with user-provided settings
+    let mut processor = ProcessorBuilder::new()
+        .polling_interval(Duration::from_secs(interval_secs))
+        .batch_size(batch_size)
+        .continuous(continuous)
+        .build(pool);
+
+    // Spawn background task
+    tokio::spawn(async move {
+        let mode = if continuous { "continuous" } else { "one-shot" };
+        info!("📊 Background processor started in {} mode - monitoring for new arithmetic transactions", mode);
+        
+        if let Err(e) = processor.start().await {
+            eprintln!("❌ Background processor error: {}", e);
+        } else if !continuous {
+            info!("✅ Background processor completed one-shot processing");
+        }
+    })
+}
+
 /// Helper function to get integer input from user with quit option
 /// Returns None if user wants to quit, Some(value) if valid integer entered
 fn get_integer_input(prompt: &str) -> Option<i32> {
@@ -136,6 +199,8 @@ async fn run_interactive_execute(client: &sp1_sdk::EnvProver, pool: &PgPool) {
     println!("=== Interactive Arithmetic Execution ===");
     println!("Enter two numbers to add them together.");
     println!("Results will be stored in the database.");
+    println!("📊 Background processor is running - building indexed Merkle tree automatically.");
+    println!("💡 Tip: Use --bg-interval, --bg-batch-size, and --bg-one-shot to customize background processing.");
     println!("Press 'q' + Enter to quit.\n");
 
     loop {
