@@ -168,7 +168,7 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::Monitor => {
             info!("Starting event monitoring...");
-            client.monitor_events()?;
+            client.monitor_events().await?;
         }
 
         Commands::PublishState {
@@ -308,7 +308,7 @@ async fn main() -> Result<()> {
         // ==========================================
         Commands::GetVerifierKey => {
             info!("Retrieving verifier key from contract...");
-            let verifier_key = client.get_verifier_key().unwrap();
+            let verifier_key = client.get_verifier_key().await.unwrap();
 
             println!("Verifier Key:");
             println!("  Key: 0x{}", hex::encode(&verifier_key));
@@ -322,7 +322,7 @@ async fn main() -> Result<()> {
             let proof_id = parse_bytes32(&proof_id)?;
 
             info!("Retrieving proof result for {:?}...", proof_id);
-            let result = client.get_proof_result(proof_id).unwrap();
+            let result = client.get_proof_result(proof_id).await.unwrap();
 
             println!("Proof Result (Public Values):");
             println!("  Proof ID: 0x{}", hex::encode(proof_id));
@@ -351,7 +351,7 @@ async fn main() -> Result<()> {
             let proof_id = parse_bytes32(&proof_id)?;
 
             info!("Retrieving proof data for {:?}...", proof_id);
-            let proof_data = client.get_proof_data(proof_id).unwrap();
+            let proof_data = client.get_proof_data(proof_id).await.unwrap();
 
             println!("Proof Data:");
             println!("  Proof ID: 0x{}", hex::encode(proof_id));
@@ -378,7 +378,7 @@ async fn main() -> Result<()> {
             let state_id = parse_bytes32(&state_id)?;
 
             info!("Retrieving state root for {:?}...", state_id);
-            let state_root = client.get_state_root(state_id).unwrap();
+            let state_root = client.get_state_root(state_id).await.unwrap();
 
             println!("State Root:");
             println!("  State ID: 0x{}", hex::encode(state_id));
@@ -485,7 +485,7 @@ async fn main() -> Result<()> {
 
         Commands::GetVerifierVersion => {
             info!("Retrieving verifier contract version...");
-            let version = client.get_verifier_version().unwrap();
+            let version = client.get_verifier_version().await.unwrap();
 
             println!("Verifier Contract Version:");
             println!("  Version: {version}");
@@ -506,12 +506,12 @@ async fn main() -> Result<()> {
 
             // Step 1: Get verifier key
             println!("\n📋 Step 1: Retrieving verifier key...");
-            let verifier_key = client.get_verifier_key().unwrap();
+            let verifier_key = client.get_verifier_key().await.unwrap();
             println!("✅ Verifier key: 0x{}", hex::encode(&verifier_key));
 
             // Step 2: Get proof data
             println!("\n📋 Step 2: Retrieving proof data...");
-            let proof_data = client.get_proof_data(proof_id).unwrap();
+            let proof_data = client.get_proof_data(proof_id).await.unwrap();
             if let Some(proof_bytes) = &proof_data {
                 println!("✅ Proof data: {} bytes", proof_bytes.len());
             } else {
@@ -520,7 +520,7 @@ async fn main() -> Result<()> {
 
             // Step 3: Get proof result
             println!("\n📋 Step 3: Retrieving proof result...");
-            let proof_result = client.get_proof_result(proof_id).unwrap();
+            let proof_result = client.get_proof_result(proof_id).await.unwrap();
             if let Some(result_bytes) = &proof_result {
                 println!("✅ Proof result: {} bytes", result_bytes.len());
             } else {

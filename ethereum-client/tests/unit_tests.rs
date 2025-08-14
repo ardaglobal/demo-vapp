@@ -14,8 +14,8 @@ mod tests {
 
         // Set required fields
         config.alchemy.api_key = "test_key".to_string();
-        config.contract.arithmetic_contract = Address::from_slice(&[0; 20]);
-        config.contract.verifier_contract = Address::from_slice(&[0; 20]);
+        config.contract.arithmetic_contract = Address::from_slice(&[1; 20]);
+        config.contract.verifier_contract = Address::from_slice(&[2; 20]);
 
         // Should now pass
         assert!(config.validate().is_ok());

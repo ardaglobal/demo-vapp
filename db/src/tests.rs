@@ -306,9 +306,33 @@ mod performance_tests {
                 .await
                 .expect("Failed to retrieve bulk transaction");
 
-            assert_eq!(transactions.len(), 1);
-            assert_eq!(transactions[0].a, i);
-            assert_eq!(transactions[0].b, i + 1);
+            // Find our specific transaction (a=i, b=i+1, result=i*2+1)
+            // In concurrent environments, other tests might insert transactions with the same result
+            let our_transaction = transactions.iter().find(|t| t.a == i && t.b == i + 1);
+            
+            if our_transaction.is_none() {
+                eprintln!(
+                    "ERROR: Could not find expected transaction for result {}: a={}, b={}",
+                    result, i, i + 1
+                );
+                eprintln!("Found {} transactions for result {}:", transactions.len(), result);
+                for (idx, txn) in transactions.iter().enumerate() {
+                    eprintln!(
+                        "  Transaction {}: a={}, b={}, result={}",
+                        idx, txn.a, txn.b, txn.result
+                    );
+                }
+                panic!(
+                    "Expected to find transaction with a={}, b={}, result={}, but it was not found",
+                    i, i + 1, result
+                );
+            }
+
+            // Verify our transaction has correct values
+            let txn = our_transaction.unwrap();
+            assert_eq!(txn.a, i);
+            assert_eq!(txn.b, i + 1);
+            assert_eq!(txn.result, result);
         }
     }
 

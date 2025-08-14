@@ -1,18 +1,41 @@
 use crate::{
     config::Config,
-    contracts::ContractAddresses,
+    contracts::{ContractAddresses, IArithmetic, IArithmeticInstance, ISP1Verifier},
     error::{EthereumError, Result},
     types::{
         BatchStateUpdate, InclusionProof, NetworkStats, ProofVerificationResult, StateHistory,
         StateResponse, StateUpdate,
     },
 };
-use alloy_primitives::{Bytes, FixedBytes, TxHash, U256};
+use alloy_primitives::{Bytes, FixedBytes, U256};
 use alloy_provider::{Provider, ProviderBuilder};
-use alloy_rpc_types_eth::TransactionReceipt;
+use alloy_rpc_types_eth::{Filter, TransactionReceipt};
 use alloy_signer_local::PrivateKeySigner;
-use std::sync::Arc;
-use tracing::info;
+use alloy_sol_types::SolEvent;
+use tokio::time::{sleep, Duration};
+use tracing::{debug, error, info, warn};
+
+// Use a simpler provider type that works with the current Alloy version
+type EthProvider = alloy_provider::fillers::FillProvider<
+    alloy_provider::fillers::JoinFill<
+        alloy_provider::Identity,
+        alloy_provider::fillers::JoinFill<
+            alloy_provider::fillers::GasFiller,
+            alloy_provider::fillers::JoinFill<
+                alloy_provider::fillers::BlobGasFiller,
+                alloy_provider::fillers::JoinFill<
+                    alloy_provider::fillers::NonceFiller,
+                    alloy_provider::fillers::ChainIdFiller,
+                >,
+            >,
+        >,
+    >,
+    alloy_provider::RootProvider,
+>;
+
+#[cfg(feature = "database")]
+use arithmetic_db::db::get_sindri_proof_by_result;
+use sindri::{client::SindriClient, integrations::sp1_v5::SP1ProofInfo, JobStatus};
 
 #[cfg(feature = "database")]
 use crate::cache::EthereumCache;
@@ -22,7 +45,7 @@ use sqlx;
 pub struct EthereumClient {
     #[allow(dead_code)]
     config: Config,
-    http_provider: Arc<dyn Provider>,
+    http_provider: EthProvider,
     #[allow(dead_code)]
     contracts: ContractAddresses,
     signer: Option<PrivateKeySigner>,
@@ -63,7 +86,7 @@ impl EthereumClient {
 
         Ok(Self {
             config,
-            http_provider: Arc::new(http_provider),
+            http_provider,
             contracts,
             signer,
 
@@ -79,19 +102,54 @@ impl EthereumClient {
         proof: Bytes,
         public_values: Bytes,
     ) -> Result<StateUpdate> {
-        let _signer = self.signer.as_ref().ok_or_else(|| {
+        let signer = self.signer.as_ref().ok_or_else(|| {
             EthereumError::Config("Signer required for state updates".to_string())
         })?;
 
-        // TODO: Implement proper contract call encoding and transaction sending
-        let tx_hash = TxHash::default();
+        info!("Updating state: {}", hex::encode(state_id.as_slice()));
+
+        // Create contract instance
+        let contract = IArithmetic::new(self.contracts.arithmetic, &self.http_provider);
+
+        // Build the transaction
+        let call_builder = contract
+            .updateState(
+                state_id,
+                new_state_root,
+                proof.clone(),
+                public_values.clone(),
+            )
+            .from(signer.address());
+
+        // Send the transaction
+        let tx_result = call_builder.send().await.map_err(|e| {
+            error!("Failed to send state update transaction: {}", e);
+            EthereumError::Transaction(format!("Transaction failed: {}", e))
+        })?;
+
+        info!("State update transaction sent: {}", tx_result.tx_hash());
+
+        // Wait for confirmation
+        let receipt = tx_result.get_receipt().await.map_err(|e| {
+            error!("Failed to get transaction receipt: {}", e);
+            EthereumError::Transaction(format!("Receipt error: {}", e))
+        })?;
+
+        let block_number = receipt.block_number.unwrap_or(0);
+        let tx_hash = receipt.transaction_hash;
+
+        info!(
+            "State update confirmed in block {}: {}",
+            block_number,
+            hex::encode(tx_hash.as_slice())
+        );
 
         let state_update = StateUpdate {
             state_id,
             new_state_root,
             proof,
             public_values,
-            block_number: Some(0),
+            block_number: Some(block_number),
             transaction_hash: Some(tx_hash),
         };
 
@@ -103,11 +161,11 @@ impl EthereumClient {
         Ok(state_update)
     }
 
-    pub fn batch_update_states(
+    pub async fn batch_update_states(
         &self,
         updates: Vec<(FixedBytes<32>, FixedBytes<32>, Bytes, Bytes)>,
     ) -> Result<BatchStateUpdate> {
-        let _signer = self.signer.as_ref().ok_or_else(|| {
+        let signer = self.signer.as_ref().ok_or_else(|| {
             EthereumError::Config("Signer required for state updates".to_string())
         })?;
 
@@ -127,8 +185,48 @@ impl EthereumClient {
             results.push(result);
         }
 
-        // TODO: Implement proper contract call encoding and transaction sending
-        let tx_hash = TxHash::default();
+        info!("Batch updating {} states", state_ids.len());
+
+        // Create contract instance
+        let contract = IArithmetic::new(self.contracts.arithmetic, &self.http_provider);
+
+        // Build the batch transaction
+        let call_builder = contract
+            .batchUpdateStates(
+                state_ids.clone(),
+                new_state_roots.clone(),
+                proofs.clone(),
+                results.clone(),
+            )
+            .from(signer.address());
+
+        // Send the transaction
+        let tx_result = call_builder.send().await.map_err(|e| {
+            error!("Failed to send batch update transaction: {}", e);
+            EthereumError::Transaction(format!("Batch transaction failed: {}", e))
+        })?;
+
+        info!("Batch update transaction sent: {}", tx_result.tx_hash());
+
+        // Wait for confirmation
+        let receipt = tx_result.get_receipt().await.map_err(|e| {
+            error!("Failed to get batch transaction receipt: {}", e);
+            EthereumError::Transaction(format!("Batch receipt error: {}", e))
+        })?;
+
+        let block_number = receipt.block_number.unwrap_or(0);
+        let tx_hash = receipt.transaction_hash;
+        let gas_used = U256::from(receipt.gas_used);
+
+        info!(
+            "Batch update confirmed in block {}: {} (gas used: {})",
+            block_number,
+            hex::encode(tx_hash.as_slice()),
+            gas_used
+        );
+
+        // For now, assume all updates succeeded
+        // TODO: Parse transaction logs to determine individual success/failure
         let success_flags = vec![true; state_ids.len()];
 
         let batch_update = BatchStateUpdate {
@@ -137,8 +235,8 @@ impl EthereumClient {
             proofs,
             results,
             transaction_hash: tx_hash,
-            block_number: 0,
-            gas_used: U256::ZERO,
+            block_number,
+            gas_used,
             success_flags,
         };
 
@@ -163,15 +261,25 @@ impl EthereumClient {
         &self,
         state_id: FixedBytes<32>,
     ) -> Result<Option<StateResponse>> {
-        // TODO: Implement state retrieval from contract
+        let contract = IArithmetic::new(self.contracts.arithmetic, &self.http_provider);
+
+        let state_root = contract
+            .getCurrentState(state_id)
+            .call()
+            .await
+            .map_err(|e| {
+                warn!("Failed to get current state: {}", e);
+                EthereumError::Contract(format!("State query failed: {}", e))
+            })?;
+
         let current_block = self.http_provider.get_block_number().await?;
 
         Ok(Some(StateResponse {
             state_id,
-            state_root: FixedBytes::ZERO,
+            state_root,
             block_number: current_block,
-            timestamp: 0,
-            proof_id: Some(FixedBytes::ZERO),
+            timestamp: 0,   // TODO: Get actual timestamp
+            proof_id: None, // TODO: Get associated proof ID
         }))
     }
 
@@ -181,10 +289,127 @@ impl EthereumClient {
         Ok(self)
     }
 
-    pub fn monitor_events(&self) -> Result<()> {
-        // TODO: Implement event monitoring
-        info!("Starting event monitoring...");
-        Ok(())
+    pub async fn monitor_events(&self) -> Result<()> {
+        info!(
+            "Starting event monitoring for contract: {}",
+            self.contracts.arithmetic
+        );
+
+        let contract = IArithmetic::new(self.contracts.arithmetic, &self.http_provider);
+
+        // Create filter for all contract events
+        let _filter = Filter::new()
+            .address(self.contracts.arithmetic)
+            .from_block(0);
+
+        // Start monitoring loop
+        let mut current_block = self.http_provider.get_block_number().await?;
+
+        loop {
+            match self.check_for_new_events(current_block, &contract).await {
+                Ok(new_block) => {
+                    current_block = new_block;
+                }
+                Err(e) => {
+                    error!("Error monitoring events: {}", e);
+                }
+            }
+
+            // Poll every 12 seconds (Ethereum block time)
+            sleep(Duration::from_secs(12)).await;
+        }
+    }
+
+    async fn check_for_new_events(
+        &self,
+        last_block: u64,
+        _contract: &IArithmeticInstance<&EthProvider>,
+    ) -> Result<u64> {
+        let current_block = self.http_provider.get_block_number().await?;
+
+        if current_block <= last_block {
+            return Ok(last_block);
+        }
+
+        debug!(
+            "Checking for events from block {} to {}",
+            last_block + 1,
+            current_block
+        );
+
+        // Create filter for new blocks
+        let filter = Filter::new()
+            .address(self.contracts.arithmetic)
+            .from_block(last_block + 1)
+            .to_block(current_block);
+
+        let logs = self.http_provider.get_logs(&filter).await.map_err(|e| {
+            error!("Failed to get logs: {}", e);
+            EthereumError::External(format!("Log retrieval failed: {}", e))
+        })?;
+
+        let log_count = logs.len();
+        for log in &logs {
+            self.process_event_log(log);
+        }
+
+        info!(
+            "Processed {} events from blocks {} to {}",
+            log_count,
+            last_block + 1,
+            current_block
+        );
+        Ok(current_block)
+    }
+
+    fn process_event_log(&self, log: &alloy_rpc_types_eth::Log) {
+        // Convert RPC log to primitive log for decoding
+        let primitive_log = alloy_primitives::Log {
+            address: log.address(),
+            data: alloy_primitives::LogData::new(
+                log.topics().iter().cloned().collect(),
+                log.data().data.clone(),
+            )
+            .unwrap_or_else(|| {
+                alloy_primitives::LogData::new_unchecked(
+                    log.topics().iter().cloned().collect(),
+                    log.data().data.clone(),
+                )
+            }),
+        };
+
+        // Try to decode different event types
+        if let Ok(event) = IArithmetic::StateUpdated::decode_log(&primitive_log) {
+            info!(
+                "StateUpdated event: stateId={}, newState={}, proofId={}, updater={}",
+                hex::encode(event.stateId.as_slice()),
+                hex::encode(event.newState.as_slice()),
+                hex::encode(event.proofId.as_slice()),
+                event.updater
+            );
+
+            #[cfg(feature = "database")]
+            if let Some(_cache) = &self.cache {
+                // Store event in cache for later processing
+                // TODO: Implement cache.store_event(&event)
+            }
+        } else if let Ok(event) = IArithmetic::ProofStored::decode_log(&primitive_log) {
+            info!(
+                "ProofStored event: proofId={}, stateId={}, submitter={}",
+                hex::encode(event.proofId.as_slice()),
+                hex::encode(event.stateId.as_slice()),
+                event.submitter
+            );
+        } else if let Ok(event) = IArithmetic::ProofVerified::decode_log(&primitive_log) {
+            info!(
+                "ProofVerified event: proofId={}, success={}, result={}",
+                hex::encode(event.proofId.as_slice()),
+                event.success,
+                hex::encode(event.result.as_ref())
+            );
+        } else {
+            debug!("Unknown event type in log: {:?}", log);
+        }
     }
 
     pub async fn publish_state_root(
@@ -216,14 +441,35 @@ impl EthereumClient {
         })
     }
 
-    pub const fn get_verifier_key(&self) -> Result<Bytes> {
-        // TODO: Implement verifier key retrieval from contract
-        Ok(Bytes::new())
+    pub async fn get_verifier_key(&self) -> Result<Bytes> {
+        let contract = IArithmetic::new(self.contracts.arithmetic, &self.http_provider);
+
+        let vkey = contract.arithmeticProgramVKey().call().await.map_err(|e| {
+            warn!("Failed to get verifier key: {}", e);
+            EthereumError::Contract(format!("Verifier key query failed: {}", e))
+        })?;
+
+        // Convert FixedBytes<32> to Bytes
+        Ok(Bytes::from(vkey.as_slice().to_vec()))
     }
 
-    pub const fn get_proof_result(&self, _proof_id: FixedBytes<32>) -> Result<Option<Bytes>> {
-        // TODO: Implement proof result retrieval from contract
-        Ok(Some(Bytes::new()))
+    pub async fn get_proof_result(&self, proof_id: FixedBytes<32>) -> Result<Option<Bytes>> {
+        let contract = IArithmetic::new(self.contracts.arithmetic, &self.http_provider);
+
+        let result = contract
+            .getStoredResult(proof_id)
+            .call()
+            .await
+            .map_err(|e| {
+                warn!("Failed to get proof result: {}", e);
+                EthereumError::Contract(format!("Proof result query failed: {}", e))
+            })?;
+
+        if result.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(result))
+        }
     }
 
     pub const fn get_verification_data(&self, _proof_id: FixedBytes<32>) -> Result<Option<Bytes>> {
@@ -278,6 +524,149 @@ impl EthereumClient {
         })
     }
 
+    /// Retrieves a Sindri proof and submits it to the smart contract
+    #[cfg(feature = "database")]
+    pub async fn submit_sindri_proof_to_contract(
+        &self,
+        pool: &sqlx::PgPool,
+        result: i32,
+        state_id: FixedBytes<32>,
+        new_state_root: FixedBytes<32>,
+    ) -> Result<StateUpdate> {
+        info!("Retrieving Sindri proof for result: {}", result);
+
+        // Get proof from database
+        let sindri_proof = get_sindri_proof_by_result(pool, result)
+            .await
+            .map_err(|e| EthereumError::Database(format!("Failed to get Sindri proof: {}", e)))?
+            .ok_or_else(|| {
+                EthereumError::Config(format!("No Sindri proof found for result: {}", result))
+            })?;
+
+        // Initialize Sindri client (uses SINDRI_API_KEY from environment)
+        let sindri_client = SindriClient::default();
+
+        // Get proof info from Sindri
+        let proof_info = sindri_client
+            .get_proof(&sindri_proof.proof_id, None, None, None)
+            .await
+            .map_err(|e| {
+                EthereumError::External(format!("Failed to get proof from Sindri: {}", e))
+            })?;
+
+        // Check if proof is ready
+        if proof_info.status != JobStatus::Ready {
+            return Err(EthereumError::Config(format!(
+                "Proof not ready yet. Status: {:?}",
+                proof_info.status
+            )));
+        }
+
+        // Get the actual proof data using SP1 integration
+        let proof_bytes = match proof_info.to_sp1_proof_with_public() {
+            Ok(sp1_proof) => {
+                info!("Successfully extracted SP1 proof from Sindri");
+                // Convert SP1 proof to bytes for contract submission
+                let proof_data = serde_json::to_vec(&sp1_proof).map_err(|e| {
+                    EthereumError::Sindri(format!("Failed to serialize SP1 proof: {}", e))
+                })?;
+                Bytes::from(proof_data)
+            }
+            Err(e) => {
+                return Err(EthereumError::Sindri(format!(
+                    "Failed to extract SP1 proof: {}",
+                    e
+                )));
+            }
+        };
+
+        // Create public values (the arithmetic result as i32)
+        let public_values = Bytes::from(result.to_be_bytes().to_vec());
+
+        info!(
+            "Submitting proof to contract: proof_id={}, result={}",
+            sindri_proof.proof_id, result
+        );
+
+        // Submit to contract
+        self.update_state(state_id, new_state_root, proof_bytes, public_values)
+            .await
+    }
+
+    /// Batch retrieves multiple Sindri proofs and submits them to the contract
+    #[cfg(feature = "database")]
+    pub async fn submit_batch_sindri_proofs_to_contract(
+        &self,
+        pool: &sqlx::PgPool,
+        proof_submissions: Vec<(i32, FixedBytes<32>, FixedBytes<32>)>, // (result, state_id, new_state_root)
+    ) -> Result<BatchStateUpdate> {
+        info!(
+            "Retrieving batch of {} Sindri proofs",
+            proof_submissions.len()
+        );
+
+        let sindri_client = SindriClient::default();
+
+        let mut updates = Vec::new();
+
+        for (result, state_id, new_state_root) in proof_submissions {
+            // Get proof from database
+            let sindri_proof = get_sindri_proof_by_result(pool, result)
+                .await
+                .map_err(|e| EthereumError::Database(format!("Failed to get Sindri proof: {}", e)))?
+                .ok_or_else(|| {
+                    EthereumError::Config(format!("No Sindri proof found for result: {}", result))
+                })?;
+
+            // Get proof info from Sindri
+            let proof_info = sindri_client
+                .get_proof(&sindri_proof.proof_id, None, None, None)
+                .await
+                .map_err(|e| {
+                    EthereumError::External(format!("Failed to get proof from Sindri: {}", e))
+                })?;
+
+            // Check if proof is ready
+            if proof_info.status != JobStatus::Ready {
+                warn!(
+                    "Skipping proof for result {} - not ready yet. Status: {:?}",
+                    result, proof_info.status
+                );
+                continue;
+            }
+
+            // Get the actual proof data using SP1 integration
+            let proof_bytes = match proof_info.to_sp1_proof_with_public() {
+                Ok(sp1_proof) => {
+                    // Convert SP1 proof to bytes for contract submission
+                    let proof_data = serde_json::to_vec(&sp1_proof).map_err(|e| {
+                        EthereumError::Sindri(format!("Failed to serialize SP1 proof: {}", e))
+                    })?;
+                    Bytes::from(proof_data)
+                }
+                Err(e) => {
+                    warn!("Failed to extract SP1 proof for result {}: {}", result, e);
+                    continue;
+                }
+            };
+
+            let public_values = Bytes::from(result.to_be_bytes().to_vec());
+
+            updates.push((state_id, new_state_root, proof_bytes, public_values));
+        }
+
+        if updates.is_empty() {
+            return Err(EthereumError::Config(
+                "No ready proofs available for batch submission".to_string(),
+            ));
+        }
+
+        info!("Submitting {} ready proofs to contract", updates.len());
+
+        // Submit batch to contract
+        self.batch_update_states(updates).await
+    }
+
     pub fn check_inclusion_proof(
         &self,
         _leaf_hash: FixedBytes<32>,
@@ -295,14 +684,38 @@ impl EthereumClient {
         })
     }
 
-    pub const fn get_proof_data(&self, _proof_id: FixedBytes<32>) -> Result<Option<Bytes>> {
-        // TODO: Implement proof data retrieval from contract
-        Ok(Some(Bytes::new()))
+    pub async fn get_proof_data(&self, proof_id: FixedBytes<32>) -> Result<Option<Bytes>> {
+        let contract = IArithmetic::new(self.contracts.arithmetic, &self.http_provider);
+
+        let proof_data = contract
+            .getStoredProof(proof_id)
+            .call()
+            .await
+            .map_err(|e| {
+                warn!("Failed to get proof data: {}", e);
+                EthereumError::Contract(format!("Proof data query failed: {}", e))
+            })?;
+
+        if proof_data.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(proof_data))
+        }
     }
 
-    pub const fn get_state_root(&self, _state_id: FixedBytes<32>) -> Result<FixedBytes<32>> {
-        // TODO: Implement state root retrieval from contract
-        Ok(FixedBytes::ZERO)
+    pub async fn get_state_root(&self, state_id: FixedBytes<32>) -> Result<FixedBytes<32>> {
+        let contract = IArithmetic::new(self.contracts.arithmetic, &self.http_provider);
+
+        let state_root = contract
+            .getCurrentState(state_id)
+            .call()
+            .await
+            .map_err(|e| {
+                warn!("Failed to get state root: {}", e);
+                EthereumError::Contract(format!("State root query failed: {}", e))
+            })?;
+
+        Ok(state_root)
     }
 
     pub fn get_state_proof_history(
@@ -313,9 +726,19 @@ impl EthereumClient {
         Ok(vec![FixedBytes::ZERO])
     }
 
-    pub fn get_verifier_version(&self) -> Result<String> {
-        // TODO: Implement verifier version retrieval from contract
-        Ok(String::from("1.0.0"))
+    pub async fn get_verifier_version(&self) -> Result<String> {
+        let verifier_contract = ISP1Verifier::new(self.contracts.verifier, &self.http_provider);
+
+        let version = verifier_contract.VERSION().call().await.map_err(|e| {
+            warn!("Failed to get verifier version: {}", e);
+            EthereumError::Contract(format!("Verifier version query failed: {}", e))
+        })?;
+
+        Ok(version)
+    }
+
+    pub fn has_signer(&self) -> bool {
+        self.signer.is_some()
     }
 }
 

@@ -48,7 +48,7 @@ pub enum EthereumError {
 
     #[cfg(feature = "database")]
     #[error("Database error: {0}")]
-    Database(#[from] sqlx::Error),
+    DatabaseSqlx(#[from] sqlx::Error),
 
     #[error("Hex decode error: {0}")]
     HexDecode(#[from] hex::FromHexError),
@@ -61,4 +61,17 @@ pub enum EthereumError {
 
     #[error("General error: {0}")]
     General(#[from] eyre::Error),
+
+    #[error("External service error: {0}")]
+    External(String),
+
+    #[error("Transaction error: {0}")]
+    Transaction(String),
+
+    #[cfg(feature = "database")]
+    #[error("Database error: {0}")]
+    Database(String),
+
+    #[error("Sindri error: {0}")]
+    Sindri(String),
 }

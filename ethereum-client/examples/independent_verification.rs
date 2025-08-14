@@ -33,7 +33,7 @@ async fn main() -> Result<()> {
     println!("📋 Step 1: Retrieving Verifier Key");
     println!("---------------------------------");
 
-    match client.get_verifier_key() {
+    match client.get_verifier_key().await {
         Ok(verifier_key) => {
             println!("✅ Verifier Key: 0x{}", hex::encode(verifier_key.as_ref()));
             println!(
@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
     println!("📋 Step 2: Attempting to Retrieve Proof Data");
     println!("--------------------------------------------");
 
-    match client.get_proof_data(mock_proof_id) {
+    match client.get_proof_data(mock_proof_id).await {
         Ok(proof_data) => {
             println!(
                 "✅ Proof Data Retrieved: {} bytes",
@@ -72,7 +72,7 @@ async fn main() -> Result<()> {
     println!("📋 Step 3: Attempting to Retrieve Proof Result");
     println!("----------------------------------------------");
 
-    match client.get_proof_result(mock_proof_id) {
+    match client.get_proof_result(mock_proof_id).await {
         Ok(result) => {
             println!("✅ Proof Result: {} bytes", result.as_ref().unwrap().len());
             println!(
@@ -105,7 +105,7 @@ async fn main() -> Result<()> {
     println!("--------------------------------------------");
 
     let mock_state_id = FixedBytes::from_slice(&[1u8; 32]);
-    match client.get_state_root(mock_state_id) {
+    match client.get_state_root(mock_state_id).await {
         Ok(state_root) => {
             println!("✅ State Root: 0x{}", hex::encode(state_root.as_slice()));
             println!("💡 This is the current state commitment for the vApp");
@@ -180,7 +180,7 @@ async fn main() -> Result<()> {
     // Get verifier version for compatibility
     println!("📋 SP1 Verifier Information");
     println!("---------------------------");
-    match client.get_verifier_version() {
+    match client.get_verifier_version().await {
         Ok(version) => {
             println!("✅ SP1 Verifier Version: {version}");
             println!("💡 Users should verify they're using compatible SP1 tooling");
