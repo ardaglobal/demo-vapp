@@ -309,13 +309,19 @@ mod performance_tests {
             // Find our specific transaction (a=i, b=i+1, result=i*2+1)
             // In concurrent environments, other tests might insert transactions with the same result
             let our_transaction = transactions.iter().find(|t| t.a == i && t.b == i + 1);
-            
+
             if our_transaction.is_none() {
                 eprintln!(
                     "ERROR: Could not find expected transaction for result {}: a={}, b={}",
-                    result, i, i + 1
+                    result,
+                    i,
+                    i + 1
                 );
-                eprintln!("Found {} transactions for result {}:", transactions.len(), result);
+                eprintln!(
+                    "Found {} transactions for result {}:",
+                    transactions.len(),
+                    result
+                );
                 for (idx, txn) in transactions.iter().enumerate() {
                     eprintln!(
                         "  Transaction {}: a={}, b={}, result={}",
@@ -324,7 +330,9 @@ mod performance_tests {
                 }
                 panic!(
                     "Expected to find transaction with a={}, b={}, result={}, but it was not found",
-                    i, i + 1, result
+                    i,
+                    i + 1,
+                    result
                 );
             }
 

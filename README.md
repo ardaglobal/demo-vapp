@@ -119,13 +119,17 @@ cargo run --release -- --prove --a 5 --b 10 --system plonk
 # Generate proof for a previously computed result stored in database
 cargo run --release -- --prove --result 15
 
-# Generate proof with Solidity test fixtures
+# Generate proof with Solidity test fixtures and submit to contract
 cargo run --release -- --prove --a 5 --b 10 --generate-fixture
+
+# Generate proof only (skip smart contract submission)
+cargo run --release -- --prove --a 5 --b 10 --skip-contract-submission
 ```
 
 **Command Options:**
 - `--system groth16|plonk`: Choose EVM-compatible proof system (default: groth16)
 - `--generate-fixture`: Create Solidity test fixtures in `contracts/src/fixtures/`
+- `--skip-contract-submission`: Skip automatic smart contract submission (smart contract submission is enabled by default)
 - `--a` and `--b`: Direct input values for computation
 - `--result`: Look up stored transaction inputs by result value
 
@@ -133,8 +137,9 @@ The `--prove` command will:
 1. Create SP1 inputs and serialize them for Sindri
 2. Generate EVM-compatible proofs (Groth16 or PLONK)
 3. Submit proof request to Sindri using the `demo-vapp` circuit
-4. Store proof metadata in PostgreSQL (database mode) or run standalone
-5. Display proof ID for external verification
+4. Automatically submit proof to smart contract (unless `--skip-contract-submission` is used)
+5. Store proof metadata in PostgreSQL (database mode) or run standalone
+6. Display proof ID for external verification
 
 ### Verify Sindri Proofs
 
@@ -225,6 +230,64 @@ To retrieve your `programVKey` for your on-chain contract, run the following com
 cargo run --release -- --vkey
 ```
 
+## Smart Contract Integration
+
+The project now includes seamless integration between Sindri proof generation and Ethereum smart contract submission. After generating a zero-knowledge proof via Sindri, the system can automatically submit the proof to the on-chain Arithmetic contract for verification and state updates.
+
+### Features
+
+- **Automatic Submission**: Smart contract submission is enabled by default for all `--prove` commands
+- **SP1 Proof Extraction**: Automatically extracts SP1 proof data and verification keys from Sindri responses
+- **Ethereum Client**: Integrated ethereum client for contract interaction with signing capability
+- **State Management**: Generates deterministic state IDs and state roots for proof organization
+- **Transaction Feedback**: Provides detailed transaction hashes, block numbers, and gas usage
+- **Graceful Fallback**: Proof generation continues even if contract submission fails
+
+### Environment Setup
+
+For smart contract integration to work, set these environment variables:
+
+```bash
+# Required for --submit-to-contract flag
+export ETHEREUM_RPC_URL=https://eth-mainnet.alchemyapi.io/v2/demo
+export ARITHMETIC_CONTRACT_ADDRESS=0x1234567890123456789012345678901234567890
+export VERIFIER_CONTRACT_ADDRESS=0x0987654321098765432109876543210987654321
+export PRIVATE_KEY=your_private_key_without_0x_prefix
+```
+
+### Usage Examples
+
+```bash
+# Generate proof and submit to smart contract (default behavior)
+cargo run --release -- --prove --a 5 --b 10
+
+# Generate proof with result lookup and submit to contract  
+cargo run --release -- --prove --result 15
+
+# Generate proof, create EVM fixture, and submit to contract
+cargo run --release -- --prove --a 7 --b 8 --generate-fixture
+
+# Generate proof only (skip smart contract submission)
+cargo run --release -- --prove --a 5 --b 10 --skip-contract-submission
+```
+
+### Integration Flow
+
+1. **Proof Generation**: Generate zero-knowledge proof via Sindri
+2. **Data Extraction**: Extract SP1 proof and verification key from Sindri response
+3. **Client Initialization**: Create ethereum client from environment configuration
+4. **State Generation**: Generate deterministic state IDs and state roots based on arithmetic result
+5. **Contract Submission**: Submit proof to Arithmetic contract for on-chain verification
+6. **Transaction Confirmation**: Wait for transaction confirmation and provide detailed feedback
+
+### Benefits
+
+- **End-to-End Automation**: Single command generates proof and submits to blockchain
+- **Trustless Verification**: Proofs are verifiable on-chain without trusting the prover
+- **State Management**: Automatic state tracking and organization on smart contracts
+- **Developer Experience**: Default behavior enables complex blockchain interactions with simple commands
+- **Production Ready**: Handles errors gracefully with detailed feedback
+
 ## Sindri Integration for Serverless ZK Proofs
 
 This project integrates with [Sindri](https://sindri.app) for serverless zero-knowledge proof generation, providing a scalable alternative to local SP1 proving.
@@ -238,6 +301,15 @@ This project integrates with [Sindri](https://sindri.app) for serverless zero-kn
 2. **Set your API key as an environment variable:**
    ```bash
    export SINDRI_API_KEY=your_api_key_here
+   ```
+
+3. **For Smart Contract Integration (Optional):**
+   ```bash
+   # Required for --submit-to-contract flag
+   export ETHEREUM_RPC_URL=https://eth-mainnet.alchemyapi.io/v2/demo
+   export ARITHMETIC_CONTRACT_ADDRESS=0x1234567890123456789012345678901234567890
+   export VERIFIER_CONTRACT_ADDRESS=0x0987654321098765432109876543210987654321
+   export PRIVATE_KEY=your_private_key_without_0x_prefix
    ```
 
 ### Continuous Integration

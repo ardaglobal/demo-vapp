@@ -33,14 +33,20 @@ cd db && cargo run --bin server --release -- --host 0.0.0.0 --port 8080 --cors -
 
 ### Zero-Knowledge Proofs
 ```bash
-# Generate EVM-compatible proof (Groth16 default)
+# Generate EVM-compatible proof and submit to smart contract (Groth16 default)
 cd script && cargo run --release -- --prove --a 5 --b 10
 
-# Generate PLONK proof
+# Generate PLONK proof and submit to smart contract
 cd script && cargo run --release -- --prove --a 5 --b 10 --system plonk
 
-# Generate proof with Solidity fixtures
+# Generate proof with Solidity fixtures and submit to contract
 cd script && cargo run --release -- --prove --a 5 --b 10 --generate-fixture
+
+# Generate proof with fixtures and submit to contract
+cd script && cargo run --release -- --prove --a 7 --b 8 --generate-fixture
+
+# Generate proof only (skip smart contract submission)
+cd script && cargo run --release -- --prove --a 5 --b 10 --skip-contract-submission
 
 # Verify with proof ID (external)
 cd script && cargo run --release -- --verify --proof-id <PROOF_ID> --result 15
@@ -164,6 +170,12 @@ docker-compose up -d
 # Environment variables
 cp .env.example .env
 export SINDRI_API_KEY=your_api_key_here
+
+# Smart contract integration (required for --submit-to-contract)
+export ETHEREUM_RPC_URL=https://eth-mainnet.alchemyapi.io/v2/demo
+export ARITHMETIC_CONTRACT_ADDRESS=0x1234567890123456789012345678901234567890
+export VERIFIER_CONTRACT_ADDRESS=0x0987654321098765432109876543210987654321
+export PRIVATE_KEY=your_private_key_without_0x_prefix
 ```
 
 ## Database Architecture
@@ -328,6 +340,63 @@ cd script && cargo run --release -- --execute
 - **State Management**: Complete state lifecycle management with proof verification and batch operations
 - **Continuous Ledger State**: Global state counter with atomic transitions and audit trail
 - **RESTful API Server**: HTTP API server for external transaction submission and proof verification
+- **Smart Contract Integration**: Automatic proof submission to Ethereum contracts with `--submit-to-contract` flag
+
+## Smart Contract Integration
+
+### Overview
+
+The project now includes seamless integration between Sindri proof generation and Ethereum smart contract submission. After generating a zero-knowledge proof via Sindri, the system can automatically submit the proof to the on-chain Arithmetic contract for verification and state updates.
+
+### Features
+
+- **Automatic Submission**: Smart contract submission is enabled by default for all `--prove` commands
+- **SP1 Proof Extraction**: Automatically extracts SP1 proof data and verification keys from Sindri responses
+- **Ethereum Client**: Integrated ethereum client for contract interaction with signing capability
+- **State Management**: Generates deterministic state IDs and state roots for proof organization
+- **Transaction Feedback**: Provides detailed transaction hashes, block numbers, and gas usage
+
+### Usage Examples
+
+```bash
+# Generate proof and submit to smart contract (default behavior)
+cargo run --release -- --prove --a 5 --b 10
+
+# Generate proof with result lookup and submit to contract  
+cargo run --release -- --prove --result 15
+
+# Generate proof, create EVM fixture, and submit to contract
+cargo run --release -- --prove --a 7 --b 8 --generate-fixture
+
+# Generate proof only (skip smart contract submission)
+cargo run --release -- --prove --a 5 --b 10 --skip-contract-submission
+```
+
+### Environment Requirements
+
+For smart contract integration to work, the following environment variables must be configured:
+
+- `ETHEREUM_RPC_URL` - Ethereum RPC endpoint (e.g., Alchemy, Infura)
+- `ARITHMETIC_CONTRACT_ADDRESS` - Address of deployed Arithmetic contract
+- `VERIFIER_CONTRACT_ADDRESS` - Address of SP1 verifier contract  
+- `PRIVATE_KEY` - Private key for signing transactions (without 0x prefix)
+- `SINDRI_API_KEY` - For proof generation
+
+### Integration Flow
+
+1. **Proof Generation**: `prove_via_sindri_core()` generates `ProofInfoResponse` 
+2. **Data Extraction**: Extract SP1 proof and verification key using `.to_sp1_proof_with_public()` and `.get_sp1_verifying_key()`
+3. **Client Initialization**: Create ethereum client from environment configuration
+4. **State Generation**: Generate deterministic state IDs and state roots based on arithmetic result
+5. **Contract Submission**: Submit proof to Arithmetic contract via `update_state()` method
+6. **Transaction Confirmation**: Wait for transaction confirmation and provide feedback
+
+### Error Handling
+
+- **Graceful Fallback**: Proof generation continues even if contract submission fails
+- **Environment Validation**: Checks for required environment variables before attempting submission  
+- **Signer Validation**: Ensures ethereum client has signing capability for transactions
+- **Detailed Error Messages**: Provides specific error messages for troubleshooting
 
 ## State Management System
 
