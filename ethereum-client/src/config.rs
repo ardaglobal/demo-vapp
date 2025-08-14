@@ -55,22 +55,25 @@ pub struct MonitoringConfig {
 }
 
 impl Config {
+    #[allow(clippy::too_many_lines)]
     pub fn from_env() -> Result<Self> {
         let network_name = env::var("ETHEREUM_NETWORK").unwrap_or_else(|_| "sepolia".to_string());
         let chain_id: u64 = env::var("CHAIN_ID")
-            .unwrap_or_else(|_| match network_name.as_str() {
-                "mainnet" => "1".to_string(),
-                "sepolia" => "11155111".to_string(),
-                "base" => "8453".to_string(),
-                "base-sepolia" => "84532".to_string(),
-                "arbitrum" => "42161".to_string(),
-                "arbitrum-sepolia" => "421614".to_string(),
-                "optimism" => "10".to_string(),
-                "optimism-sepolia" => "11155420".to_string(),
-                _ => "11155111".to_string(),
+            .unwrap_or_else(|_| {
+                #[allow(clippy::wildcard_in_or_patterns)]
+                match network_name.as_str() {
+                    "mainnet" => "1".to_string(),
+                    "base" => "8453".to_string(),
+                    "base-sepolia" => "84532".to_string(),
+                    "arbitrum" => "42161".to_string(),
+                    "arbitrum-sepolia" => "421614".to_string(),
+                    "optimism" => "10".to_string(),
+                    "optimism-sepolia" => "11155420".to_string(),
+                    "sepolia" | _ => "11155111".to_string(),
+                }
             })
             .parse()
-            .map_err(|e| EthereumError::Config(format!("Invalid chain ID: {}", e)))?;
+            .map_err(|e| EthereumError::Config(format!("Invalid chain ID: {e}")))?;
 
         let alchemy_api_key = env::var("ALCHEMY_API_KEY")
             .map_err(|_| EthereumError::Config("ALCHEMY_API_KEY is required".to_string()))?;
@@ -79,21 +82,31 @@ impl Config {
         let ws_url = Self::build_alchemy_ws_url(&network_name, &alchemy_api_key).ok();
 
         let arithmetic_contract = env::var("ARITHMETIC_CONTRACT_ADDRESS")
-            .map_err(|_| EthereumError::Config("ARITHMETIC_CONTRACT_ADDRESS is required".to_string()))?
+            .map_err(|_| {
+                EthereumError::Config("ARITHMETIC_CONTRACT_ADDRESS is required".to_string())
+            })?
             .parse::<Address>()
-            .map_err(|e| EthereumError::InvalidAddress(format!("Invalid contract address: {}", e)))?;
+            .map_err(|e| EthereumError::InvalidAddress(format!("Invalid contract address: {e}")))?;
 
         let verifier_contract = env::var("VERIFIER_CONTRACT_ADDRESS")
-            .map_err(|_| EthereumError::Config("VERIFIER_CONTRACT_ADDRESS is required".to_string()))?
+            .map_err(|_| {
+                EthereumError::Config("VERIFIER_CONTRACT_ADDRESS is required".to_string())
+            })?
             .parse::<Address>()
-            .map_err(|e| EthereumError::InvalidAddress(format!("Invalid verifier address: {}", e)))?;
+            .map_err(|e| EthereumError::InvalidAddress(format!("Invalid verifier address: {e}")))?;
 
         let signer = if let Ok(private_key) = env::var("PRIVATE_KEY") {
             let signer_address = env::var("SIGNER_ADDRESS")
-                .map_err(|_| EthereumError::Config("SIGNER_ADDRESS is required when PRIVATE_KEY is provided".to_string()))?
+                .map_err(|_| {
+                    EthereumError::Config(
+                        "SIGNER_ADDRESS is required when PRIVATE_KEY is provided".to_string(),
+                    )
+                })?
                 .parse::<Address>()
-                .map_err(|e| EthereumError::InvalidAddress(format!("Invalid signer address: {}", e)))?;
-            
+                .map_err(|e| {
+                    EthereumError::InvalidAddress(format!("Invalid signer address: {e}"))
+                })?;
+
             Some(SignerConfig {
                 private_key,
                 address: signer_address,
@@ -102,7 +115,7 @@ impl Config {
             None
         };
 
-        Ok(Config {
+        Ok(Self {
             network: NetworkConfig {
                 name: network_name.clone(),
                 chain_id,
@@ -162,36 +175,43 @@ impl Config {
 
     fn build_alchemy_url(network: &str, api_key: &str) -> Result<Url> {
         let base_url = match network {
-            "mainnet" => format!("https://eth-mainnet.g.alchemy.com/v2/{}", api_key),
-            "sepolia" => format!("https://eth-sepolia.g.alchemy.com/v2/{}", api_key),
-            "base" => format!("https://base-mainnet.g.alchemy.com/v2/{}", api_key),
-            "base-sepolia" => format!("https://base-sepolia.g.alchemy.com/v2/{}", api_key),
-            "arbitrum" => format!("https://arb-mainnet.g.alchemy.com/v2/{}", api_key),
-            "arbitrum-sepolia" => format!("https://arb-sepolia.g.alchemy.com/v2/{}", api_key),
-            "optimism" => format!("https://opt-mainnet.g.alchemy.com/v2/{}", api_key),
-            "optimism-sepolia" => format!("https://opt-sepolia.g.alchemy.com/v2/{}", api_key),
-            _ => return Err(EthereumError::Config(format!("Unsupported network: {}", network))),
+            "mainnet" => format!("https://eth-mainnet.g.alchemy.com/v2/{api_key}"),
+            "sepolia" => format!("https://eth-sepolia.g.alchemy.com/v2/{api_key}"),
+            "base" => format!("https://base-mainnet.g.alchemy.com/v2/{api_key}"),
+            "base-sepolia" => format!("https://base-sepolia.g.alchemy.com/v2/{api_key}"),
+            "arbitrum" => format!("https://arb-mainnet.g.alchemy.com/v2/{api_key}"),
+            "arbitrum-sepolia" => format!("https://arb-sepolia.g.alchemy.com/v2/{api_key}"),
+            "optimism" => format!("https://opt-mainnet.g.alchemy.com/v2/{api_key}"),
+            "optimism-sepolia" => format!("https://opt-sepolia.g.alchemy.com/v2/{api_key}"),
+            _ => {
+                return Err(EthereumError::Config(format!(
+                    "Unsupported network: {network}"
+                )))
+            }
         };
 
-        Url::parse(&base_url)
-            .map_err(|e| EthereumError::Config(format!("Invalid RPC URL: {}", e)))
+        Url::parse(&base_url).map_err(|e| EthereumError::Config(format!("Invalid RPC URL: {e}")))
     }
 
     fn build_alchemy_ws_url(network: &str, api_key: &str) -> Result<Url> {
         let base_url = match network {
-            "mainnet" => format!("wss://eth-mainnet.g.alchemy.com/v2/{}", api_key),
-            "sepolia" => format!("wss://eth-sepolia.g.alchemy.com/v2/{}", api_key),
-            "base" => format!("wss://base-mainnet.g.alchemy.com/v2/{}", api_key),
-            "base-sepolia" => format!("wss://base-sepolia.g.alchemy.com/v2/{}", api_key),
-            "arbitrum" => format!("wss://arb-mainnet.g.alchemy.com/v2/{}", api_key),
-            "arbitrum-sepolia" => format!("wss://arb-sepolia.g.alchemy.com/v2/{}", api_key),
-            "optimism" => format!("wss://opt-mainnet.g.alchemy.com/v2/{}", api_key),
-            "optimism-sepolia" => format!("wss://opt-sepolia.g.alchemy.com/v2/{}", api_key),
-            _ => return Err(EthereumError::Config(format!("Unsupported network: {}", network))),
+            "mainnet" => format!("wss://eth-mainnet.g.alchemy.com/v2/{api_key}"),
+            "sepolia" => format!("wss://eth-sepolia.g.alchemy.com/v2/{api_key}"),
+            "base" => format!("wss://base-mainnet.g.alchemy.com/v2/{api_key}"),
+            "base-sepolia" => format!("wss://base-sepolia.g.alchemy.com/v2/{api_key}"),
+            "arbitrum" => format!("wss://arb-mainnet.g.alchemy.com/v2/{api_key}"),
+            "arbitrum-sepolia" => format!("wss://arb-sepolia.g.alchemy.com/v2/{api_key}"),
+            "optimism" => format!("wss://opt-mainnet.g.alchemy.com/v2/{api_key}"),
+            "optimism-sepolia" => format!("wss://opt-sepolia.g.alchemy.com/v2/{api_key}"),
+            _ => {
+                return Err(EthereumError::Config(format!(
+                    "Unsupported network: {network}"
+                )))
+            }
         };
 
         Url::parse(&base_url)
-            .map_err(|e| EthereumError::Config(format!("Invalid WebSocket URL: {}", e)))
+            .map_err(|e| EthereumError::Config(format!("Invalid WebSocket URL: {e}")))
     }
 
     fn get_explorer_url(network: &str) -> Option<Url> {
@@ -206,29 +226,37 @@ impl Config {
             "optimism-sepolia" => "https://sepolia-optimism.etherscan.io",
             _ => return None,
         };
-        
+
         Url::parse(url_str).ok()
     }
 
-    fn is_testnet(chain_id: u64) -> bool {
-        matches!(chain_id, 11155111 | 84532 | 421614 | 11155420) // Sepolia, Base Sepolia, Arbitrum Sepolia, Optimism Sepolia
+    const fn is_testnet(chain_id: u64) -> bool {
+        matches!(chain_id, 11_155_111 | 84532 | 421_614 | 11_155_420) // Sepolia, Base Sepolia, Arbitrum Sepolia, Optimism Sepolia
     }
 
     pub fn validate(&self) -> Result<()> {
         if self.alchemy.api_key.is_empty() {
-            return Err(EthereumError::Config("Alchemy API key is required".to_string()));
+            return Err(EthereumError::Config(
+                "Alchemy API key is required".to_string(),
+            ));
         }
 
         if self.contract.arithmetic_contract == Address::ZERO {
-            return Err(EthereumError::Config("Arithmetic contract address is required".to_string()));
+            return Err(EthereumError::Config(
+                "Arithmetic contract address is required".to_string(),
+            ));
         }
 
         if self.contract.verifier_contract == Address::ZERO {
-            return Err(EthereumError::Config("Verifier contract address is required".to_string()));
+            return Err(EthereumError::Config(
+                "Verifier contract address is required".to_string(),
+            ));
         }
 
         if self.monitoring.polling_interval_seconds == 0 {
-            return Err(EthereumError::Config("Polling interval must be greater than 0".to_string()));
+            return Err(EthereumError::Config(
+                "Polling interval must be greater than 0".to_string(),
+            ));
         }
 
         Ok(())
@@ -237,10 +265,10 @@ impl Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Config {
+        Self {
             network: NetworkConfig {
                 name: "sepolia".to_string(),
-                chain_id: 11155111,
+                chain_id: 11_155_111,
                 rpc_url: Url::parse("https://eth-sepolia.g.alchemy.com/v2/").unwrap(),
                 ws_url: None,
                 explorer_url: Url::parse("https://sepolia.etherscan.io").ok(),

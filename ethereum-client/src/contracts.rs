@@ -183,8 +183,8 @@ sol! {
     }
 }
 
-pub use IArithmetic::{IArithmeticInstance, IArithmeticCalls};
-pub use ISP1Verifier::{ISP1VerifierInstance, ISP1VerifierCalls};
+pub use IArithmetic::{IArithmeticCalls, IArithmeticInstance};
+pub use ISP1Verifier::{ISP1VerifierCalls, ISP1VerifierInstance};
 
 #[derive(Debug, Clone)]
 pub struct ContractAddresses {
@@ -193,7 +193,8 @@ pub struct ContractAddresses {
 }
 
 impl ContractAddresses {
-    pub fn new(arithmetic: Address, verifier: Address) -> Self {
+    #[must_use]
+    pub const fn new(arithmetic: Address, verifier: Address) -> Self {
         Self {
             arithmetic,
             verifier,

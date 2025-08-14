@@ -143,6 +143,7 @@ pub struct IndependentVerificationResult {
     pub verified_at: u64,
 }
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ConsistencyChecks {
     pub proof_id_matches_hash: bool,

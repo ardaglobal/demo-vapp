@@ -2,7 +2,10 @@ use crate::{
     config::Config,
     contracts::ContractAddresses,
     error::{EthereumError, Result},
-    types::*,
+    types::{
+        BatchStateUpdate, InclusionProof, NetworkStats, ProofVerificationResult, StateHistory,
+        StateResponse, StateUpdate,
+    },
 };
 use alloy_primitives::{Bytes, FixedBytes, TxHash, U256};
 use alloy_provider::{Provider, ProviderBuilder};
@@ -41,8 +44,10 @@ impl EthereumClient {
 
         let signer = if let Some(signer_config) = &config.signer {
             Some(
-                PrivateKeySigner::from_bytes(&FixedBytes::<32>::try_from(hex::decode(&signer_config.private_key)?.as_slice())?)
-                    .map_err(|e| EthereumError::Signer(e.to_string()))?,
+                PrivateKeySigner::from_bytes(&FixedBytes::<32>::try_from(
+                    hex::decode(&signer_config.private_key)?.as_slice(),
+                )?)
+                .map_err(|e| EthereumError::Signer(e.to_string()))?,
             )
         } else {
             None
@@ -98,7 +103,7 @@ impl EthereumClient {
         Ok(state_update)
     }
 
-    pub async fn batch_update_states(
+    pub fn batch_update_states(
         &self,
         updates: Vec<(FixedBytes<32>, FixedBytes<32>, Bytes, Bytes)>,
     ) -> Result<BatchStateUpdate> {
@@ -114,7 +119,7 @@ impl EthereumClient {
         let mut new_state_roots = Vec::new();
         let mut proofs = Vec::new();
         let mut results = Vec::new();
-        
+
         for (state_id, new_state_root, proof, result) in updates {
             state_ids.push(state_id);
             new_state_roots.push(new_state_root);
@@ -154,10 +159,13 @@ impl EthereumClient {
         })
     }
 
-    pub async fn get_current_state(&self, state_id: FixedBytes<32>) -> Result<Option<StateResponse>> {
+    pub async fn get_current_state(
+        &self,
+        state_id: FixedBytes<32>,
+    ) -> Result<Option<StateResponse>> {
         // TODO: Implement state retrieval from contract
         let current_block = self.http_provider.get_block_number().await?;
-        
+
         Ok(Some(StateResponse {
             state_id,
             state_root: FixedBytes::ZERO,
@@ -168,12 +176,12 @@ impl EthereumClient {
     }
 
     #[cfg(feature = "database")]
-    pub async fn with_cache(mut self, cache: EthereumCache) -> Result<Self> {
+    pub fn with_cache(mut self, cache: EthereumCache) -> Result<Self> {
         self.cache = Some(cache);
         Ok(self)
     }
 
-    pub async fn monitor_events(&self) -> Result<()> {
+    pub fn monitor_events(&self) -> Result<()> {
         // TODO: Implement event monitoring
         info!("Starting event monitoring...");
         Ok(())
@@ -186,10 +194,15 @@ impl EthereumClient {
         proof: Bytes,
         public_values: Bytes,
     ) -> Result<StateUpdate> {
-        self.update_state(state_id, state_root, proof, public_values).await
+        self.update_state(state_id, state_root, proof, public_values)
+            .await
     }
 
-    pub async fn verify_zk_proof(&self, _proof: Bytes, public_values: Bytes) -> Result<ProofVerificationResult> {
+    pub async fn verify_zk_proof(
+        &self,
+        _proof: Bytes,
+        public_values: Bytes,
+    ) -> Result<ProofVerificationResult> {
         // TODO: Implement ZK proof verification with public values
         let current_block = self.http_provider.get_block_number().await?;
 
@@ -203,22 +216,25 @@ impl EthereumClient {
         })
     }
 
-    pub async fn get_verifier_key(&self) -> Result<Bytes> {
+    pub const fn get_verifier_key(&self) -> Result<Bytes> {
         // TODO: Implement verifier key retrieval from contract
         Ok(Bytes::new())
     }
 
-    pub async fn get_proof_result(&self, _proof_id: FixedBytes<32>) -> Result<Option<Bytes>> {
+    pub const fn get_proof_result(&self, _proof_id: FixedBytes<32>) -> Result<Option<Bytes>> {
         // TODO: Implement proof result retrieval from contract
         Ok(Some(Bytes::new()))
     }
 
-    pub async fn get_verification_data(&self, _proof_id: FixedBytes<32>) -> Result<Option<Bytes>> {
+    pub const fn get_verification_data(&self, _proof_id: FixedBytes<32>) -> Result<Option<Bytes>> {
         // TODO: Implement verification data retrieval from contract
         Ok(Some(Bytes::new()))
     }
 
-    pub async fn verify_proof_independently(&self, _proof_id: FixedBytes<32>) -> Result<ProofVerificationResult> {
+    pub async fn verify_proof_independently(
+        &self,
+        _proof_id: FixedBytes<32>,
+    ) -> Result<ProofVerificationResult> {
         // TODO: Implement independent proof verification
         let current_block = self.http_provider.get_block_number().await?;
 
@@ -232,7 +248,11 @@ impl EthereumClient {
         })
     }
 
-    pub async fn get_historical_states(&self, state_id: FixedBytes<32>, limit: Option<u64>) -> Result<StateHistory> {
+    pub fn get_historical_states(
+        &self,
+        state_id: FixedBytes<32>,
+        limit: Option<u64>,
+    ) -> Result<StateHistory> {
         // TODO: Implement historical states retrieval
         Ok(StateHistory {
             state_id,
@@ -247,7 +267,7 @@ impl EthereumClient {
     pub async fn get_network_stats(&self) -> Result<NetworkStats> {
         // TODO: Implement network stats retrieval
         let current_block = self.http_provider.get_block_number().await?;
-        
+
         Ok(NetworkStats {
             chain_id: 1,
             network_name: "mainnet".to_string(),
@@ -258,7 +278,7 @@ impl EthereumClient {
         })
     }
 
-    pub async fn check_inclusion_proof(
+    pub fn check_inclusion_proof(
         &self,
         _leaf_hash: FixedBytes<32>,
         _leaf_index: u64,
@@ -275,24 +295,27 @@ impl EthereumClient {
         })
     }
 
-    pub async fn get_proof_data(&self, _proof_id: FixedBytes<32>) -> Result<Option<Bytes>> {
+    pub const fn get_proof_data(&self, _proof_id: FixedBytes<32>) -> Result<Option<Bytes>> {
         // TODO: Implement proof data retrieval from contract
         Ok(Some(Bytes::new()))
     }
 
-    pub async fn get_state_root(&self, _state_id: FixedBytes<32>) -> Result<FixedBytes<32>> {
+    pub const fn get_state_root(&self, _state_id: FixedBytes<32>) -> Result<FixedBytes<32>> {
         // TODO: Implement state root retrieval from contract
         Ok(FixedBytes::ZERO)
     }
 
-    pub async fn get_state_proof_history(&self, _state_id: FixedBytes<32>) -> Result<Vec<FixedBytes<32>>> {
+    pub fn get_state_proof_history(
+        &self,
+        _state_id: FixedBytes<32>,
+    ) -> Result<Vec<FixedBytes<32>>> {
         // TODO: Implement state proof history retrieval from contract
         Ok(vec![FixedBytes::ZERO])
     }
 
-    pub async fn get_verifier_version(&self) -> Result<String> {
+    pub fn get_verifier_version(&self) -> Result<String> {
         // TODO: Implement verifier version retrieval from contract
-        Ok("1.0.0".to_string())
+        Ok(String::from("1.0.0"))
     }
 }
 
