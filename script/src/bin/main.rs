@@ -30,7 +30,7 @@ use arithmetic_lib::PublicValuesStruct;
 use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
 use sindri::integrations::sp1_v5::SP1ProofInfo;
-use sindri::{client::SindriClient, JobStatus, ProofInfo, ProofInfoResponse, ProofInput};
+use sindri::{client::SindriClient, JobStatus, ProofInfoResponse, ProofInput};
 use sp1_sdk::{include_elf, HashableKey, Prover, ProverClient, SP1Stdin};
 use sqlx::PgPool;
 use std::io::{self, Write};
@@ -374,9 +374,7 @@ async fn get_sindri_proof(proof_id: &str) -> Option<ProofInfoResponse> {
 }
 
 /// Core verification function - handles the actual proof verification
-async fn verify_proof_core<T>(proof_info: &T, expected_result: i32) -> bool
-where
-    T: ProofInfo + SP1ProofInfo,
+async fn verify_proof_core(proof_info: &ProofInfoResponse, expected_result: i32) -> bool
 {
     println!("🔍 Performing local SP1 proof verification...");
 
