@@ -71,16 +71,71 @@ pub async fn init_db_with_url(database_url: &str) -> Result<PgPool, sqlx::Error>
     Ok(pool)
 }
 
+/// Check if database is accessible with a simple query
+///
+/// # Errors
+/// Returns false if connection fails or query fails
+pub async fn is_db_accessible(database_url: &str) -> bool {
+    match sqlx::postgres::PgPool::connect(database_url).await {
+        Ok(pool) => {
+            // Test with a simple query
+            match sqlx::query("SELECT 1").fetch_one(&pool).await {
+                Ok(_) => {
+                    pool.close().await;
+                    true
+                }
+                Err(_) => {
+                    pool.close().await;
+                    false
+                }
+            }
+        }
+        Err(_) => false,
+    }
+}
+
 /// Initialize the database connection
 ///
 /// # Errors
 /// Returns error if `DATABASE_URL` environment variable is not set, connection fails,
 /// or migrations fail
 pub async fn init_db() -> Result<PgPool, sqlx::Error> {
+    init_db_safe().await
+}
+
+/// Initialize the database connection with pre-check (returns early if accessible)
+///
+/// This function performs a quick connectivity check before full initialization.
+/// If the database is already accessible, it creates a connection pool but skips
+/// the migration check for faster startup.
+///
+/// # Errors
+/// Returns error if `DATABASE_URL` environment variable is not set, connection fails,
+/// or migrations fail
+pub async fn init_db_safe() -> Result<PgPool, sqlx::Error> {
     let database_url = env::var("DATABASE_URL").map_err(|_| {
         sqlx::Error::Configuration("DATABASE_URL environment variable must be set".into())
     })?;
 
+    // Quick check if database is already accessible
+    if is_db_accessible(&database_url).await {
+        debug!("Database already accessible, creating optimized connection pool");
+        // Still create a proper pool with all the settings, but skip migrations check
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(20)
+            .min_connections(5)
+            .acquire_timeout(std::time::Duration::from_secs(30))
+            .idle_timeout(std::time::Duration::from_secs(600))
+            .max_lifetime(std::time::Duration::from_secs(1800))
+            .connect_with(sqlx::postgres::PgConnectOptions::from_str(&database_url)?)
+            .await?;
+        
+        debug!("Database connection pool ready (skipped migrations check)");
+        return Ok(pool);
+    }
+
+    // If not accessible, do full initialization
+    debug!("Database not accessible, performing full initialization");
     init_db_with_url(&database_url).await
 }
 

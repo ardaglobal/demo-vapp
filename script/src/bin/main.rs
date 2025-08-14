@@ -19,7 +19,7 @@ use arithmetic_lib::PublicValuesStruct;
 use clap::Parser;
 use sindri::integrations::sp1_v5::SP1ProofInfo;
 use sindri::{client::SindriClient, JobStatus, ProofInfo, ProofInput};
-use sp1_sdk::{include_elf, ProverClient, SP1Stdin};
+use sp1_sdk::{include_elf, HashableKey, Prover, ProverClient, SP1Stdin};
 use sqlx::PgPool;
 use std::io::{self, Write};
 
@@ -30,23 +30,25 @@ pub const ARITHMETIC_ELF: &[u8] = include_elf!("arithmetic-program");
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
+    // Program execution mode
     #[arg(long)]
-    execute: bool,
-
+    execute: bool, // Run the program in interactive mode
     #[arg(long)]
-    prove: bool,
+    prove: bool, // Run the program in prove mode
+    #[arg(long)]
+    verify: bool, // Run the program in verify mode
+    #[arg(long)]
+    vkey: bool, // Print the vkey for the program
 
+    // Arithmetic inputs
     #[arg(long, default_value = "1")]
     a: i32,
     #[arg(long, default_value = "1")]
     b: i32,
-
-    #[arg(long)]
-    verify: bool,
-
     #[arg(long, default_value = "20")]
     result: i32,
 
+    // Proof ID for external verification
     #[arg(long)]
     proof_id: Option<String>,
 }
@@ -60,27 +62,16 @@ async fn main() {
     // Parse the command line arguments.
     let args = Args::parse();
 
-    if args.verify {
-        if let Some(proof_id) = args.proof_id {
-            // External verification flow - no database dependency
-            run_external_verify(&proof_id, args.result).await;
-        } else {
-            // Legacy database-based verification flow - requires database
-            let pool = init_db().await.expect("Failed to initialize database");
-            run_verify_mode(&pool, args.result).await;
-        }
-        return;
-    } else if args.execute == args.prove {
-        eprintln!("Error: You must specify either --execute or --prove");
-        std::process::exit(1);
-    }
-
+    // Determine the mode of operation.
+    // If multiple modes are specified, the modes are executed in alphabetic order, which also happens to be the execute, prove, verify order.
     if args.execute {
         // Execute mode requires database for storing results
         let client = ProverClient::from_env();
         let pool = init_db().await.expect("Failed to initialize database");
         run_interactive_execute(&client, &pool).await;
-    } else if args.prove {
+    }
+    
+    if args.prove {
         // Intelligently determine if we need database based on arguments
         let needs_database = (args.a != 0 && args.b != 0) && args.result == 0;
 
@@ -93,6 +84,23 @@ async fn main() {
             println!("ℹ️  Using provided inputs - database not required for proving");
             run_prove_via_sindri_no_db(args.a, args.b, args.result).await;
         }
+    }
+    
+    if args.verify {
+        if let Some(proof_id) = args.proof_id {
+            // External verification flow - no database dependency
+            run_external_verify(&proof_id, args.result).await;
+        } else {
+            // Legacy database-based verification flow - requires database
+            let pool = init_db().await.expect("Failed to initialize database");
+            run_verify_mode(&pool, args.result).await;
+        }
+    }
+
+    if args.vkey {
+        let prover = ProverClient::builder().cpu().build();
+        let (_, vk) = prover.setup(ARITHMETIC_ELF);
+        println!("{}", vk.bytes32());
     }
 }
 
