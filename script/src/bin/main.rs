@@ -104,15 +104,11 @@ async fn main() {
     }
 }
 
-async fn run_interactive_execute(client: &sp1_sdk::EnvProver, pool: &PgPool) {
-    println!("=== Interactive Arithmetic Execution ===");
-    println!("Enter two numbers to add them together.");
-    println!("Results will be stored in the database.");
-    println!("Press 'q' + Enter to quit.\n");
-
+/// Helper function to get integer input from user with quit option
+/// Returns None if user wants to quit, Some(value) if valid integer entered
+fn get_integer_input(prompt: &str) -> Option<i32> {
     loop {
-        // Get input for 'a'
-        print!("Enter value for 'a' (or 'q' to quit): ");
+        print!("{}", prompt);
         io::stdout().flush().unwrap();
 
         let mut input = String::new();
@@ -123,35 +119,42 @@ async fn run_interactive_execute(client: &sp1_sdk::EnvProver, pool: &PgPool) {
 
         let input = input.trim();
         if input == "q" || input == "Q" {
-            println!("Goodbye!");
-            break;
+            return None; // User wants to quit
         }
 
-        let a: i32 = if let Ok(num) = input.parse() {
-            num
-        } else {
-            println!("Invalid number '{input}'. Please enter an integer.");
-            continue;
+        match input.parse::<i32>() {
+            Ok(num) => return Some(num),
+            Err(_) => {
+                println!("Invalid number '{input}'. Please enter an integer or 'q' to quit.");
+                continue;
+            }
+        }
+    }
+}
+
+async fn run_interactive_execute(client: &sp1_sdk::EnvProver, pool: &PgPool) {
+    println!("=== Interactive Arithmetic Execution ===");
+    println!("Enter two numbers to add them together.");
+    println!("Results will be stored in the database.");
+    println!("Press 'q' + Enter to quit.\n");
+
+    loop {
+        // Get input for 'a'
+        let a = match get_integer_input("Enter value for 'a' (or 'q' to quit): ") {
+            Some(value) => value,
+            None => {
+                println!("Goodbye!");
+                break;
+            }
         };
 
         // Get input for 'b'
-        print!("Enter value for 'b': ");
-        io::stdout().flush().unwrap();
-
-        let mut input = String::new();
-        if io::stdin().read_line(&mut input).is_err() {
-            println!("Error reading input. Please try again.");
-            continue;
-        }
-
-        let b: i32 = if let Ok(num) = input.trim().parse() {
-            num
-        } else {
-            println!(
-                "Invalid number '{}'. Please enter an integer.",
-                input.trim()
-            );
-            continue;
+        let b = match get_integer_input("Enter value for 'b' (or 'q' to quit): ") {
+            Some(value) => value,
+            None => {
+                println!("Goodbye!");
+                break;
+            }
         };
 
         // Execute the computation
@@ -212,26 +215,12 @@ async fn run_verify_mode(pool: &PgPool, result: i32) {
         println!("Press 'q' + Enter to quit.\n");
 
         loop {
-            print!("Enter result to verify (or 'q' to quit): ");
-            io::stdout().flush().unwrap();
-
-            let mut input = String::new();
-            if io::stdin().read_line(&mut input).is_err() {
-                println!("Error reading input. Please try again.");
-                continue;
-            }
-
-            let input = input.trim();
-            if input == "q" || input == "Q" {
-                println!("Goodbye!");
-                break;
-            }
-
-            let lookup_result: i32 = if let Ok(num) = input.parse() {
-                num
-            } else {
-                println!("Invalid number '{input}'. Please enter an integer.");
-                continue;
+            let lookup_result = match get_integer_input("Enter result to verify (or 'q' to quit): ") {
+                Some(value) => value,
+                None => {
+                    println!("Goodbye!");
+                    break;
+                }
             };
 
             verify_result_via_sindri(pool, lookup_result).await;
