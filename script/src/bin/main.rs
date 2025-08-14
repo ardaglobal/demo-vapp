@@ -27,18 +27,49 @@ use arithmetic_db::db::{
 };
 use arithmetic_db::ProcessorBuilder;
 use arithmetic_lib::PublicValuesStruct;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
+use serde::{Deserialize, Serialize};
 use sindri::integrations::sp1_v5::SP1ProofInfo;
-use sindri::{client::SindriClient, JobStatus, ProofInfo, ProofInput};
+use sindri::{client::SindriClient, JobStatus, ProofInfo, ProofInfoResponse, ProofInput};
 use sp1_sdk::{include_elf, HashableKey, Prover, ProverClient, SP1Stdin};
 use sqlx::PgPool;
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::time::Duration;
 use tokio::task::JoinHandle;
 use tracing::info;
 
 /// The ELF (executable and linkable format) file for the Succinct RISC-V zkVM.
 pub const ARITHMETIC_ELF: &[u8] = include_elf!("arithmetic-program");
+
+/// Enum representing the available EVM-compatible proof systems
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
+enum ProofSystem {
+    Plonk,
+    Groth16,
+}
+
+impl ProofSystem {
+    /// Convert to the proving scheme string expected by Sindri
+    fn to_sindri_scheme(&self) -> &'static str {
+        match self {
+            ProofSystem::Plonk => "plonk",
+            ProofSystem::Groth16 => "groth16",
+        }
+    }
+}
+
+/// A fixture that can be used to test the verification of SP1 zkVM proofs inside Solidity.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SP1ArithmeticProofFixture {
+    a: i32,
+    b: i32,
+    result: i32,
+    vkey: String,
+    public_values: String,
+    proof: String,
+}
 
 /// The arguments for the command.
 #[derive(Parser, Debug)]
@@ -62,9 +93,17 @@ struct Args {
     #[arg(long, default_value = "20")]
     result: i32,
 
+    // EVM-compatible proof system selection
+    #[arg(long, value_enum, default_value = "groth16", help = "EVM-compatible proof system to use")]
+    system: ProofSystem,
+
     // Proof ID for external verification
     #[arg(long)]
     proof_id: Option<String>,
+
+    // Generate EVM fixture files (only used with --prove)
+    #[arg(long, help = "Generate Solidity test fixtures for EVM verification")]
+    generate_fixture: bool,
 
     // Background processor configuration (only used with --execute)
     #[arg(long, default_value = "30", help = "Background processor polling interval in seconds")]
@@ -103,17 +142,26 @@ async fn main() {
     }
     
     if args.prove {
-        // Intelligently determine if we need database based on arguments
-        let needs_database = (args.a != 0 && args.b != 0) && args.result == 0;
+        // Determine if we need database based on whether user provided a specific result to lookup
+        // vs. using provided/default a and b values
+        let using_default_inputs = args.a == 1 && args.b == 1; // Default values from clap
+        let using_specific_result = args.result != 20; // Non-default result value
+        
+        let needs_database = using_specific_result && using_default_inputs;
 
         if needs_database {
             // Need database to lookup inputs by result
+            println!("🔍 Looking up inputs for result = {} in database", args.result);
             let pool = init_db().await.expect("Failed to initialize database - required to lookup inputs for the specified result");
-            run_prove_via_sindri(&pool, args.a, args.b, args.result).await;
+            run_prove_via_sindri(&pool, args.a, args.b, args.result, args.system, args.generate_fixture).await;
         } else {
             // Have explicit inputs or using default calculation - no database needed
-            println!("ℹ️  Using provided inputs - database not required for proving");
-            run_prove_via_sindri_no_db(args.a, args.b, args.result).await;
+            if using_specific_result && !using_default_inputs {
+                println!("ℹ️  Using provided inputs (a={}, b={}) - ignoring --result parameter", args.a, args.b);
+            } else {
+                println!("ℹ️  Using provided inputs - database not required for proving");
+            }
+            run_prove_via_sindri_no_db(args.a, args.b, args.result, args.system, args.generate_fixture).await;
         }
     }
     
@@ -189,7 +237,6 @@ fn get_integer_input(prompt: &str) -> Option<i32> {
             Ok(num) => return Some(num),
             Err(_) => {
                 println!("Invalid number '{input}'. Please enter an integer or 'q' to quit.");
-                continue;
             }
         }
     }
@@ -298,7 +345,7 @@ async fn run_verify_mode(pool: &PgPool, result: i32) {
 }
 
 /// Get proof from Sindri by proof_id
-async fn get_sindri_proof(proof_id: &str) -> Option<sindri::ProofInfo> {
+async fn get_sindri_proof(proof_id: &str) -> Option<ProofInfoResponse> {
     let client = SindriClient::default();
     match client.get_proof(proof_id, None, None, None).await {
         Ok(verification_result) => {
@@ -446,7 +493,7 @@ async fn run_external_verify(proof_id: &str, expected_result: i32) {
 ///
 /// Returns the proof info and computed values on success
 #[allow(clippy::future_not_send)]
-async fn prove_via_sindri_core(a: i32, b: i32, result: i32) -> Option<sindri::ProofInfo> {
+async fn prove_via_sindri_core(a: i32, b: i32, result: i32, system: ProofSystem) -> Option<ProofInfoResponse> {
     println!("Proving that {a} + {b} = {result} via Sindri...");
 
     // Create SP1 inputs and serialize for Sindri
@@ -488,20 +535,20 @@ async fn prove_via_sindri_core(a: i32, b: i32, result: i32) -> Option<sindri::Pr
         return None;
     }
 
-    println!("✓ Proof job submitted. Status: {:?}", proof_info.status);
-    Some(proof_info);
-
+    println!("✓ {} proof job submitted. Status: {:?}", system.to_sindri_scheme().to_uppercase(), proof_info.status);
     println!("\n🔗 PROOF ID FOR EXTERNAL VERIFICATION:");
-    println!("   {}", proof_id);
+    println!("   {}", proof_info.proof_id);
     println!("\n📋 To verify this proof externally, use:");
     println!(
         "   cargo run --release -- --verify --proof-id {} --result {}",
-        proof_id, result
+        proof_info.proof_id, result
     );
+    
+    Some(proof_info)
 }
 
 #[allow(clippy::future_not_send)]
-async fn run_prove_via_sindri(pool: &PgPool, arg_a: i32, arg_b: i32, arg_result: i32) {
+async fn run_prove_via_sindri(pool: &PgPool, arg_a: i32, arg_b: i32, arg_result: i32, system: ProofSystem, generate_fixture: bool) {
     // Prefer proving by result if provided (not default), otherwise use provided a and b
     let (a, b, result) = if arg_result == 20 {
         let result = arithmetic_lib::addition(arg_a, arg_b);
@@ -521,10 +568,17 @@ async fn run_prove_via_sindri(pool: &PgPool, arg_a: i32, arg_b: i32, arg_result:
     };
 
     // Use the common proving core
-    let proof_info = match prove_via_sindri_core(a, b, result).await {
+    let proof_info = match prove_via_sindri_core(a, b, result, system).await {
         Some(info) => info,
         None => return, // Error already printed in core function
     };
+
+    // Generate EVM fixture if requested
+    if generate_fixture {
+        if let Err(e) = create_evm_fixture_from_sindri(&proof_info, a, b, result, system).await {
+            println!("⚠️  Failed to generate EVM fixture: {e}");
+        }
+    }
 
     // Store proof metadata by result for later verification
     if let Err(e) = upsert_sindri_proof(
@@ -549,7 +603,7 @@ async fn run_prove_via_sindri(pool: &PgPool, arg_a: i32, arg_b: i32, arg_result:
     }
 }
 
-async fn run_prove_via_sindri_no_db(arg_a: i32, arg_b: i32, arg_result: i32) {
+async fn run_prove_via_sindri_no_db(arg_a: i32, arg_b: i32, arg_result: i32, system: ProofSystem, generate_fixture: bool) {
     // Calculate result from inputs (no database lookup needed)
     // For database-free mode, we always calculate from provided inputs
     if arg_result != 20 {
@@ -561,10 +615,91 @@ async fn run_prove_via_sindri_no_db(arg_a: i32, arg_b: i32, arg_result: i32) {
     println!("Database-free mode:");
     
     // Use the common proving core
-    let proof_info = match prove_via_sindri_core(a, b, result).await {
+    let proof_info = match prove_via_sindri_core(a, b, result, system).await {
         Some(info) => info,
         None => return, // Error already printed in core function
     };
 
+    // Generate EVM fixture if requested
+    if generate_fixture {
+        if let Err(e) = create_evm_fixture_from_sindri(&proof_info, a, b, result, system).await {
+            println!("⚠️  Failed to generate EVM fixture: {e}");
+        }
+    }
+
     println!("ℹ️  Note: Proof metadata not stored (database-free mode)");
+}
+
+/// Create EVM-compatible fixture from Sindri proof for Solidity testing
+async fn create_evm_fixture_from_sindri(
+    proof_info: &ProofInfoResponse, 
+    _a: i32, 
+    _b: i32, 
+    result: i32, 
+    system: ProofSystem
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("🔧 Generating EVM fixture for {} proof...", system.to_sindri_scheme().to_uppercase());
+    
+    // Wait for proof to be ready if it's still processing
+    let client = SindriClient::default();
+    let mut current_proof = proof_info.clone();
+    
+    // Poll until proof is ready (with timeout)
+    let mut attempts = 0;
+    const MAX_ATTEMPTS: u32 = 60; // 5 minutes with 5-second intervals
+    
+    while current_proof.status != JobStatus::Ready && attempts < MAX_ATTEMPTS {
+        if current_proof.status == JobStatus::Failed {
+            return Err(format!("Sindri proof generation failed: {:?}", current_proof.error).into());
+        }
+        
+        println!("⏳ Waiting for proof to be ready... (attempt {}/{})", attempts + 1, MAX_ATTEMPTS);
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        
+        current_proof = client.get_proof(&proof_info.proof_id, None, None, Some(true)).await?;
+        attempts += 1;
+    }
+    
+    if current_proof.status != JobStatus::Ready {
+        return Err("Timeout waiting for Sindri proof to be ready".into());
+    }
+    
+    println!("✅ Sindri proof is ready, extracting EVM-compatible data...");
+    
+    // Extract SP1 proof data from Sindri response
+    let sp1_proof = current_proof.to_sp1_proof_with_public()?;
+    let verification_key = current_proof.get_sp1_verifying_key()?;
+    
+    // Create the fixture matching evm.rs format
+    // Note: In zero-knowledge mode, we use placeholder values for a and b since they're private
+    let fixture = SP1ArithmeticProofFixture {
+        a: 0, // Placeholder - actual value is private in ZK
+        b: 0, // Placeholder - actual value is private in ZK
+        result,
+        vkey: verification_key.bytes32(),
+        public_values: format!("0x{}", hex::encode(sp1_proof.public_values.as_slice())),
+        proof: format!("0x{}", hex::encode(sp1_proof.bytes())),
+    };
+    
+    // Create fixtures directory and save the fixture
+    let fixture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../contracts/src/fixtures");
+    std::fs::create_dir_all(&fixture_path)?;
+    
+    let filename = format!("{}-fixture.json", system.to_sindri_scheme());
+    let fixture_file = fixture_path.join(&filename);
+    
+    std::fs::write(
+        &fixture_file,
+        serde_json::to_string_pretty(&fixture)?,
+    )?;
+    
+    println!("✅ EVM fixture saved to: {}", fixture_file.display());
+    println!("🔑 Verification Key: {}", fixture.vkey);
+    println!("📊 Public Values: {}", fixture.public_values);
+    println!("🔒 Proof Bytes: {}...{}", 
+        &fixture.proof[..42], 
+        &fixture.proof[fixture.proof.len()-6..]
+    );
+    
+    Ok(())
 }

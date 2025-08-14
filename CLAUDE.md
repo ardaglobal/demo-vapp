@@ -22,8 +22,8 @@ cd program && cargo prove build --output-directory ../build
 # Interactive execution (hot path: stores in PostgreSQL)
 cd script && cargo run --release -- --execute
 
-# Background processing (cold path: builds indexed Merkle tree)
-cd script && cargo run --bin background
+# Background processing (integrated with execute mode)
+cd script && cargo run --release -- --execute --bg-interval 60 --bg-batch-size 50
 
 # REST API Server
 # Prerequisites: DATABASE_URL environment variable must be set
@@ -33,15 +33,20 @@ cd db && cargo run --bin server --release -- --host 0.0.0.0 --port 8080 --cors -
 
 ### Zero-Knowledge Proofs
 ```bash
-# Generate proof (database-free)
+# Generate EVM-compatible proof (Groth16 default)
 cd script && cargo run --release -- --prove --a 5 --b 10
+
+# Generate PLONK proof
+cd script && cargo run --release -- --prove --a 5 --b 10 --system plonk
+
+# Generate proof with Solidity fixtures
+cd script && cargo run --release -- --prove --a 5 --b 10 --generate-fixture
 
 # Verify with proof ID (external)
 cd script && cargo run --release -- --verify --proof-id <PROOF_ID> --result 15
 
-# EVM proofs (Groth16/PLONK)
-cd script && cargo run --release --bin evm -- --system groth16
-cd script && cargo run --release --bin vkey
+# Get verification key
+cd script && cargo run --release -- --vkey
 ```
 
 ### Testing
@@ -79,7 +84,7 @@ cp .env.example .env
 - Fast, responsive CLI experience without Merkle tree overhead
 
 **Cold Path (Background Processing):**
-- Asynchronous background processor (`cargo run --bin background`)
+- Asynchronous background processor (integrated with `--execute` mode)
 - Periodically reads new arithmetic transactions from database
 - Converts transactions to nullifiers and builds indexed Merkle tree
 - Configurable polling intervals and batch processing
@@ -88,7 +93,7 @@ cp .env.example .env
 ### Core Components
 - **arithmetic-lib** (`lib/`): Shared arithmetic computation logic
 - **arithmetic-program** (`program/`): RISC-V program for zkVM (private inputs → public result)
-- **arithmetic-script** (`script/`): Multiple binaries - `main.rs`, `evm.rs`, `vkey.rs`, `background.rs`
+- **arithmetic-script** (`script/`): Single unified binary (`main.rs`) with EVM-compatible proving via Sindri
 - **background-processor** (`db/src/background_processor.rs`): Asynchronous Merkle tree construction
 - **state-management-system** (`contracts/src/interfaces/`): Complete state lifecycle management with proof verification
 
@@ -284,16 +289,16 @@ This enables trustless verification where external parties can cryptographically
 
 ## Background Processing
 
-**Configuration Options** (`script/src/bin/background.rs`):
+**Configuration Options** (integrated with `--execute` mode):
 ```bash
-# Run with custom settings
-cargo run --bin background -- --interval 60 --batch-size 50
+# Run execute mode with custom background processing settings
+cd script && cargo run --release -- --execute --bg-interval 60 --bg-batch-size 50
 
 # One-shot processing (exit after processing current batch)
-cargo run --bin background -- --one-shot
+cd script && cargo run --release -- --execute --bg-one-shot
 
-# Custom logging
-cargo run --bin background -- --log-level debug
+# Default background processing with execute mode
+cd script && cargo run --release -- --execute
 ```
 
 **Database Tables:**

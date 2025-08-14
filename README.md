@@ -104,24 +104,37 @@ You can also verify a specific result non-interactively:
 cargo run --release -- --verify --result 15
 ```
 
-### Generate a Zero-Knowledge Proof via Sindri
+### Generate Zero-Knowledge Proofs via Sindri
 
-To generate a zero-knowledge proof using Sindri's cloud infrastructure:
+**All proofs are now EVM-compatible by default** using Sindri's cloud infrastructure:
 
 ```sh
 cd script
-# Generate proof for specific values
+# Generate Groth16 proof for specific values (default)
 cargo run --release -- --prove --a 5 --b 10
+
+# Generate PLONK proof for specific values
+cargo run --release -- --prove --a 5 --b 10 --system plonk
 
 # Generate proof for a previously computed result stored in database
 cargo run --release -- --prove --result 15
+
+# Generate proof with Solidity test fixtures
+cargo run --release -- --prove --a 5 --b 10 --generate-fixture
 ```
+
+**Command Options:**
+- `--system groth16|plonk`: Choose EVM-compatible proof system (default: groth16)
+- `--generate-fixture`: Create Solidity test fixtures in `contracts/src/fixtures/`
+- `--a` and `--b`: Direct input values for computation
+- `--result`: Look up stored transaction inputs by result value
 
 The `--prove` command will:
 1. Create SP1 inputs and serialize them for Sindri
-2. Submit a proof request to Sindri using the `demo-vapp` circuit
-3. Store the proof metadata in PostgreSQL for later verification
-4. Display the proof generation status
+2. Generate EVM-compatible proofs (Groth16 or PLONK)
+3. Submit proof request to Sindri using the `demo-vapp` circuit
+4. Store proof metadata in PostgreSQL (database mode) or run standalone
+5. Display proof ID for external verification
 
 ### Verify Sindri Proofs
 
@@ -164,35 +177,52 @@ This method:
 2. Queries Sindri's API to get the current proof status
 3. Displays verification results and updates the stored status
 
-### Generate an EVM-Compatible Proof
+### Generate EVM-Compatible Proofs via Sindri
 
-> [!WARNING]
-> You will need at least 16GB RAM to generate a Groth16 or PLONK proof. View the [SP1 docs](https://docs.succinct.xyz/docs/sp1/getting-started/hardware-requirements#local-proving) for more information.
+All proofs generated through the main CLI are now EVM-compatible by default, using Sindri's cloud infrastructure. This provides scalable, production-ready proof generation without requiring local GPU resources.
 
-Generating a proof that is cheap to verify on the EVM (e.g. Groth16 or PLONK) is more intensive than generating a core proof.
-
-To generate a Groth16 proof:
+To generate a Groth16 proof (default):
 
 ```sh
 cd script
-cargo run --release --bin evm -- --system groth16
+# Using specific inputs
+cargo run --release -- --prove --a 5 --b 10 --system groth16
+
+# Using database lookup by result
+cargo run --release -- --prove --result 15 --system groth16
 ```
 
 To generate a PLONK proof:
 
 ```sh
-cargo run --release --bin evm -- --system plonk
+cd script
+# Using specific inputs
+cargo run --release -- --prove --a 5 --b 10 --system plonk
+
+# Using database lookup by result
+cargo run --release -- --prove --result 15 --system plonk
 ```
 
-These commands will also generate fixtures that can be used to test the verification of SP1 proofs
-inside Solidity.
+To generate Solidity test fixtures for on-chain verification:
+
+```sh
+cd script
+# Generate proof with EVM fixture files
+cargo run --release -- --prove --a 5 --b 10 --system groth16 --generate-fixture
+```
+
+These commands will:
+1. Generate EVM-compatible proofs (Groth16/PLONK) via Sindri
+2. Optionally create fixtures for Solidity contract testing (with `--generate-fixture`)
+3. Provide proof IDs for external verification
+4. Store proof metadata for later verification (database mode only)
 
 ### Retrieve the Verification Key
 
 To retrieve your `programVKey` for your on-chain contract, run the following command in `script`:
 
 ```sh
-cargo run --release --bin vkey
+cargo run --release -- --vkey
 ```
 
 ## Sindri Integration for Serverless ZK Proofs
