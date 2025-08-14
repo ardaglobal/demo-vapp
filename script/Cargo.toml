@@ -9,18 +9,6 @@ version     = "0.1.0"
 name = "arithmetic"
 path = "src/bin/main.rs"
 
-[[bin]]
-name = "evm"
-path = "src/bin/evm.rs"
-
-[[bin]]
-name = "vkey"
-path = "src/bin/vkey.rs"
-
-[[bin]]
-name = "background"
-path = "src/bin/background.rs"
-
 [dependencies]
 alloy-sol-types    = { workspace = true }
 arithmetic-db      = { path = "../db" }

@@ -67,7 +67,7 @@ Note: you can use either the [SP1VerifierGateway](https://github.com/succinctlab
 
 #### Step 2: Set the `PROGRAM_VKEY` environment variable
 
-Find your program verification key by going into the `../script` directory and running `RUST_LOG=info cargo run --package arithmetic-script --bin vkey --release`, which will print an output like:
+Find your program verification key by going into the `../script` directory and running `RUST_LOG=info cargo run --package arithmetic-script --release -- --vkey`, which will print an output like:
 
 > Program Verification Key: 0x00620892344c310c32a74bf0807a5c043964264e4f37c96a10ad12b5c9214e0e
 
@@ -124,7 +124,7 @@ The following secrets need to be configured in your GitHub repository:
 
 #### Core Secrets
 - `PRIVATE_KEY`: The private key of the deployer account
-- `PROGRAM_VKEY`: The program verification key (get this by running `cargo run --package arithmetic-script --bin vkey --release` in the `../script` directory)
+- `PROGRAM_VKEY`: The program verification key (get this by running `cargo run --package arithmetic-script --release -- --vkey` in the `../script` directory)
 
 #### Sepolia Network Secrets
 - `SEPOLIA_RPC_URL`: RPC URL for Sepolia testnet
