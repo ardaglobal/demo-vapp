@@ -395,26 +395,11 @@ where
     }
 }
 
+/// Core proving function that handles Sindri circuit proving without database dependencies
+///
+/// Returns the proof info and computed values on success
 #[allow(clippy::future_not_send)]
-async fn run_prove_via_sindri(pool: &PgPool, arg_a: i32, arg_b: i32, arg_result: i32) {
-    // Prefer proving by result if provided (not default), otherwise use provided a and b
-    let (a, b, result) = if arg_result == 20 {
-        let result = arithmetic_lib::addition(arg_a, arg_b);
-        (arg_a, arg_b, result)
-    } else {
-        match get_value_by_result(pool, arg_result).await {
-            Ok(Some((a, b, _))) => (a, b, arg_result),
-            Ok(None) => {
-                println!("✗ No stored transaction found with result = {arg_result}. Run --execute first.");
-                return;
-            }
-            Err(e) => {
-                println!("✗ Database error: {e}");
-                return;
-            }
-        }
-    };
-
+async fn prove_via_sindri_core(a: i32, b: i32, result: i32) -> Option<sindri::ProofInfo> {
     println!("Proving that {a} + {b} = {result} via Sindri...");
 
     // Create SP1 inputs and serialize for Sindri
@@ -426,7 +411,7 @@ async fn run_prove_via_sindri(pool: &PgPool, arg_a: i32, arg_b: i32, arg_result:
         Ok(s) => s,
         Err(e) => {
             println!("✗ Failed to serialize SP1Stdin: {e}");
-            return;
+            return None;
         }
     };
     let proof_input = ProofInput::from(stdin_json);
@@ -447,16 +432,52 @@ async fn run_prove_via_sindri(pool: &PgPool, arg_a: i32, arg_b: i32, arg_result:
         Ok(info) => info,
         Err(e) => {
             println!("✗ Failed to submit proof request: {e}");
-            return;
+            return None;
         }
     };
 
     if proof_info.status == JobStatus::Failed {
         println!("✗ Proof generation failed: {:?}", proof_info.error);
-        return;
+        return None;
     }
 
     println!("✓ Proof job submitted. Status: {:?}", proof_info.status);
+    Some(proof_info);
+
+    println!("\n🔗 PROOF ID FOR EXTERNAL VERIFICATION:");
+    println!("   {}", proof_id);
+    println!("\n📋 To verify this proof externally, use:");
+    println!(
+        "   cargo run --release -- --verify --proof-id {} --result {}",
+        proof_id, result
+    );
+}
+
+#[allow(clippy::future_not_send)]
+async fn run_prove_via_sindri(pool: &PgPool, arg_a: i32, arg_b: i32, arg_result: i32) {
+    // Prefer proving by result if provided (not default), otherwise use provided a and b
+    let (a, b, result) = if arg_result == 20 {
+        let result = arithmetic_lib::addition(arg_a, arg_b);
+        (arg_a, arg_b, result)
+    } else {
+        match get_value_by_result(pool, arg_result).await {
+            Ok(Some((a, b, _))) => (a, b, arg_result),
+            Ok(None) => {
+                println!("✗ No stored transaction found with result = {arg_result}. Run --execute first.");
+                return;
+            }
+            Err(e) => {
+                println!("✗ Database error: {e}");
+                return;
+            }
+        }
+    };
+
+    // Use the common proving core
+    let proof_info = match prove_via_sindri_core(a, b, result).await {
+        Some(info) => info,
+        None => return, // Error already printed in core function
+    };
 
     // Store proof metadata by result for later verification
     if let Err(e) = upsert_sindri_proof(
@@ -479,20 +500,9 @@ async fn run_prove_via_sindri(pool: &PgPool, arg_a: i32, arg_b: i32, arg_result:
             result, proof_info.proof_id
         );
     }
-
-    // Print proof ID for external verification
-    println!("\n🔗 PROOF ID FOR EXTERNAL VERIFICATION:");
-    println!("   {}", proof_info.proof_id);
-    println!("\n📋 To verify this proof externally, use:");
-    println!(
-        "   cargo run --release -- --verify --proof-id {} --result {}",
-        proof_info.proof_id, result
-    );
 }
 
 async fn run_prove_via_sindri_no_db(arg_a: i32, arg_b: i32, arg_result: i32) {
-    use sp1_sdk::SP1Stdin;
-
     // Calculate result from inputs (no database lookup needed)
     // For database-free mode, we always calculate from provided inputs
     if arg_result != 20 {
@@ -501,56 +511,13 @@ async fn run_prove_via_sindri_no_db(arg_a: i32, arg_b: i32, arg_result: i32) {
     let result = arithmetic_lib::addition(arg_a, arg_b);
     let (a, b) = (arg_a, arg_b);
 
-    println!("Proving that {a} + {b} = {result} via Sindri (database-free mode)...");
-
-    // Create SP1 inputs and serialize for Sindri
-    let mut stdin = SP1Stdin::new();
-    stdin.write(&a);
-    stdin.write(&b);
-
-    let stdin_json = match serde_json::to_string(&stdin) {
-        Ok(s) => s,
-        Err(e) => {
-            println!("✗ Failed to serialize SP1Stdin: {e}");
-            return;
-        }
-    };
-    let proof_input = ProofInput::from(stdin_json);
-
-    let client = SindriClient::default();
-    println!("Submitting proof request to Sindri...");
-    let proof_info = client
-        .prove_circuit(
-            "demo-vapp", // Circuit name as defined in sindri.json manifest
-            proof_input,
-            None,
-            None,
-            None,
-        )
-        .await;
-
-    let proof_info = match proof_info {
-        Ok(info) => info,
-        Err(e) => {
-            println!("✗ Failed to submit proof request: {e}");
-            return;
-        }
+    println!("Database-free mode:");
+    
+    // Use the common proving core
+    let proof_info = match prove_via_sindri_core(a, b, result).await {
+        Some(info) => info,
+        None => return, // Error already printed in core function
     };
 
-    if proof_info.status == JobStatus::Failed {
-        println!("✗ Proof generation failed: {:?}", proof_info.error);
-        return;
-    }
-
-    println!("✓ Proof job submitted. Status: {:?}", proof_info.status);
     println!("ℹ️  Note: Proof metadata not stored (database-free mode)");
-
-    // Print proof ID for external verification
-    println!("\n🔗 PROOF ID FOR EXTERNAL VERIFICATION:");
-    println!("   {}", proof_info.proof_id);
-    println!("\n📋 To verify this proof externally, use:");
-    println!(
-        "   cargo run --release -- --verify --proof-id {} --result {}",
-        proof_info.proof_id, result
-    );
 }
