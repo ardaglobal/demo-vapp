@@ -20,12 +20,6 @@ services:
     # Production: Use pre-built image from GitHub Container Registry
     image: ghcr.io/ardaglobal/demo-vapp:latest
     
-    # Local Development: Uncomment the lines below and comment out the 'image' line above
-    # to build locally for faster iteration during development:
-    # build:
-    #   context: .
-    #   dockerfile: Dockerfile
-    
     container_name: arithmetic_server
     env_file:
       - .env  # Load environment variables from .env file

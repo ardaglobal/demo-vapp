@@ -12,7 +12,7 @@ path = "src/bin/main.rs"
 [dependencies]
 alloy-sol-types    = { workspace = true }
 arithmetic-db      = { path = "../db" }
-arithmetic-lib     = { path = "../lib" }
+arithmetic-lib     = { path = "../lib", features = [ "clap" ] }
 clap               = { workspace = true, features = [ "derive", "env" ] }
 dotenv             = { workspace = true }
 eyre               = { workspace = true }

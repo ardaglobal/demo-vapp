@@ -21,9 +21,7 @@ use crate::vapp_integration::VAppAdsIntegration;
 use alloy_sol_types::SolType;
 use arithmetic_lib::{addition, PublicValuesStruct};
 use sindri::integrations::sp1_v5::SP1ProofInfo;
-use sindri::ProofInput;
 use sindri::{client::SindriClient, JobStatus};
-use sp1_sdk::SP1Stdin;
 
 // ============================================================================
 // API STATE AND CONFIGURATION
@@ -1552,90 +1550,58 @@ async fn verify_proof(
 // HELPER FUNCTIONS
 // ============================================================================
 
-/// Generate a proof via Sindri
-async fn generate_sindri_proof(a: i32, b: i32, _result: i32) -> Result<(String, String), String> {
-    let mut stdin = SP1Stdin::new();
-    stdin.write(&a);
-    stdin.write(&b);
-
-    let stdin_json = serde_json::to_string(&stdin)
-        .map_err(|e| format!("Failed to serialize SP1Stdin: {}", e))?;
-    let proof_input = ProofInput::from(stdin_json);
-
-    // Get circuit name with configurable tag from environment
-    let circuit_tag = std::env::var("SINDRI_CIRCUIT_TAG").unwrap_or_else(|_| "latest".to_string());
-    let circuit_name = format!("demo-vapp:{}", circuit_tag);
+/// Generate a proof via Sindri using the shared proof module
+async fn generate_sindri_proof(a: i32, b: i32, result: i32) -> Result<(String, String), String> {
+    use arithmetic_lib::proof::{ProofGenerationRequest, ProofSystem, generate_sindri_proof as shared_generate};
     
-    info!("Creating proof for circuit: {}", circuit_name);
-
-    let client = SindriClient::default();
-    let proof_info = client
-        .prove_circuit(&circuit_name, proof_input, None, None, None)
-        .await
-        .map_err(|e| format!("Failed to submit proof: {}", e))?;
-
-    let status = match proof_info.status {
-        JobStatus::Ready => "Ready".to_string(),
-        JobStatus::Failed => "Failed".to_string(),
-        _ => "Pending".to_string(),
+    let request = ProofGenerationRequest {
+        a,
+        b,
+        result,
+        proof_system: ProofSystem::Groth16, // Default for API
+        generate_fixtures: false, // Don't generate fixtures in API by default
     };
 
-    Ok((proof_info.proof_id, status))
+    match shared_generate(request).await {
+        Ok(response) => Ok((response.proof_id, response.status)),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
-/// Internal proof verification logic
+/// Internal proof verification logic using the shared proof module
 async fn verify_proof_internal(
     proof_id: &str,
     expected_result: i32,
 ) -> Result<Json<VerifyProofResponse>, (StatusCode, String)> {
-    let start_time = std::time::Instant::now();
-    let client = SindriClient::default();
+    use arithmetic_lib::proof::{ProofVerificationRequest, verify_sindri_proof};
+    
+    let request = ProofVerificationRequest {
+        proof_id: proof_id.to_string(),
+        expected_result,
+    };
 
-    match client.get_proof(proof_id, None, None, None).await {
-        Ok(proof_info) => {
-            let sindri_status = format!("{:?}", proof_info.status);
-            let mut actual_result = None;
-            let mut cryptographic_proof_valid = false;
-
-            if proof_info.status == JobStatus::Ready {
-                // Perform local verification
-                if let Ok(sp1_proof) = proof_info.to_sp1_proof_with_public() {
-                    if let Ok(vk) = proof_info.get_sp1_verifying_key() {
-                        if matches!(proof_info.verify_sp1_proof_locally(&vk), Ok(())) {
-                            cryptographic_proof_valid = true;
-
-                            // Extract result from public values
-                            if let Ok(decoded) =
-                                PublicValuesStruct::abi_decode(sp1_proof.public_values.as_slice())
-                            {
-                                actual_result = Some(decoded.result);
-                            }
-                        } else {
-                            cryptographic_proof_valid = false;
-                        }
-                    }
-                }
-            }
-
-            let result_matches = actual_result.map(|r| r == expected_result).unwrap_or(false);
-            let verification_time = start_time.elapsed();
-
+    match verify_sindri_proof(request).await {
+        Ok(verification_result) => {
             let response = VerifyProofResponse {
-                valid: cryptographic_proof_valid && result_matches,
+                valid: verification_result.is_valid,
                 proof_id: proof_id.to_string(),
-                actual_result,
-                expected_result,
+                actual_result: verification_result.actual_result,
+                expected_result: verification_result.expected_result,
                 verification_details: VerificationDetails {
-                    sindri_status,
-                    cryptographic_proof_valid,
-                    result_matches_expected: result_matches,
-                    verification_time_ms: verification_time.as_millis() as u64,
+                    sindri_status: if verification_result.cryptographic_proof_valid {
+                        "Ready".to_string()
+                    } else {
+                        "Failed".to_string()
+                    },
+                    cryptographic_proof_valid: verification_result.cryptographic_proof_valid,
+                    result_matches_expected: verification_result.result_matches_expected,
+                    verification_time_ms: verification_result.verification_time_ms,
                 },
                 zero_knowledge_properties: ZkProperties {
                     privacy_preserved: true,
                     inputs_hidden: true,
-                    soundness: cryptographic_proof_valid,
-                    completeness: result_matches,
+                    soundness: verification_result.cryptographic_proof_valid,
+                    completeness: verification_result.result_matches_expected,
                     description: "SP1 zero-knowledge proof preserves input privacy while proving computation correctness".to_string(),
                 },
             };
@@ -1643,7 +1609,7 @@ async fn verify_proof_internal(
             Ok(Json(response))
         }
         Err(e) => Err((
-            StatusCode::NOT_FOUND,
+            StatusCode::INTERNAL_SERVER_ERROR,
             format!("Proof verification failed: {}", e),
         )),
     }
