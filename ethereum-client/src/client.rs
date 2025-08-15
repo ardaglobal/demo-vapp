@@ -106,8 +106,6 @@ impl EthereumClient {
             EthereumError::Config("Signer required for state updates".to_string())
         })?;
 
-        info!("Updating state: {}", hex::encode(state_id.as_slice()));
-
         // Create contract instance
         let contract = IArithmetic::new(self.contracts.arithmetic, &self.http_provider);
 
@@ -123,16 +121,16 @@ impl EthereumClient {
 
         // Send the transaction
         let tx_result = call_builder.send().await.map_err(|e| {
-            error!("Failed to send state update transaction: {}", e);
-            EthereumError::Transaction(format!("Transaction failed: {}", e))
+            error!("Failed to send state update transaction: {e}");
+            EthereumError::Transaction(format!("Transaction failed: {e}"))
         })?;
 
         info!("State update transaction sent: {}", tx_result.tx_hash());
 
         // Wait for confirmation
         let receipt = tx_result.get_receipt().await.map_err(|e| {
-            error!("Failed to get transaction receipt: {}", e);
-            EthereumError::Transaction(format!("Receipt error: {}", e))
+            error!("Failed to get transaction receipt: {e}");
+            EthereumError::Transaction(format!("Receipt error: {e}"))
         })?;
 
         let block_number = receipt.block_number.unwrap_or(0);
@@ -202,16 +200,16 @@ impl EthereumClient {
 
         // Send the transaction
         let tx_result = call_builder.send().await.map_err(|e| {
-            error!("Failed to send batch update transaction: {}", e);
-            EthereumError::Transaction(format!("Batch transaction failed: {}", e))
+            error!("Failed to send batch update transaction: {e}");
+            EthereumError::Transaction(format!("Batch transaction failed: {e}"))
         })?;
 
         info!("Batch update transaction sent: {}", tx_result.tx_hash());
 
         // Wait for confirmation
         let receipt = tx_result.get_receipt().await.map_err(|e| {
-            error!("Failed to get batch transaction receipt: {}", e);
-            EthereumError::Transaction(format!("Batch receipt error: {}", e))
+            error!("Failed to get batch transaction receipt: {e}");
+            EthereumError::Transaction(format!("Batch receipt error: {e}"))
         })?;
 
         let block_number = receipt.block_number.unwrap_or(0);
@@ -268,8 +266,8 @@ impl EthereumClient {
             .call()
             .await
             .map_err(|e| {
-                warn!("Failed to get current state: {}", e);
-                EthereumError::Contract(format!("State query failed: {}", e))
+                warn!("Failed to get current state: {e}");
+                EthereumError::Contract(format!("State query failed: {e}"))
             })?;
 
         let current_block = self.http_provider.get_block_number().await?;
@@ -345,7 +343,7 @@ impl EthereumClient {
 
         let logs = self.http_provider.get_logs(&filter).await.map_err(|e| {
             error!("Failed to get logs: {}", e);
-            EthereumError::External(format!("Log retrieval failed: {}", e))
+            EthereumError::External(format!("Log retrieval failed: {e}"))
         })?;
 
         let log_count = logs.len();
@@ -363,53 +361,71 @@ impl EthereumClient {
     }
 
     fn process_event_log(&self, log: &alloy_rpc_types_eth::Log) {
-        // Convert RPC log to primitive log for decoding
-        let primitive_log = alloy_primitives::Log {
+        let primitive_log = Self::convert_rpc_log_to_primitive(log);
+        self.decode_and_log_event(&primitive_log, log);
+    }
+
+    fn convert_rpc_log_to_primitive(log: &alloy_rpc_types_eth::Log) -> alloy_primitives::Log {
+        alloy_primitives::Log {
             address: log.address(),
-            data: alloy_primitives::LogData::new(
-                log.topics().iter().cloned().collect(),
-                log.data().data.clone(),
-            )
-            .unwrap_or_else(|| {
-                alloy_primitives::LogData::new_unchecked(
-                    log.topics().iter().cloned().collect(),
-                    log.data().data.clone(),
-                )
-            }),
-        };
-
-        // Try to decode different event types
-        if let Ok(event) = IArithmetic::StateUpdated::decode_log(&primitive_log) {
-            info!(
-                "StateUpdated event: stateId={}, newState={}, proofId={}, updater={}",
-                hex::encode(event.stateId.as_slice()),
-                hex::encode(event.newState.as_slice()),
-                hex::encode(event.proofId.as_slice()),
-                event.updater
-            );
-
-            #[cfg(feature = "database")]
-            if let Some(_cache) = &self.cache {
-                // Store event in cache for later processing
-                // TODO: Implement cache.store_event(&event)
-            }
-        } else if let Ok(event) = IArithmetic::ProofStored::decode_log(&primitive_log) {
-            info!(
-                "ProofStored event: proofId={}, stateId={}, submitter={}",
-                hex::encode(event.proofId.as_slice()),
-                hex::encode(event.stateId.as_slice()),
-                event.submitter
-            );
-        } else if let Ok(event) = IArithmetic::ProofVerified::decode_log(&primitive_log) {
-            info!(
-                "ProofVerified event: proofId={}, success={}, result={}",
-                hex::encode(event.proofId.as_slice()),
-                event.success,
-                hex::encode(event.result.as_ref())
-            );
-        } else {
-            debug!("Unknown event type in log: {:?}", log);
+            data: alloy_primitives::LogData::new(log.topics().to_vec(), log.data().data.clone())
+                .unwrap_or_else(|| {
+                    alloy_primitives::LogData::new_unchecked(
+                        log.topics().to_vec(),
+                        log.data().data.clone(),
+                    )
+                }),
         }
+    }
+
+    fn decode_and_log_event(
+        &self,
+        primitive_log: &alloy_primitives::Log,
+        original_log: &alloy_rpc_types_eth::Log,
+    ) {
+        if let Ok(event) = IArithmetic::StateUpdated::decode_log(primitive_log) {
+            self.handle_state_updated_event(&event);
+        } else if let Ok(event) = IArithmetic::ProofStored::decode_log(primitive_log) {
+            Self::handle_proof_stored_event(&event);
+        } else if let Ok(event) = IArithmetic::ProofVerified::decode_log(primitive_log) {
+            Self::handle_proof_verified_event(&event);
+        } else {
+            debug!("Unknown event type in log: {:?}", original_log);
+        }
+    }
+
+    fn handle_state_updated_event(&self, event: &IArithmetic::StateUpdated) {
+        info!(
+            "StateUpdated event: stateId={}, newState={}, proofId={}, updater={}",
+            hex::encode(event.stateId.as_slice()),
+            hex::encode(event.newState.as_slice()),
+            hex::encode(event.proofId.as_slice()),
+            event.updater
+        );
+
+        #[cfg(feature = "database")]
+        if let Some(_cache) = &self.cache {
+            // Store event in cache for later processing
+            // TODO: Implement cache.store_event(&event)
+        }
+    }
+
+    fn handle_proof_stored_event(event: &IArithmetic::ProofStored) {
+        info!(
+            "ProofStored event: proofId={}, stateId={}, submitter={}",
+            hex::encode(event.proofId.as_slice()),
+            hex::encode(event.stateId.as_slice()),
+            event.submitter
+        );
+    }
+
+    fn handle_proof_verified_event(event: &IArithmetic::ProofVerified) {
+        info!(
+            "ProofVerified event: proofId={}, success={}, result={}",
+            hex::encode(event.proofId.as_slice()),
+            event.success,
+            hex::encode(event.result.as_ref())
+        );
     }
 
     pub async fn publish_state_root(
@@ -446,7 +462,7 @@ impl EthereumClient {
 
         let vkey = contract.arithmeticProgramVKey().call().await.map_err(|e| {
             warn!("Failed to get verifier key: {}", e);
-            EthereumError::Contract(format!("Verifier key query failed: {}", e))
+            EthereumError::Contract(format!("Verifier key query failed: {e}"))
         })?;
 
         // Convert FixedBytes<32> to Bytes
@@ -462,7 +478,7 @@ impl EthereumClient {
             .await
             .map_err(|e| {
                 warn!("Failed to get proof result: {}", e);
-                EthereumError::Contract(format!("Proof result query failed: {}", e))
+                EthereumError::Contract(format!("Proof result query failed: {e}"))
             })?;
 
         if result.is_empty() {
@@ -538,9 +554,9 @@ impl EthereumClient {
         // Get proof from database
         let sindri_proof = get_sindri_proof_by_result(pool, result)
             .await
-            .map_err(|e| EthereumError::Database(format!("Failed to get Sindri proof: {}", e)))?
+            .map_err(|e| EthereumError::Database(format!("Failed to get Sindri proof: {e}")))?
             .ok_or_else(|| {
-                EthereumError::Config(format!("No Sindri proof found for result: {}", result))
+                EthereumError::Config(format!("No Sindri proof found for result: {result}"))
             })?;
 
         // Initialize Sindri client (uses SINDRI_API_KEY from environment)
@@ -551,7 +567,7 @@ impl EthereumClient {
             .get_proof(&sindri_proof.proof_id, None, None, None)
             .await
             .map_err(|e| {
-                EthereumError::External(format!("Failed to get proof from Sindri: {}", e))
+                EthereumError::External(format!("Failed to get proof from Sindri: {e}"))
             })?;
 
         // Check if proof is ready
@@ -568,14 +584,13 @@ impl EthereumClient {
                 info!("Successfully extracted SP1 proof from Sindri");
                 // Convert SP1 proof to bytes for contract submission
                 let proof_data = serde_json::to_vec(&sp1_proof).map_err(|e| {
-                    EthereumError::Sindri(format!("Failed to serialize SP1 proof: {}", e))
+                    EthereumError::Sindri(format!("Failed to serialize SP1 proof: {e}"))
                 })?;
                 Bytes::from(proof_data)
             }
             Err(e) => {
                 return Err(EthereumError::Sindri(format!(
-                    "Failed to extract SP1 proof: {}",
-                    e
+                    "Failed to extract SP1 proof: {e}"
                 )));
             }
         };
@@ -606,54 +621,9 @@ impl EthereumClient {
         );
 
         let sindri_client = SindriClient::default();
-
-        let mut updates = Vec::new();
-
-        for (result, state_id, new_state_root) in proof_submissions {
-            // Get proof from database
-            let sindri_proof = get_sindri_proof_by_result(pool, result)
-                .await
-                .map_err(|e| EthereumError::Database(format!("Failed to get Sindri proof: {}", e)))?
-                .ok_or_else(|| {
-                    EthereumError::Config(format!("No Sindri proof found for result: {}", result))
-                })?;
-
-            // Get proof info from Sindri
-            let proof_info = sindri_client
-                .get_proof(&sindri_proof.proof_id, None, None, None)
-                .await
-                .map_err(|e| {
-                    EthereumError::External(format!("Failed to get proof from Sindri: {}", e))
-                })?;
-
-            // Check if proof is ready
-            if proof_info.status != JobStatus::Ready {
-                warn!(
-                    "Skipping proof for result {} - not ready yet. Status: {:?}",
-                    result, proof_info.status
-                );
-                continue;
-            }
-
-            // Get the actual proof data using SP1 integration
-            let proof_bytes = match proof_info.to_sp1_proof_with_public() {
-                Ok(sp1_proof) => {
-                    // Convert SP1 proof to bytes for contract submission
-                    let proof_data = serde_json::to_vec(&sp1_proof).map_err(|e| {
-                        EthereumError::Sindri(format!("Failed to serialize SP1 proof: {}", e))
-                    })?;
-                    Bytes::from(proof_data)
-                }
-                Err(e) => {
-                    warn!("Failed to extract SP1 proof for result {}: {}", result, e);
-                    continue;
-                }
-            };
-
-            let public_values = Bytes::from(result.to_be_bytes().to_vec());
-
-            updates.push((state_id, new_state_root, proof_bytes, public_values));
-        }
+        let updates = self
+            .process_proof_submissions(pool, &sindri_client, proof_submissions)
+            .await?;
 
         if updates.is_empty() {
             return Err(EthereumError::Config(
@@ -662,9 +632,91 @@ impl EthereumClient {
         }
 
         info!("Submitting {} ready proofs to contract", updates.len());
-
-        // Submit batch to contract
         self.batch_update_states(updates).await
+    }
+
+    #[cfg(feature = "database")]
+    async fn process_proof_submissions(
+        &self,
+        pool: &sqlx::PgPool,
+        sindri_client: &SindriClient,
+        proof_submissions: Vec<(i32, FixedBytes<32>, FixedBytes<32>)>,
+    ) -> Result<Vec<(FixedBytes<32>, FixedBytes<32>, Bytes, Bytes)>> {
+        let mut updates = Vec::new();
+
+        for (result, state_id, new_state_root) in proof_submissions {
+            match self
+                .process_single_proof_submission(
+                    pool,
+                    sindri_client,
+                    result,
+                    state_id,
+                    new_state_root,
+                )
+                .await
+            {
+                Ok(Some(update)) => updates.push(update),
+                Ok(None) => {} // Proof not ready, skip
+                Err(e) => {
+                    warn!("Failed to process proof for result {}: {}", result, e);
+                }
+            }
+        }
+
+        Ok(updates)
+    }
+
+    #[cfg(feature = "database")]
+    async fn process_single_proof_submission(
+        &self,
+        pool: &sqlx::PgPool,
+        sindri_client: &SindriClient,
+        result: i32,
+        state_id: FixedBytes<32>,
+        new_state_root: FixedBytes<32>,
+    ) -> Result<Option<(FixedBytes<32>, FixedBytes<32>, Bytes, Bytes)>> {
+        // Get proof from database
+        let sindri_proof = get_sindri_proof_by_result(pool, result)
+            .await
+            .map_err(|e| EthereumError::Database(format!("Failed to get Sindri proof: {e}")))?
+            .ok_or_else(|| {
+                EthereumError::Config(format!("No Sindri proof found for result: {result}"))
+            })?;
+
+        // Get proof info from Sindri
+        let proof_info = sindri_client
+            .get_proof(&sindri_proof.proof_id, None, None, None)
+            .await
+            .map_err(|e| {
+                EthereumError::External(format!("Failed to get proof from Sindri: {e}"))
+            })?;
+
+        // Check if proof is ready
+        if proof_info.status != JobStatus::Ready {
+            warn!(
+                "Skipping proof for result {} - not ready yet. Status: {:?}",
+                result, proof_info.status
+            );
+            return Ok(None);
+        }
+
+        // Get the actual proof data using SP1 integration
+        let proof_bytes = match proof_info.to_sp1_proof_with_public() {
+            Ok(sp1_proof) => {
+                // Convert SP1 proof to bytes for contract submission
+                let proof_data = serde_json::to_vec(&sp1_proof).map_err(|e| {
+                    EthereumError::Sindri(format!("Failed to serialize SP1 proof: {e}"))
+                })?;
+                Bytes::from(proof_data)
+            }
+            Err(e) => {
+                warn!("Failed to extract SP1 proof for result {}: {}", result, e);
+                return Ok(None);
+            }
+        };
+
+        let public_values = Bytes::from(result.to_be_bytes().to_vec());
+        Ok(Some((state_id, new_state_root, proof_bytes, public_values)))
     }
 
     pub fn check_inclusion_proof(
@@ -693,7 +745,7 @@ impl EthereumClient {
             .await
             .map_err(|e| {
                 warn!("Failed to get proof data: {}", e);
-                EthereumError::Contract(format!("Proof data query failed: {}", e))
+                EthereumError::Contract(format!("Proof data query failed: {e}"))
             })?;
 
         if proof_data.is_empty() {
@@ -712,7 +764,7 @@ impl EthereumClient {
             .await
             .map_err(|e| {
                 warn!("Failed to get state root: {}", e);
-                EthereumError::Contract(format!("State root query failed: {}", e))
+                EthereumError::Contract(format!("State root query failed: {e}"))
             })?;
 
         Ok(state_root)
@@ -731,13 +783,14 @@ impl EthereumClient {
 
         let version = verifier_contract.VERSION().call().await.map_err(|e| {
             warn!("Failed to get verifier version: {}", e);
-            EthereumError::Contract(format!("Verifier version query failed: {}", e))
+            EthereumError::Contract(format!("Verifier version query failed: {e}"))
         })?;
 
         Ok(version)
     }
 
-    pub fn has_signer(&self) -> bool {
+    #[must_use]
+    pub const fn has_signer(&self) -> bool {
         self.signer.is_some()
     }
 }

@@ -53,10 +53,10 @@ enum ProofSystem {
 
 impl ProofSystem {
     /// Convert to the proving scheme string expected by Sindri
-    fn to_sindri_scheme(&self) -> &'static str {
+    const fn as_sindri_scheme(self) -> &'static str {
         match self {
-            ProofSystem::Plonk => "plonk",
-            ProofSystem::Groth16 => "groth16",
+            Self::Plonk => "plonk",
+            Self::Groth16 => "groth16",
         }
     }
 }
@@ -76,6 +76,7 @@ struct SP1ArithmeticProofFixture {
 /// The arguments for the command.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
+#[allow(clippy::struct_excessive_bools)]
 struct Args {
     // Program execution mode
     #[arg(long)]
@@ -234,7 +235,7 @@ async fn main() {
 
 /// Start background processor for indexed Merkle tree construction
 /// Returns a join handle for the background task
-async fn start_background_processor(
+fn start_background_processor(
     pool: PgPool,
     interval_secs: u64,
     batch_size: usize,
@@ -259,7 +260,7 @@ async fn start_background_processor(
         info!("📊 Background processor started in {} mode - monitoring for new arithmetic transactions", mode);
 
         if let Err(e) = processor.start().await {
-            eprintln!("❌ Background processor error: {}", e);
+            eprintln!("❌ Background processor error: {e}");
         } else if !continuous {
             info!("✅ Background processor completed one-shot processing");
         }
@@ -270,7 +271,7 @@ async fn start_background_processor(
 /// Returns None if user wants to quit, Some(value) if valid integer entered
 fn get_integer_input(prompt: &str) -> Option<i32> {
     loop {
-        print!("{}", prompt);
+        print!("{prompt}");
         io::stdout().flush().unwrap();
 
         let mut input = String::new();
@@ -303,21 +304,15 @@ async fn run_interactive_execute(client: &sp1_sdk::EnvProver, pool: &PgPool) {
 
     loop {
         // Get input for 'a'
-        let a = match get_integer_input("Enter value for 'a' (or 'q' to quit): ") {
-            Some(value) => value,
-            None => {
-                println!("Goodbye!");
-                break;
-            }
+        let Some(a) = get_integer_input("Enter value for 'a' (or 'q' to quit): ") else {
+            println!("Goodbye!");
+            break;
         };
 
         // Get input for 'b'
-        let b = match get_integer_input("Enter value for 'b' (or 'q' to quit): ") {
-            Some(value) => value,
-            None => {
-                println!("Goodbye!");
-                break;
-            }
+        let Some(b) = get_integer_input("Enter value for 'b' (or 'q' to quit): ") else {
+            println!("Goodbye!");
+            break;
         };
 
         // Execute the computation
@@ -378,13 +373,11 @@ async fn run_verify_mode(pool: &PgPool, result: i32) {
         println!("Press 'q' + Enter to quit.\n");
 
         loop {
-            let lookup_result = match get_integer_input("Enter result to verify (or 'q' to quit): ")
-            {
-                Some(value) => value,
-                None => {
-                    println!("Goodbye!");
-                    break;
-                }
+            let Some(lookup_result) =
+                get_integer_input("Enter result to verify (or 'q' to quit): ")
+            else {
+                println!("Goodbye!");
+                break;
             };
 
             verify_result_via_sindri(pool, lookup_result).await;
@@ -396,7 +389,7 @@ async fn run_verify_mode(pool: &PgPool, result: i32) {
     }
 }
 
-/// Get proof from Sindri by proof_id
+/// Get proof from Sindri by `proof_id`
 async fn get_sindri_proof(proof_id: &str) -> Option<ProofInfoResponse> {
     let client = SindriClient::default();
     match client.get_proof(proof_id, None, None, None).await {
@@ -432,7 +425,7 @@ async fn get_sindri_proof(proof_id: &str) -> Option<ProofInfoResponse> {
 }
 
 /// Core verification function - handles the actual proof verification
-async fn verify_proof_core(proof_info: &ProofInfoResponse, expected_result: i32) -> bool {
+fn verify_proof_core(proof_info: &ProofInfoResponse, expected_result: i32) -> bool {
     println!("🔍 Performing local SP1 proof verification...");
 
     // Extract SP1 proof and verification key from Sindri response
@@ -504,13 +497,12 @@ async fn verify_result_via_sindri(pool: &PgPool, result: i32) {
     };
 
     // Get proof from Sindri
-    let proof_info = match get_sindri_proof(&proof_id).await {
-        Some(proof) => proof,
-        None => return, // Error already printed
+    let Some(proof_info) = get_sindri_proof(&proof_id).await else {
+        return; // Error already printed
     };
 
     // Perform verification
-    let verification_success = verify_proof_core(&proof_info, result).await;
+    let verification_success = verify_proof_core(&proof_info, result);
 
     // Update database with latest status (only for database-driven verification)
     if verification_success {
@@ -525,23 +517,20 @@ async fn verify_result_via_sindri(pool: &PgPool, result: i32) {
     }
 }
 
-/// Verify proof directly by proof_id (no database required)
+/// Verify proof directly by `proof_id` (no database required)
 async fn run_external_verify(proof_id: &str, expected_result: i32) {
     println!("=== External Verification Mode ===");
     println!("Verifying proof ID: {proof_id}");
     println!("Expected result: {expected_result}");
 
     // Get proof from Sindri
-    let proof_info = match get_sindri_proof(proof_id).await {
-        Some(proof) => proof,
-        None => {
-            println!("💡 Make sure the proof ID is correct and the proof exists on Sindri");
-            return;
-        }
+    let Some(proof_info) = get_sindri_proof(proof_id).await else {
+        println!("💡 Make sure the proof ID is correct and the proof exists on Sindri");
+        return;
     };
 
     // Perform verification (no database updates for external verification)
-    verify_proof_core(&proof_info, expected_result).await;
+    verify_proof_core(&proof_info, expected_result);
 }
 
 /// Core proving function that handles Sindri circuit proving without database dependencies
@@ -597,7 +586,7 @@ async fn prove_via_sindri_core(
 
     println!(
         "✓ {} proof job submitted. Status: {:?}",
-        system.to_sindri_scheme().to_uppercase(),
+        system.as_sindri_scheme().to_uppercase(),
         proof_info.status
     );
     println!("\n🔗 PROOF ID FOR EXTERNAL VERIFICATION:");
@@ -640,9 +629,8 @@ async fn run_prove_via_sindri(
     };
 
     // Use the common proving core
-    let proof_info = match prove_via_sindri_core(a, b, result, system).await {
-        Some(info) => info,
-        None => return, // Error already printed in core function
+    let Some(proof_info) = prove_via_sindri_core(a, b, result, system).await else {
+        return; // Error already printed in core function
     };
 
     // Generate EVM fixture if requested
@@ -701,9 +689,8 @@ async fn run_prove_via_sindri_no_db(
     println!("Database-free mode:");
 
     // Use the common proving core
-    let proof_info = match prove_via_sindri_core(a, b, result, system).await {
-        Some(info) => info,
-        None => return, // Error already printed in core function
+    let Some(proof_info) = prove_via_sindri_core(a, b, result, system).await else {
+        return; // Error already printed in core function
     };
 
     // Generate EVM fixture if requested
@@ -733,7 +720,7 @@ async fn create_evm_fixture_from_sindri(
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "🔧 Generating EVM fixture for {} proof...",
-        system.to_sindri_scheme().to_uppercase()
+        system.as_sindri_scheme().to_uppercase()
     );
 
     // Wait for proof to be ready if it's still processing
@@ -741,8 +728,9 @@ async fn create_evm_fixture_from_sindri(
     let mut current_proof = proof_info.clone();
 
     // Poll until proof is ready (with timeout)
-    let mut attempts = 0;
+    #[allow(clippy::items_after_statements)]
     const MAX_ATTEMPTS: u32 = 60; // 5 minutes with 5-second intervals
+    let mut attempts = 0;
 
     while current_proof.status != JobStatus::Ready && attempts < MAX_ATTEMPTS {
         if current_proof.status == JobStatus::Failed {
@@ -789,7 +777,7 @@ async fn create_evm_fixture_from_sindri(
     let fixture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../contracts/src/fixtures");
     std::fs::create_dir_all(&fixture_path)?;
 
-    let filename = format!("{}-fixture.json", system.to_sindri_scheme());
+    let filename = format!("{}-fixture.json", system.as_sindri_scheme());
     let fixture_file = fixture_path.join(&filename);
 
     std::fs::write(&fixture_file, serde_json::to_string_pretty(&fixture)?)?;
@@ -838,12 +826,12 @@ async fn submit_proof_to_contract(
 
     // Generate state ID (can be customized based on application logic)
     let state_id = FixedBytes::from_slice(
-        &alloy_primitives::keccak256(format!("arithmetic_result_{}", result).as_bytes())[..32],
+        &alloy_primitives::keccak256(format!("arithmetic_result_{result}").as_bytes())[..32],
     );
 
     // Generate new state root (for this demo, we'll use a simple hash of the result)
     let new_state_root =
-        FixedBytes::from_slice(&alloy_primitives::keccak256(&result.to_be_bytes())[..32]);
+        FixedBytes::from_slice(&alloy_primitives::keccak256(result.to_be_bytes())[..32]);
 
     println!("📊 Proof data prepared:");
     println!("  State ID: 0x{}", hex::encode(state_id.as_slice()));
@@ -865,7 +853,7 @@ async fn submit_proof_to_contract(
         println!("  Transaction hash: 0x{}", hex::encode(tx_hash.as_slice()));
     }
     if let Some(block_number) = state_update.block_number {
-        println!("  Block number: {}", block_number);
+        println!("  Block number: {block_number}");
     }
     println!(
         "  State ID: 0x{}",

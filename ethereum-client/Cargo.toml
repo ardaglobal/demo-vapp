@@ -66,9 +66,8 @@ arithmetic-lib = { path = "../lib" }
 sindri = "0.3.1"
 
 [[bin]]
-description = "Unified Ethereum bridge for proof submission and contract interaction"
-name        = "bridge"
-path        = "src/bin/bridge.rs"
+name = "bridge"
+path = "src/bin/bridge.rs"
 
 [features]
 database = [ "chrono", "sqlx", "uuid" ]
