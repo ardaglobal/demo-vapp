@@ -28,8 +28,11 @@ export SINDRI_API_KEY=your_sindri_api_key_here
 ./deploy-circuit.sh                    # Uses 'latest' tag
 # ./deploy-circuit.sh "custom-tag"     # Or use specific tag
 
-# 4. Start full stack (database + server)
+# 4. Start full stack (database + server) - uses pre-built image
 docker-compose up -d
+
+# For local development (builds locally):
+# docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
 # 5. Test the API
 curl http://localhost:8080/api/v1/health
@@ -94,12 +97,15 @@ cargo test
 
 ### Docker Compose Setup
 ```bash
-# Full stack (recommended) - includes automatic program compilation
+# Full stack (recommended) - uses pre-built image from GitHub Container Registry
 docker-compose up -d                  # Start database + server
 docker-compose ps                     # Verify services
 docker-compose logs server -f         # View server logs
 docker-compose down                   # Stop services
 docker-compose down -v                # Stop + remove data
+
+# Local development (builds image locally for faster iteration)
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
 # Database only (for local development)
 docker-compose up postgres -d         # Start only PostgreSQL

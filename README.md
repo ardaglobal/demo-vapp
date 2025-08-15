@@ -15,6 +15,13 @@ that can generate a proof of any RISC-V program.
 
 ## Quick Start (Zero to Running Server)
 
+**💡 Pro Tip**: Use the included `Makefile` for even simpler commands:
+```sh
+make setup    # Install dependencies + copy .env
+make deploy   # Deploy circuit to Sindri  
+make up       # Start services
+```
+
 ### 1. Install Dependencies
 ```sh
 ./install-dependencies.sh
@@ -53,7 +60,7 @@ export SINDRI_API_KEY=your_sindri_api_key_here
 
 ### 4. Start the Full Stack
 ```sh
-# Start database + server (includes automatic program compilation)
+# Start database + server (uses pre-built image from GitHub Container Registry)
 docker-compose up -d
 
 # Verify services are running
@@ -61,6 +68,15 @@ docker-compose ps
 
 # Check server health
 curl http://localhost:8080/api/v1/health
+```
+
+**For Local Development**: If you're actively developing and want to build the Docker image locally for faster iteration:
+```sh
+# Option 1: Use the development compose file
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+
+# Option 2: Edit docker-compose.yml and uncomment the build section
+# (see comments in docker-compose.yml)
 ```
 
 ### 5. Test the API
@@ -121,8 +137,11 @@ docker-compose ps
 #### Option 2: Full Stack (database + server)
 
 ```sh
-# Start both PostgreSQL and the REST API server
+# Start both PostgreSQL and the REST API server (uses pre-built image)
 docker-compose up -d
+
+# For local development (builds image locally):
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
 # Verify both services are running
 docker-compose ps

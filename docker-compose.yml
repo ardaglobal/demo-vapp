@@ -17,9 +17,15 @@ services:
       retries: 5
 
   server:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    # Production: Use pre-built image from GitHub Container Registry
+    image: ghcr.io/ardaglobal/demo-vapp:latest
+    
+    # Local Development: Uncomment the lines below and comment out the 'image' line above
+    # to build locally for faster iteration during development:
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    
     container_name: arithmetic_server
     environment:
       - DATABASE_URL=postgresql://postgres:password@postgres:5432/arithmetic_db

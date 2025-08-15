@@ -1,0 +1,28 @@
+# Docker Compose override for local development
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# This file overrides the server service to build locally instead of using
+# the pre-built image from GitHub Container Registry. Use this for:
+# - Active development and testing
+# - When you need to test local code changes quickly
+# - Before pushing changes that will trigger a new image build
+
+services:
+  server:
+    # Override to build locally for development
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Remove the image specification to force local build
+    image: demo-vapp-server:dev
+    
+    # Optional: Add development-specific environment variables
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/arithmetic_db
+      - RUST_LOG=debug  # More verbose logging for development
+      - SERVER_PORT=8080
+      
+    # Optional: Mount source code for hot reloading (if supported)
+    # volumes:
+    #   - ./db/src:/app/db/src:ro
+    #   - ./lib/src:/app/lib/src:ro
