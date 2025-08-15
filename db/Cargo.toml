@@ -21,7 +21,7 @@ sqlx = { workspace = true, features = [
     "chrono",
     "json",
     "postgres",
-    "runtime-tokio-rustls",
+    "runtime-tokio-rustls", 
     "uuid",
 ] }
 thiserror = "1.0"

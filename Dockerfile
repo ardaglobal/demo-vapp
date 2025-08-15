@@ -18,6 +18,7 @@ RUN cargo prove build --output-directory ../build
 
 # Build the server binary (which may reference the ELF through build.rs)
 WORKDIR /app/api
+ENV SQLX_OFFLINE=true
 RUN cargo build --release --bin server
 
 # Runtime stage
