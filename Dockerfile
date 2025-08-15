@@ -1,13 +1,22 @@
 # Use the official Rust image as the base
 FROM rust:1.88.0 as builder
 
+# Install SP1 toolchain for program compilation
+RUN curl -L https://sp1.succinct.xyz | bash
+ENV PATH="/root/.sp1/bin:$PATH"
+RUN /root/.sp1/bin/sp1up
+
 # Set the working directory
 WORKDIR /app
 
 # Copy the entire workspace
 COPY . .
 
-# Build the server binary
+# Build the SP1 program first (creates the ELF file)
+WORKDIR /app/program
+RUN cargo prove build --output-directory ../build
+
+# Build the server binary (which may reference the ELF through build.rs)
 WORKDIR /app/db
 RUN cargo build --release --bin server
 

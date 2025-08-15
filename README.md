@@ -13,11 +13,74 @@ that can generate a proof of any RISC-V program.
 - [Docker](https://docs.docker.com/get-docker/) (for database)
 - [Node.js](https://nodejs.org/) (for Sindri CLI)
 
-## You will need to install the following dependencies:
+## Quick Start (Zero to Running Server)
 
+### 1. Install Dependencies
 ```sh
 ./install-dependencies.sh
 ```
+
+### 2. Set Environment Variables
+```sh
+cp .env.example .env
+# Edit .env and add your Sindri API key for proof generation:
+# SINDRI_API_KEY=your_sindri_api_key_here
+```
+
+### 3. Deploy Circuit to Sindri (Required for Proof Generation)
+```sh
+# Get your API key from https://sindri.app and set it in .env
+export SINDRI_API_KEY=your_sindri_api_key_here
+
+# Deploy the circuit (uses 'latest' tag by default)
+./deploy-circuit.sh
+
+# Or deploy with a specific tag
+./deploy-circuit.sh "dev-v1.0"
+
+# Or deploy manually:
+# sindri lint
+# sindri deploy                    # Uses 'latest' tag
+# sindri deploy --tag "custom-tag" # Uses specific tag
+```
+
+**Note**: This step is required for proof generation. Without deploying the circuit, you can still run the server and submit transactions, but proof generation will fail.
+
+**Circuit Tag Configuration**: By default, proof generation uses the `latest` circuit tag. To use a specific circuit version:
+1. Deploy with a specific tag: `./deploy-circuit.sh "my-tag"`
+2. Set `SINDRI_CIRCUIT_TAG=my-tag` in your `.env` file
+3. Restart your server to pick up the new tag
+
+### 4. Start the Full Stack
+```sh
+# Start database + server (includes automatic program compilation)
+docker-compose up -d
+
+# Verify services are running
+docker-compose ps
+
+# Check server health
+curl http://localhost:8080/api/v1/health
+```
+
+### 5. Test the API
+```sh
+# Submit a transaction
+curl -X POST http://localhost:8080/api/v1/transactions \
+  -H 'Content-Type: application/json' \
+  -d '{"a": 7, "b": 13, "generate_proof": false}'
+
+# Generate a proof via Sindri (requires SINDRI_API_KEY in .env)
+curl -X POST http://localhost:8080/api/v1/transactions \
+  -H 'Content-Type: application/json' \
+  -d '{"a": 5, "b": 10, "generate_proof": true}'
+```
+
+That's it! 🎉 You now have a running zero-knowledge arithmetic server.
+
+---
+
+## Detailed Setup Instructions
 
 **Note for Linux users**: 
 - After running the install script, you may need to log out and back in (or restart your terminal) for Docker group membership to take effect. You can verify Docker is working by running `docker --version` and `docker compose version`.
@@ -440,3 +503,24 @@ sudo apt-get install -y libpq-dev
 # Install sqlx-cli manually if needed
 cargo install sqlx-cli --no-default-features --features rustls,postgres
 ```
+
+**Sindri circuit deployment issues**:
+```bash
+# Check if circuit is properly configured
+sindri lint
+
+# Verify API key is set
+echo $SINDRI_API_KEY
+
+# Deploy with explicit tag
+sindri deploy --tag "manual-$(date +%s)"
+
+# Check deployed circuits
+sindri list
+```
+
+**Proof generation failures**:
+- Ensure circuit is deployed to Sindri first (`sindri deploy`)
+- Verify `SINDRI_API_KEY` is set in `.env`
+- Check circuit name matches in `sindri.json` (should be "demo-vapp")
+- Transactions without `generate_proof: true` will work without Sindri

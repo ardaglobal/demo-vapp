@@ -510,9 +510,14 @@ async fn prove_via_sindri_core(a: i32, b: i32, result: i32, system: ProofSystem)
 
     let client = SindriClient::default();
     println!("Submitting proof request to Sindri...");
+    
+    // Get circuit name with configurable tag from environment
+    let circuit_tag = std::env::var("SINDRI_CIRCUIT_TAG").unwrap_or_else(|_| "latest".to_string());
+    let circuit_name = format!("demo-vapp:{}", circuit_tag);
+    
     let proof_info = client
         .prove_circuit(
-            "demo-vapp", // Circuit name as defined in sindri.json manifest
+            &circuit_name, // Circuit name as defined in sindri.json manifest with configurable tag
             proof_input,
             None,
             None,

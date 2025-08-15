@@ -240,7 +240,7 @@ function ensure_docker() {
     echo "deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \$(. /etc/os-release && echo \"\$VERSION_CODENAME\") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null &&
     apt-get update &&
     apt-get install -y --no-install-recommends docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin &&
-    usermod -aG docker \$USER
+    usermod -aG docker ${SUDO_USER:-$USER}
 EOF
     )
     try_sudo "$cmd"
@@ -258,11 +258,6 @@ EOF
 
 # docker-compose (standalone for older systems)
 function ensure_docker_compose() {
-  # Check if docker compose (plugin) is available
-  if docker compose version >/dev/null 2>&1; then
-    return
-  fi
-  
   # Check if docker-compose (standalone) is available
   check_cmd docker-compose && return
 
