@@ -1,0 +1,39 @@
+# Rust build artifacts
+target/
+**/target/
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Environment files
+.env
+.envrc
+
+# Documentation
+*.md
+!README.md
+
+# Docker files
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Build artifacts
+build/
+**/build/
+
+# Proofs and temporary files
+**/proof-with-pis.json
+**/proof-with-io.json
+
+# Cache directories
+.cargo/

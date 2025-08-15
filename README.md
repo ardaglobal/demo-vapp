@@ -19,7 +19,10 @@ that can generate a proof of any RISC-V program.
 ./install-dependencies.sh
 ```
 
-**Note for Linux users**: After running the install script, you may need to log out and back in (or restart your terminal) for Docker group membership to take effect. You can verify Docker is working by running `docker --version` and `docker compose version`.
+**Note for Linux users**: 
+- After running the install script, you may need to log out and back in (or restart your terminal) for Docker group membership to take effect. You can verify Docker is working by running `docker --version` and `docker compose version`.
+- The script installs OpenSSL development libraries (`libssl-dev`) required for Rust crates compilation.
+- If you encounter OpenSSL-related compilation errors, ensure you have the latest packages: `sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config`
 
 **Installed Tools**: The script installs all necessary development tools including Rust toolchain, SP1, Foundry, Docker, Node.js, PostgreSQL client tools, sqlx-cli for database migrations, and other utilities.
 
@@ -42,25 +45,47 @@ The `.env` file contains database credentials and SP1 configuration. For develop
 
 This project requires a PostgreSQL database for storing arithmetic transactions. The easiest way to set this up is using Docker Compose:
 
+#### Option 1: Database Only (for local development)
+
 ```sh
-# Start PostgreSQL container in the background
-docker-compose up -d
+# Start only PostgreSQL container
+docker-compose up postgres -d
 
 # Verify the database is running
 docker-compose ps
 ```
 
-The database will be automatically initialized with the required schema when you first run the execute command.
-
-To stop the database:
+#### Option 2: Full Stack (database + server)
 
 ```sh
-# Stop the container
+# Start both PostgreSQL and the REST API server
+docker-compose up -d
+
+# Verify both services are running
+docker-compose ps
+
+# View server logs
+docker-compose logs server -f
+```
+
+The database will be automatically initialized with the required schema when the server starts.
+
+#### Stopping Services
+
+```sh
+# Stop all services
 docker-compose down
 
 # Stop and remove all data (clean slate)
 docker-compose down -v
 ```
+
+#### Service URLs
+
+When running the full stack:
+- **Database**: `localhost:5432` 
+- **REST API Server**: `http://localhost:8080`
+- **Health Check**: `http://localhost:8080/api/v1/health`
 
 ### Upon first run
 
@@ -317,6 +342,18 @@ The project includes a comprehensive REST API server for external actors to inte
 
 ### Starting the Server
 
+#### Option 1: Using Docker Compose (Recommended)
+
+```sh
+# Start both database and server
+docker-compose up -d
+
+# Or start just the server (if database is already running)
+docker-compose up server -d
+```
+
+#### Option 2: Local Development
+
 ```sh
 cd db
 cargo run --bin server --release
@@ -368,3 +405,38 @@ curl http://localhost:8080/api/v1/health
 5. **Read from Smart Contract:** Can also read verified proofs from on-chain storage
 
 This enables trustless verification where external parties can cryptographically verify computation results without seeing private inputs or requiring database access.
+
+This enables trustless verification where external parties can cryptographically verify computation results without seeing private inputs or requiring database access.
+
+
+## Troubleshooting
+
+### Common Linux/Ubuntu Issues
+
+**OpenSSL compilation errors** (like `openssl-sys` build failures):
+```bash
+# Install missing development libraries
+sudo apt-get update
+sudo apt-get install -y libssl-dev pkg-config libpq-dev
+
+# Retry the dependency installation
+./install-dependencies.sh
+```
+
+**Docker permission errors**:
+```bash
+# Add user to docker group (requires logout/login)
+sudo usermod -aG docker $USER
+
+# Or run with sudo temporarily
+sudo docker-compose up -d
+```
+
+**sqlx-cli installation failures**:
+```bash
+# Ensure PostgreSQL development libraries are installed
+sudo apt-get install -y libpq-dev
+
+# Install sqlx-cli manually if needed
+cargo install sqlx-cli --no-default-features --features rustls,postgres
+```

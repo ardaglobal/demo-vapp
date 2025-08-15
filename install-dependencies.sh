@@ -580,7 +580,8 @@ function install_on_linux() {
     cat <<-EOF
     apt-get update &&
     apt-get install -y --no-install-recommends ca-certificates bash sudo curl wget git build-essential pkg-config direnv \
-      g++ linux-libc-dev libclang-dev unzip libjemalloc-dev make time jq
+      g++ linux-libc-dev libclang-dev unzip libjemalloc-dev make time jq \
+      libssl-dev openssl libpq-dev
 EOF
   )
   try_sudo "$cmd"
