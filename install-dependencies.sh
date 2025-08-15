@@ -224,6 +224,115 @@ function ensure_cargo() {
   done
   }
 
+# docker
+function ensure_docker() {
+  check_cmd docker && return
+
+  case $OS in
+  Linux)
+    local cmd=$(
+      cat <<-EOF
+    apt-get update &&
+    apt-get install -y --no-install-recommends ca-certificates curl &&
+    install -m 0755 -d /etc/apt/keyrings &&
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc &&
+    chmod a+r /etc/apt/keyrings/docker.asc &&
+    echo "deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \$(. /etc/os-release && echo \"\$VERSION_CODENAME\") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null &&
+    apt-get update &&
+    apt-get install -y --no-install-recommends docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin &&
+    usermod -aG docker \$USER
+EOF
+    )
+    try_sudo "$cmd"
+    say "Docker installed. You may need to log out and back in for group membership to take effect."
+    ;;
+  Darwin)
+    ensure_brew
+    brew install --cask docker
+    say "Docker Desktop installed. Please start Docker Desktop manually."
+    ;;
+  *)
+    ;;
+  esac
+}
+
+# docker-compose (standalone for older systems)
+function ensure_docker_compose() {
+  # Check if docker compose (plugin) is available
+  if docker compose version >/dev/null 2>&1; then
+    return
+  fi
+  
+  # Check if docker-compose (standalone) is available
+  check_cmd docker-compose && return
+
+  case $OS in
+  Linux)
+    local cmd=$(
+      cat <<-EOF
+    curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-\$(uname -s)-\$(uname -m)" -o /usr/local/bin/docker-compose &&
+    chmod +x /usr/local/bin/docker-compose
+EOF
+    )
+    try_sudo "$cmd"
+    ;;
+  Darwin)
+    # Docker Desktop includes docker compose, so this should not be needed on macOS
+    say "Docker Compose should be included with Docker Desktop"
+    ;;
+  *)
+    ;;
+  esac
+}
+
+# postgresql client tools
+function ensure_postgresql_client() {
+  check_cmd psql && check_cmd pg_isready && return
+
+  case $OS in
+  Linux)
+    local cmd=$(
+      cat <<-EOF
+    apt-get update &&
+    apt-get install -y --no-install-recommends postgresql-client
+EOF
+    )
+    try_sudo "$cmd"
+    ;;
+  Darwin)
+    ensure_brew
+    brew install postgresql@15
+    ;;
+  *)
+    ;;
+  esac
+}
+
+# sp1 toolchain
+function ensure_sp1() {
+  check_cmd cargo-prove && return
+
+  say "Installing SP1 toolchain..."
+  curl -L https://sp1.succinct.xyz | bash
+  
+  # Add SP1 to PATH for current session
+  export PATH="$HOME/.sp1/bin:$PATH"
+  
+  # Run sp1up to install/update
+  if [ -f "$HOME/.sp1/bin/sp1up" ]; then
+    "$HOME/.sp1/bin/sp1up"
+  else
+    err "SP1 installation failed - sp1up not found"
+  fi
+  
+  # Verify installation
+  if [ -f "$HOME/.sp1/bin/cargo-prove" ]; then
+    "$HOME/.sp1/bin/cargo-prove" prove --version || warn "cargo-prove installed but version check failed"
+  else
+    err "SP1 installation failed - cargo-prove not found"
+  fi
+}
+
 # gh
 function ensure_gh() {
   check_cmd gh && return
@@ -299,6 +408,9 @@ function ensure_envrc() {
   # Some softwares will be installed with cargo, so cargo bin dir should be output here ahead of others.
   # As a result, cargo bin dir will have a lower priotiry in search path.
   add_path_to_profile "$PROFILE" "${CARGO_BIN_DIR}"
+  
+  # Add SP1 bin directory to PATH
+  add_path_to_profile "$PROFILE" "$HOME/.sp1/bin"
 
   case "$(uname -s)-$(uname -m)" in
   Darwin-*)
@@ -333,6 +445,10 @@ function verify_installs() {
 function ensure_tools() {
   ensure_cargo
   ensure_crates
+  ensure_docker
+  ensure_docker_compose
+  ensure_postgresql_client
+  ensure_sp1
   ensure_gh
 }
 

@@ -16,6 +16,8 @@ that can generate a proof of any RISC-V program.
 ./install-dependencies.sh
 ```
 
+**Note for Linux users**: After running the install script, you may need to log out and back in (or restart your terminal) for Docker group membership to take effect. You can verify Docker is working by running `docker --version` and `docker compose version`.
+
 ## Running the Project
 
 There are 3 main ways to run this project: execute a program, generate a core proof, and
