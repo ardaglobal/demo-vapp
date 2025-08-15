@@ -17,22 +17,31 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "Usage: $0 [TAG]"
     echo ""
     echo "Arguments:"
-    echo "  TAG    Optional circuit tag (defaults to 'latest' if not provided)"
+    echo "  TAG    Optional circuit tag"
+    echo ""
+    echo "Tag Resolution (in priority order):"
+    echo "  1. Command line argument (if provided)"
+    echo "  2. SINDRI_CIRCUIT_TAG environment variable (if set and not 'latest')"
+    echo "  3. Default to 'latest' tag"
     echo ""
     echo "Examples:"
-    echo "  $0                 # Deploy with 'latest' tag"
-    echo "  $0 dev-v1.0       # Deploy with 'dev-v1.0' tag"
+    echo "  $0                 # Uses SINDRI_CIRCUIT_TAG env var, or 'latest'"
+    echo "  $0 dev-v1.0       # Deploy with 'dev-v1.0' tag (overrides env var)"
     echo "  $0 local-\$(date +%s)  # Deploy with timestamp tag"
     echo ""
     echo "Environment variables:"
     echo "  SINDRI_API_KEY     Required - your Sindri API key"
+    echo "  SINDRI_CIRCUIT_TAG Optional - circuit tag to use if no CLI arg provided"
     exit 0
 fi
 
-# Parse command line arguments
+# Parse command line arguments and check environment variable
 TAG=""
 if [ $# -gt 0 ]; then
     TAG="$1"
+elif [ -n "$SINDRI_CIRCUIT_TAG" ] && [ "$SINDRI_CIRCUIT_TAG" != "latest" ]; then
+    TAG="$SINDRI_CIRCUIT_TAG"
+    echo -e "${BLUE}📋 Using circuit tag from environment: ${TAG}${NC}"
 fi
 
 # Source .env file if it exists and SINDRI_API_KEY is not already set
