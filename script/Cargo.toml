@@ -1,14 +1,17 @@
 [package]
-edition = "2021"
-license = "MIT"
-name    = "arithmetic-program-builder"
-version = "0.1.0"
+default-run = "demo-vapp"
+edition     = "2021"
+license     = "MIT"
+name        = "demo-vapp"
+version     = "0.1.0"
 
-# This crate builds the SP1 program via build.rs and provides local SP1 unit testing
+# Default package for `cargo run` (local SP1 unit testing)  
+# Provides fast local SP1 unit testing with Core proofs
 # The CLI functionality has been moved to the cli/ directory
 
+# Default binary for the main package
 [[bin]]
-name = "local-sp1-test"
+name = "demo-vapp"
 path = "src/bin/main.rs"
 
 [dependencies]

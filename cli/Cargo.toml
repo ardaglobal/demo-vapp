@@ -1,13 +1,12 @@
 [package]
-default-run = "arithmetic"
 edition     = "2021"
 license     = "MIT"
 name        = "arithmetic-cli"
 version     = "0.1.0"
 
 [[bin]]
-name = "arithmetic"
-path = "src/bin/arithmetic.rs"
+name = "cli"
+path = "src/bin/cli.rs"
 
 [dependencies]
 # Simple HTTP client (avoid full API server dependencies)

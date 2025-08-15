@@ -1,7 +1,7 @@
 # Demo vApp Makefile
 # Provides convenient shortcuts for common development tasks
 
-.PHONY: help install deploy up up-dev down logs test clean
+.PHONY: help install deploy up up-dev down logs test clean run cli server
 
 # Default target
 help:
@@ -18,6 +18,9 @@ help:
 	@echo "  make logs        View server logs"
 	@echo ""
 	@echo "Development:"
+	@echo "  make run         Local SP1 unit testing (fast ~3.5s Core proofs)"
+	@echo "  make cli         CLI client (requires API server running)"  
+	@echo "  make server      Start API server locally"
 	@echo "  make test        Run all tests"
 	@echo "  make clean       Clean up Docker resources"
 	@echo ""
@@ -57,6 +60,23 @@ logs:
 # Development commands
 test:
 	cargo test
+
+# Development commands
+run:
+	cargo run --release
+
+cli:
+	@echo "CLI Usage Examples:"
+	@echo "  make cli ARGS='health-check'"
+	@echo "  make cli ARGS='store-transaction --a 5 --b 10'"  
+	@echo "  make cli ARGS='get-transaction --result 15'"
+	@echo ""
+	@cargo run --bin cli -- $(ARGS)
+
+server:
+	@echo "Starting API server locally (requires database)..."
+	@echo "💡 Tip: Run 'make up postgres' in another terminal first"
+	cargo run --bin server --release
 
 clean:
 	docker-compose down -v
