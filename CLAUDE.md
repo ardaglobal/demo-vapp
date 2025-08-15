@@ -14,25 +14,47 @@ SP1 zero-knowledge proof project demonstrating arithmetic addition with indexed 
 
 ## Essential Commands
 
-### Build & Setup
+### Quick Start (Zero to Running Server)
 ```bash
-# First-time setup
-cd program && cargo prove build --output-directory ../build
+# 1. Install all dependencies (Rust, SP1, Foundry, Docker, Node.js, Sindri CLI, etc.)
+./install-dependencies.sh
 
+# 2. Set environment variables
+cp .env.example .env
+# Edit .env and add: SINDRI_API_KEY=your_sindri_api_key_here
+
+# 3. Deploy circuit to Sindri (required for proof generation)
+export SINDRI_API_KEY=your_sindri_api_key_here
+./deploy-circuit.sh                    # Uses 'latest' tag
+# ./deploy-circuit.sh "custom-tag"     # Or use specific tag
+
+# 4. Start full stack (database + server)
+docker-compose up -d
+
+# 5. Test the API
+curl http://localhost:8080/api/v1/health
+```
+
+### Development Commands
+```bash
 # Interactive execution (hot path: stores in PostgreSQL)
 cd script && cargo run --release -- --execute
 
 # Background processing (integrated with execute mode)
 cd script && cargo run --release -- --execute --bg-interval 60 --bg-batch-size 50
 
-# REST API Server
-# Prerequisites: DATABASE_URL environment variable must be set
-# Note: Database migrations are applied automatically on startup
+# Local server development (alternative to Docker)
 cd db && cargo run --bin server --release -- --host 0.0.0.0 --port 8080 --cors --graphql --playground
+
+# Manual program compilation (done automatically in Docker)
+cd program && cargo prove build --output-directory ../build
 ```
 
 ### Zero-Knowledge Proofs
 ```bash
+# Prerequisites: Circuit must be deployed to Sindri first
+# ./deploy-circuit.sh
+
 # Generate EVM-compatible proof (Groth16 default)
 cd script && cargo run --release -- --prove --a 5 --b 10
 
@@ -42,11 +64,17 @@ cd script && cargo run --release -- --prove --a 5 --b 10 --system plonk
 # Generate proof with Solidity fixtures
 cd script && cargo run --release -- --prove --a 5 --b 10 --generate-fixture
 
-# Verify with proof ID (external)
+# Verify with proof ID (external - no database required)
 cd script && cargo run --release -- --verify --proof-id <PROOF_ID> --result 15
 
 # Get verification key
 cd script && cargo run --release -- --vkey
+
+# Circuit management
+sindri lint                           # Validate circuit
+sindri deploy                         # Deploy with 'latest' tag
+sindri deploy --tag "custom-tag"      # Deploy with specific tag
+sindri list                           # Show deployed circuits
 ```
 
 ### Testing
@@ -64,14 +92,36 @@ cd db && cargo test
 cargo test
 ```
 
-### Database Setup
+### Docker Compose Setup
 ```bash
-# Start PostgreSQL (Docker recommended)
-docker-compose up -d
+# Full stack (recommended) - includes automatic program compilation
+docker-compose up -d                  # Start database + server
+docker-compose ps                     # Verify services
+docker-compose logs server -f         # View server logs
+docker-compose down                   # Stop services
+docker-compose down -v                # Stop + remove data
 
-# Set environment variables
+# Database only (for local development)
+docker-compose up postgres -d         # Start only PostgreSQL
+
+# Service URLs
+# - Database: localhost:5432
+# - REST API: http://localhost:8080
+# - GraphQL: http://localhost:8080/graphql
+# - Health: http://localhost:8080/api/v1/health
+```
+
+### Environment Configuration
+```bash
+# Copy and configure environment file
 cp .env.example .env
-# Set SINDRI_API_KEY for proof generation
+
+# Required variables:
+# DATABASE_URL=postgresql://postgres:password@localhost:5432/arithmetic_db
+# SINDRI_API_KEY=your_sindri_api_key_here        # For proof generation
+# SINDRI_CIRCUIT_TAG=latest                      # Circuit version (default: latest)
+# RUST_LOG=info                                  # Logging level
+# SERVER_PORT=8080                               # API server port
 ```
 
 ## Architecture
@@ -148,22 +198,35 @@ When you do the "setup" for a circuit (trusted or transparent), the compiler:
 
 ### Key Files
 - `program/src/main.rs:25-28`: ZK public values (result only)
-- `script/src/bin/main.rs`: Main CLI with Sindri integration
+- `script/src/bin/main.rs`: Main CLI with Sindri integration and configurable circuit tags
 - `db/src/merkle_tree.rs`: 32-level indexed Merkle tree
 - `db/src/api/`: REST and GraphQL APIs
+- `db/src/bin/server.rs`: REST API server binary
 - `contracts/src/Arithmetic.sol`: On-chain verification with state management
 - `contracts/src/interfaces/IStateManager.sol`: State management interface
 - `contracts/test/StateManagement.t.sol`: Comprehensive state management tests
+- `install-dependencies.sh`: Automated dependency installation for all platforms
+- `deploy-circuit.sh`: Sindri circuit deployment with configurable tags
+- `docker-compose.yml`: Full-stack container orchestration
+- `Dockerfile`: Multi-stage build with SP1 program compilation
+- `.env.example`: Environment variable template with all required settings
 
 ## Environment
 
 ```bash
-# Start PostgreSQL
-docker-compose up -d
-
-# Environment variables
-cp .env.example .env
+# Complete setup flow
+./install-dependencies.sh             # Install all dependencies
+cp .env.example .env                   # Copy environment template
 export SINDRI_API_KEY=your_api_key_here
+./deploy-circuit.sh                    # Deploy circuit to Sindri
+docker-compose up -d                   # Start full stack
+
+# Environment variables in .env file:
+# DATABASE_URL=postgresql://postgres:password@localhost:5432/arithmetic_db
+# SINDRI_API_KEY=your_sindri_api_key_here
+# SINDRI_CIRCUIT_TAG=latest
+# RUST_LOG=info
+# SERVER_PORT=8080
 ```
 
 ## Database Architecture
@@ -285,7 +348,67 @@ External actors can verify proofs without access to the database:
 
 This enables trustless verification where external parties can cryptographically verify computation results without seeing private inputs or requiring database access.
 
-**Note**: Proof generation requires a valid `SINDRI_API_KEY` environment variable. Without it, transactions will be stored successfully but proof generation will fail with a 401 Unauthorized error. The REST API endpoints remain fully functional for transaction storage and retrieval.
+**Note**: Proof generation requires a valid `SINDRI_API_KEY` environment variable and deployed circuit. Without the API key, transactions will be stored successfully but proof generation will fail with a 401 Unauthorized error. Without circuit deployment, proof generation will fail with circuit not found errors. The REST API endpoints remain fully functional for transaction storage and retrieval.
+
+## Deployment & Development Workflow
+
+### Fresh Environment Setup
+```bash
+# 1. Install dependencies (one-time setup)
+./install-dependencies.sh
+
+# 2. Configure environment
+cp .env.example .env
+# Edit .env: Add SINDRI_API_KEY and configure SINDRI_CIRCUIT_TAG if needed
+
+# 3. Deploy circuit to Sindri
+export SINDRI_API_KEY=your_api_key_here
+./deploy-circuit.sh                    # Default: latest tag
+# ./deploy-circuit.sh "dev-v1.0"       # Custom tag
+
+# 4. Start services
+docker-compose up -d
+
+# 5. Verify deployment
+curl http://localhost:8080/api/v1/health
+```
+
+### Development Workflow
+```bash
+# Update circuit and deploy new version
+./deploy-circuit.sh "dev-$(date +%s)"
+
+# Update environment to use new circuit version
+echo "SINDRI_CIRCUIT_TAG=dev-1234567890" >> .env
+
+# Restart services to pick up new configuration
+docker-compose restart server
+
+# Test with new circuit version
+curl -X POST http://localhost:8080/api/v1/transactions \
+  -H 'Content-Type: application/json' \
+  -d '{"a": 5, "b": 10, "generate_proof": true}'
+```
+
+### Troubleshooting
+```bash
+# Check Sindri circuit deployment
+sindri list                            # Show deployed circuits
+sindri lint                            # Validate circuit configuration
+
+# Check Docker services
+docker-compose ps                      # Service status
+docker-compose logs server -f          # Server logs
+docker-compose logs postgres -f        # Database logs
+
+# Check environment configuration
+cat .env                               # Show environment variables
+echo $SINDRI_API_KEY                   # Verify API key
+
+# Database connectivity
+pg_isready -h localhost -p 5432 -U postgres
+sqlx migrate info                      # Check migration status
+```
 
 ## Background Processing
 
@@ -317,10 +440,13 @@ cd script && cargo run --release -- --execute
 
 ## Key Features
 
+- **Automated Setup**: One-command dependency installation for all platforms (`./install-dependencies.sh`)
+- **Docker Integration**: Full-stack deployment with automatic program compilation
+- **Circuit Management**: Configurable Sindri circuit deployment with version tagging
 - **Hot/Cold Path Separation**: CLI performance isolated from Merkle tree operations
 - **Zero-Knowledge Proofs**: Private inputs (`a`, `b`) → public result only
 - **External Verification**: Database-free proof verification with shareable proof IDs  
-- **Sindri Integration**: Cloud proof generation with SP1 v5 support
+- **Sindri Integration**: Cloud proof generation with SP1 v5 and configurable circuit versions
 - **32-Level Merkle Trees**: 8x constraint reduction vs traditional implementations
 - **Background Processing**: Asynchronous indexed Merkle tree construction with resume capability
 - **Production APIs**: REST/GraphQL with rate limiting and authentication
@@ -328,6 +454,8 @@ cd script && cargo run --release -- --execute
 - **State Management**: Complete state lifecycle management with proof verification and batch operations
 - **Continuous Ledger State**: Global state counter with atomic transitions and audit trail
 - **RESTful API Server**: HTTP API server for external transaction submission and proof verification
+- **Cross-Platform Support**: Works on macOS (Intel/Apple Silicon) and Linux (Ubuntu/Debian)
+- **Development Tools**: Automated circuit linting, deployment, and management via Sindri CLI
 
 ## State Management System
 
