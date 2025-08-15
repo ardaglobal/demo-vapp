@@ -34,7 +34,9 @@ services:
       - DATABASE_URL=postgresql://postgres:password@postgres:5432/arithmetic_db
       - RUST_LOG=${RUST_LOG:-info}
       - SERVER_PORT=${SERVER_PORT:-8080}
-      # SINDRI_API_KEY and SINDRI_CIRCUIT_TAG will be loaded from .env file
+      # Pass through Sindri configuration from host environment or .env file
+      - SINDRI_API_KEY=${SINDRI_API_KEY}
+      - SINDRI_CIRCUIT_TAG=${SINDRI_CIRCUIT_TAG:-latest}
     ports:
       - "8080:8080"
     depends_on:

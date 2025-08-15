@@ -1562,9 +1562,15 @@ async fn generate_sindri_proof(a: i32, b: i32, _result: i32) -> Result<(String, 
         .map_err(|e| format!("Failed to serialize SP1Stdin: {}", e))?;
     let proof_input = ProofInput::from(stdin_json);
 
+    // Get circuit name with configurable tag from environment
+    let circuit_tag = std::env::var("SINDRI_CIRCUIT_TAG").unwrap_or_else(|_| "latest".to_string());
+    let circuit_name = format!("demo-vapp:{}", circuit_tag);
+    
+    info!("Creating proof for circuit: {}", circuit_name);
+
     let client = SindriClient::default();
     let proof_info = client
-        .prove_circuit("demo-vapp", proof_input, None, None, None)
+        .prove_circuit(&circuit_name, proof_input, None, None, None)
         .await
         .map_err(|e| format!("Failed to submit proof: {}", e))?;
 
