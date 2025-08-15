@@ -8,7 +8,7 @@ OS=$(uname -s)
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 TMPDIR=${TMPDIR:-/tmp}
 ROOT="$DIR/"
-CARGO_CRATES=cargo-nextest
+CARGO_CRATES="cargo-nextest sqlx-cli"
 
 # ==========//=========//=========//=========//==========//==========//==========
 # general functions
@@ -308,6 +308,86 @@ EOF
   esac
 }
 
+# nodejs and npm
+function ensure_nodejs() {
+  check_cmd node && check_cmd npm && return
+
+  case $OS in
+  Linux)
+    local cmd=$(
+      cat <<-EOF
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - &&
+    apt-get install -y nodejs
+EOF
+    )
+    try_sudo "$cmd"
+    ;;
+  Darwin)
+    ensure_brew
+    brew install node@20
+    ;;
+  *)
+    ;;
+  esac
+}
+
+# sindri cli
+function ensure_sindri() {
+  check_cmd sindri && return
+  
+  ensure_nodejs
+  npm install -g sindri@latest
+}
+
+# taplo (TOML formatter)
+function ensure_taplo() {
+  check_cmd taplo && return
+
+  case $OS in
+  Linux)
+    local cmd=$(
+      cat <<-EOF
+    curl -Ls "https://github.com/tamasfe/taplo/releases/download/0.9.3/taplo-full-linux-x86_64.gz" | \
+    gzip -d > /usr/local/bin/taplo && \
+    chmod +x /usr/local/bin/taplo
+EOF
+    )
+    try_sudo "$cmd"
+    ;;
+  Darwin)
+    ensure_brew
+    brew install taplo
+    ;;
+  *)
+    ;;
+  esac
+}
+
+# foundry
+function ensure_foundry() {
+  check_cmd forge && check_cmd cast && check_cmd anvil && return
+
+  say "Installing Foundry toolchain..."
+  curl -L https://foundry.paradigm.xyz | bash
+  
+  # Add Foundry to PATH for current session
+  export PATH="$HOME/.foundry/bin:$PATH"
+  
+  # Run foundryup to install/update
+  if [ -f "$HOME/.foundry/bin/foundryup" ]; then
+    "$HOME/.foundry/bin/foundryup"
+  else
+    err "Foundry installation failed - foundryup not found"
+  fi
+  
+  # Verify installation
+  if [ -f "$HOME/.foundry/bin/forge" ]; then
+    "$HOME/.foundry/bin/forge" --version || warn "forge installed but version check failed"
+  else
+    err "Foundry installation failed - forge not found"
+  fi
+}
+
 # sp1 toolchain
 function ensure_sp1() {
   check_cmd cargo-prove && return
@@ -331,6 +411,32 @@ function ensure_sp1() {
   else
     err "SP1 installation failed - cargo-prove not found"
   fi
+}
+
+# curl (essential for API testing and tool downloads)
+function ensure_curl() {
+  check_cmd curl && return
+
+  case $OS in
+  Linux)
+    local cmd=$(
+      cat <<-EOF
+    apt-get update &&
+    apt-get install -y --no-install-recommends curl ca-certificates
+EOF
+    )
+    try_sudo "$cmd"
+    ;;
+  Darwin)
+    # curl comes pre-installed on macOS, but ensure it's available
+    if ! check_cmd curl; then
+      ensure_brew
+      brew install curl
+    fi
+    ;;
+  *)
+    ;;
+  esac
 }
 
 # gh
@@ -411,6 +517,9 @@ function ensure_envrc() {
   
   # Add SP1 bin directory to PATH
   add_path_to_profile "$PROFILE" "$HOME/.sp1/bin"
+  
+  # Add Foundry bin directory to PATH
+  add_path_to_profile "$PROFILE" "$HOME/.foundry/bin"
 
   case "$(uname -s)-$(uname -m)" in
   Darwin-*)
@@ -443,11 +552,16 @@ function verify_installs() {
 }
 
 function ensure_tools() {
+  ensure_curl
   ensure_cargo
   ensure_crates
   ensure_docker
   ensure_docker_compose
   ensure_postgresql_client
+  ensure_nodejs
+  ensure_sindri
+  ensure_taplo
+  ensure_foundry
   ensure_sp1
   ensure_gh
 }

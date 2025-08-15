@@ -9,6 +9,9 @@ that can generate a proof of any RISC-V program.
 
 - [Rust](https://rustup.rs/)
 - [SP1](https://docs.succinct.xyz/docs/sp1/getting-started/install)
+- [Foundry](https://book.getfoundry.sh/getting-started/installation) (for smart contracts)
+- [Docker](https://docs.docker.com/get-docker/) (for database)
+- [Node.js](https://nodejs.org/) (for Sindri CLI)
 
 ## You will need to install the following dependencies:
 
@@ -17,6 +20,8 @@ that can generate a proof of any RISC-V program.
 ```
 
 **Note for Linux users**: After running the install script, you may need to log out and back in (or restart your terminal) for Docker group membership to take effect. You can verify Docker is working by running `docker --version` and `docker compose version`.
+
+**Installed Tools**: The script installs all necessary development tools including Rust toolchain, SP1, Foundry, Docker, Node.js, PostgreSQL client tools, sqlx-cli for database migrations, and other utilities.
 
 ## Running the Project
 
@@ -335,6 +340,8 @@ The server will start on `http://localhost:8080` by default.
 - `GET /api/v1/info` - API information and capabilities
 
 ### Usage Examples
+
+**Note**: `curl` is installed by the dependency script and ready for API testing.
 
 ```sh
 # Submit a transaction with proof generation
