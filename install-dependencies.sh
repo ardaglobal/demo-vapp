@@ -343,7 +343,7 @@ function ensure_taplo() {
     local cmd=$(
       cat <<-EOF
     curl -Ls "https://github.com/tamasfe/taplo/releases/download/0.9.3/taplo-full-linux-x86_64.gz" | \
-    gzip -d > /usr/local/bin/taplo && \
+    gzip -dc > /usr/local/bin/taplo && \
     chmod +x /usr/local/bin/taplo
 EOF
     )
@@ -402,7 +402,7 @@ function ensure_sp1() {
   
   # Verify installation
   if [ -f "$HOME/.sp1/bin/cargo-prove" ]; then
-    "$HOME/.sp1/bin/cargo-prove" prove --version || warn "cargo-prove installed but version check failed"
+    "$HOME/.sp1/bin/cargo-prove" --version || warn "cargo-prove installed but version check failed"
   else
     err "SP1 installation failed - cargo-prove not found"
   fi

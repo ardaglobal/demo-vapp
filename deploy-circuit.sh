@@ -108,13 +108,14 @@ fi
 # Deploy with or without tag
 if [ -n "$TAG" ]; then
     echo -e "${BLUE}🚀 Deploying circuit with tag: ${TAG}${NC}"
-    DEPLOY_CMD="sindri deploy --tag \"$TAG\""
+    DEPLOY_ARGS=(deploy --tag "$TAG")
 else
     echo -e "${BLUE}🚀 Deploying circuit (will use 'latest' tag by default)${NC}"
-    DEPLOY_CMD="sindri deploy"
+    DEPLOY_ARGS=(deploy)
 fi
 
-if eval "$DEPLOY_CMD"; then
+if sindri "${DEPLOY_ARGS[@]}"; then
+    echo -e "${GREEN}✅ Circuit deployed successfully!${NC}"
     echo -e "${GREEN}✅ Circuit built and deployed successfully!${NC}"
     echo ""
     echo -e "${BLUE}📝 Deployment Summary:${NC}"
