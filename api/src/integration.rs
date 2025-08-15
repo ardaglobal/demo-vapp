@@ -5,10 +5,10 @@ use tokio::sync::RwLock;
 
 use tracing::{info, instrument, warn};
 
-use crate::ads_service::IndexedMerkleTreeADS;
-use crate::api::rest::{ApiConfig, ApiState};
-use crate::api::server::{ApiServer, ApiServerConfig};
-use crate::vapp_integration::VAppAdsIntegration;
+use crate::rest::{ApiConfig, ApiState};
+use crate::server::{ApiServer, ApiServerConfig};
+use arithmetic_db::ads_service::IndexedMerkleTreeADS;
+use arithmetic_db::vapp_integration::VAppAdsIntegration;
 
 // ============================================================================
 // VAPP SERVER INTEGRATION

@@ -34,7 +34,6 @@
 #![allow(clippy::suboptimal_flops)]
 
 pub mod ads_service;
-pub mod api;
 pub mod background_processor;
 pub mod db;
 pub mod error;
@@ -48,41 +47,7 @@ pub use ads_service::{
     AuthenticatedDataStructure, ComplianceStatus, IndexedMerkleTreeADS, MembershipProof,
     NonMembershipProof, StateCommitment, StateTransition, WitnessData,
 };
-pub use api::{
-    create_router,
-    create_schema,
-    ApiConfig,
-    // Server types
-    ApiServer,
-    ApiServerBuilder,
-    ApiServerConfig,
-    // REST API types
-    ApiState,
-    AuditTrailResponse,
-    BatchInsertInput,
-    BatchInsertRequest,
-    BatchInsertResponse,
-    GraphQLSchema,
-    HealthResponse,
-    InsertNullifierInput,
-    InsertNullifierRequest,
-    InsertNullifierResponse,
-    MembershipCheckResponse,
-    MembershipProofType,
-    MutationRoot,
-    NonMembershipProofType,
-    NonMembershipResponse,
-    NullifierQueryInput,
-    NullifierType,
-    OperationResult,
-    ProofResult,
-    // GraphQL types
-    QueryRoot,
-    StateTransitionType,
-    SubscriptionRoot,
-    TreeStatsResponse,
-    TreeStatsType,
-};
+
 pub use background_processor::{BackgroundProcessor, ProcessorBuilder, ProcessorConfig};
 pub use error::{DbError, DbResult};
 pub use merkle_tree::{
@@ -119,8 +84,7 @@ mod error_tests;
 // #[cfg(test)]
 // mod ads_service_tests;
 
-#[cfg(test)]
-mod api_tests;
+
 
 #[cfg(test)]
 mod proof_verification_tests;

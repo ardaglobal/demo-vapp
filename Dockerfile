@@ -17,7 +17,7 @@ WORKDIR /app/program
 RUN cargo prove build --output-directory ../build
 
 # Build the server binary (which may reference the ELF through build.rs)
-WORKDIR /app/db
+WORKDIR /app/api
 RUN cargo build --release --bin server
 
 # Runtime stage

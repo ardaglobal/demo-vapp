@@ -6,9 +6,9 @@ use std::collections::HashMap;
 
 use tracing::{info, instrument};
 
-use crate::ads_service::{AdsError, AuthenticatedDataStructure};
-use crate::api::rest::ApiState;
-use crate::vapp_integration::VAppError;
+use crate::rest::ApiState;
+use arithmetic_db::ads_service::{AdsError, AuthenticatedDataStructure};
+use arithmetic_db::vapp_integration::VAppError;
 
 // ============================================================================
 // GRAPHQL SCHEMA TYPES

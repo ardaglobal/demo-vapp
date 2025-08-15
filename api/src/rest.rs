@@ -12,12 +12,12 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, instrument, warn};
 
-use crate::ads_service::{AuthenticatedDataStructure, IndexedMerkleTreeADS};
-use crate::db::{
+use arithmetic_db::ads_service::{AuthenticatedDataStructure, IndexedMerkleTreeADS};
+use arithmetic_db::db::{
     get_current_global_state, get_sindri_proof_by_result, get_state_history, get_transaction_count,
     get_value_by_result, store_transaction_with_state_update, validate_state_integrity,
 };
-use crate::vapp_integration::VAppAdsIntegration;
+use arithmetic_db::vapp_integration::VAppAdsIntegration;
 use alloy_sol_types::SolType;
 use arithmetic_lib::{addition, PublicValuesStruct};
 use sindri::integrations::sp1_v5::SP1ProofInfo;
@@ -1292,7 +1292,7 @@ async fn submit_transaction(
                 proof_status = Some(status);
 
                 // Store proof metadata in database
-                if let Err(e) = crate::db::upsert_sindri_proof(
+                if let Err(e) = arithmetic_db::db::upsert_sindri_proof(
                     &pool,
                     result,
                     &id,
