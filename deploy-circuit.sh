@@ -35,6 +35,14 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     exit 0
 fi
 
+# Source .env file first if it exists
+if [ -f ".env" ]; then
+    echo -e "${BLUE}📄 Loading environment from .env file...${NC}"
+    set -a  # Automatically export all variables
+    source .env
+    set +a  # Stop auto-exporting
+fi
+
 # Parse command line arguments and check environment variable
 TAG=""
 if [ $# -gt 0 ]; then
@@ -42,14 +50,6 @@ if [ $# -gt 0 ]; then
 elif [ -n "$SINDRI_CIRCUIT_TAG" ] && [ "$SINDRI_CIRCUIT_TAG" != "latest" ]; then
     TAG="$SINDRI_CIRCUIT_TAG"
     echo -e "${BLUE}📋 Using circuit tag from environment: ${TAG}${NC}"
-fi
-
-# Source .env file if it exists and SINDRI_API_KEY is not already set
-if [ -z "$SINDRI_API_KEY" ] && [ -f ".env" ]; then
-    echo -e "${BLUE}📄 Loading environment from .env file...${NC}"
-    set -a  # Automatically export all variables
-    source .env
-    set +a  # Stop auto-exporting
 fi
 
 # Check if Sindri CLI is installed
