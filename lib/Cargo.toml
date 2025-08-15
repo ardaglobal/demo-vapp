@@ -5,17 +5,23 @@ name    = "arithmetic-lib"
 version = "0.1.0"
 
 [dependencies]
+# Core types (zkVM compatible)
 alloy-sol-types = { workspace = true }
-clap            = { version = "4.0", features = [ "derive" ], optional = true }
 hex             = "0.4"
 serde           = { version = "1.0", features = [ "derive" ] }
 serde_json      = "1.0"
-sindri          = { version = "0.3.1", features = [ "sp1-v5" ] }
-sp1-sdk         = "5.2.1"
 thiserror       = "1.0"
-tokio           = { version = "1.0", features = [ "time" ] }
-tracing         = "0.1"
+
+# SP1 dependencies (for host-side proof operations)
+sindri          = { version = "0.3.1", features = [ "sp1-v5" ], optional = true }
+sp1-sdk         = { version = "5.2.1", optional = true }
+tokio           = { version = "1.0", features = [ "time" ], optional = true }
+tracing         = { version = "0.1", optional = true }
+
+# CLI dependencies
+clap            = { version = "4.0", features = [ "derive" ], optional = true }
 
 [features]
-clap    = [ "dep:clap" ]
-default = [  ]
+clap       = [ "dep:clap" ]
+sp1        = [ "dep:sindri", "dep:sp1-sdk", "dep:tokio", "dep:tracing" ]
+default    = [  ]

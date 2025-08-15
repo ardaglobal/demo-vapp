@@ -1,9 +1,20 @@
 # Arda Demo vApp
 
-A simple counter demo demonstrating the [vApp Archtiecture](https://arxiv.org/pdf/2504.14809)
+A simple arithmetic demo demonstrating the [vApp Architecture](https://arxiv.org/pdf/2504.14809)
 
 Based off the template for creating an end-to-end [SP1](https://github.com/succinctlabs/sp1) project
 that can generate a proof of any RISC-V program.
+
+## Architecture Overview
+
+This project features a clean separation of concerns:
+
+- **`script/`** - Local SP1 unit testing (`cargo run` for fast development)
+- **`cli/`** - Simple HTTP client for API server interaction
+- **`api/`** - Production web server with complex logic and Sindri integration
+- **`db/`** - Database layer with PostgreSQL and indexed Merkle trees
+- **`lib/`** - Pure computation logic (zkVM compatible)
+- **`program/`** - RISC-V program source for SP1 zkVM
 
 ## Requirements
 
@@ -18,6 +29,7 @@ that can generate a proof of any RISC-V program.
 **💡 Pro Tip**: Use the included `Makefile` for even simpler commands:
 ```sh
 make setup    # Install dependencies + copy .env
+# Update .env file with needed env vars
 make deploy   # Deploy circuit to Sindri  
 make up       # Start services
 ```
@@ -60,7 +72,7 @@ export SINDRI_API_KEY=your_sindri_api_key_here
 
 ### 4. Start the Full Stack
 ```sh
-# Start database + server (uses pre-built image from GitHub Container Registry)
+# Start database + API server (uses pre-built image from GitHub Container Registry)
 docker-compose up -d
 
 # Verify services are running
@@ -77,9 +89,15 @@ docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
 # Option 2: Edit docker-compose.yml and uncomment the build section
 # (see comments in docker-compose.yml)
+
+# Option 3: Run API server locally (requires PostgreSQL running)
+docker-compose up postgres -d
+cargo run --package arithmetic-api --bin server --release
 ```
 
 ### 5. Test the API
+
+**Option A: Direct HTTP API**
 ```sh
 # Submit a transaction
 curl -X POST http://localhost:8080/api/v1/transactions \
@@ -92,7 +110,31 @@ curl -X POST http://localhost:8080/api/v1/transactions \
   -d '{"a": 5, "b": 10, "generate_proof": true}'
 ```
 
-That's it! 🎉 You now have a running zero-knowledge arithmetic server.
+**Option B: CLI Client (Recommended)**
+```sh
+# Check API server health
+cargo run --package arithmetic-cli --bin arithmetic -- health-check
+
+# Store a transaction via CLI
+cargo run --package arithmetic-cli --bin arithmetic -- store-transaction --a 5 --b 10
+
+# Query a transaction by result
+cargo run --package arithmetic-cli --bin arithmetic -- get-transaction --result 15
+```
+
+### 6. Local SP1 Development
+
+For fast local SP1 unit testing during development:
+```sh
+# Quick SP1 unit test (generates Core proof in ~3.5 seconds)
+cargo run --package arithmetic-program-builder --bin local-sp1-test --release
+```
+
+This provides a fast feedback loop for SP1 development without database or Sindri dependencies.
+
+---
+
+That's it! 🎉 You now have a running zero-knowledge arithmetic server with multiple interaction methods.
 
 ---
 
@@ -107,8 +149,42 @@ That's it! 🎉 You now have a running zero-knowledge arithmetic server.
 
 ## Running the Project
 
-There are 3 main ways to run this project: execute a program, generate a core proof, and
-generate an EVM-compatible proof.
+This project provides multiple interaction methods based on your development needs:
+
+### 🚀 **Local SP1 Development** (Fast Unit Testing)
+For rapid SP1 development with instant feedback:
+```sh
+# Fast Core proof generation (~3.5 seconds)
+cargo run --package arithmetic-program-builder --bin local-sp1-test --release
+```
+✅ **Perfect for**: SP1 program development, quick verification, unit testing  
+❌ **Not included**: Database, Sindri, production workflows
+
+### 🖥️ **CLI Client** (Simple API Interaction)  
+For basic API server interaction:
+```sh
+# Available commands:
+cargo run --package arithmetic-cli --bin arithmetic -- health-check
+cargo run --package arithmetic-cli --bin arithmetic -- store-transaction --a 5 --b 10  
+cargo run --package arithmetic-cli --bin arithmetic -- get-transaction --result 15
+
+# Configure API server URL (default: http://localhost:8080)
+export ARITHMETIC_API_URL=http://your-server:8080
+```
+✅ **Perfect for**: API testing, scripting, external tool integration  
+❌ **Not included**: Interactive modes, direct database access
+
+### 🌐 **API Server** (Production System)
+For full-featured production deployment:
+```sh
+# Start with Docker (recommended)
+docker-compose up -d
+
+# Or run locally
+docker-compose up postgres -d
+cargo run --package arithmetic-api --bin server --release
+```
+✅ **Includes**: Complex workflows, Sindri integration, interactive features, database operations
 
 ### Environment Setup
 
@@ -169,102 +245,80 @@ When running the full stack:
 - **REST API Server**: `http://localhost:8080`
 - **Health Check**: `http://localhost:8080/api/v1/health`
 
-### Upon first run
+### Program Compilation
 
-Before we can run the program inside the zkVM, it must be compiled to a RISC-V executable using the succinct Rust toolchain. This is called an ELF (Executable and Linkable Format).
-To compile the program to the ELF, you can run the following command:
+The SP1 program is automatically compiled during the build process. For manual compilation:
 
 ```sh
 cd program && cargo prove build --output-directory ../build
 ```
 
-### Build the Program
+The program is also automatically built through `script/build.rs` when building the `arithmetic-program-builder` package.
 
-The program is automatically built through `script/build.rs` when the script is built.
+### Legacy Commands (Replaced by CLI)
 
-### Execute the Program
+**⚠️ The following interactive modes have been moved to the API server:**
 
-To run the program interactively without generating a proof:
-
+**Interactive Transaction Submission**: Use the API server's endpoints or the CLI client instead:
 ```sh
-cd script
-cargo run --release -- --execute
+# Old: cd script && cargo run --release -- --execute
+# New: Use API server + CLI client
+cargo run --package arithmetic-cli --bin arithmetic -- store-transaction --a 5 --b 10
 ```
 
-This will start an interactive CLI where you can:
-- Enter pairs of numbers (a and b) to compute their sum
-- See the results stored in the PostgreSQL database
-- Continue entering new calculations until you press 'q' to quit
-
-Each calculation is verified and stored in the database for later retrieval.
-
-### Verify Stored Results
-
-To verify that results are stored in the database:
-
+**Result Verification**: Use the CLI client for simple queries:
 ```sh
-cd script
-cargo run --release -- --verify
+# Old: cd script && cargo run --release -- --verify
+# New: Use CLI client
+cargo run --package arithmetic-cli --bin arithmetic -- get-transaction --result 15
 ```
 
-This will start an interactive CLI where you can:
-- Enter a result value (e.g., 15)
-- See what values of 'a' and 'b' were added to get that result
-- Continue looking up different results until you press 'q' to quit
-
-You can also verify a specific result non-interactively:
-
-```sh
-cargo run --release -- --verify --result 15
-```
+For complex interactive workflows, use the API server's REST endpoints or run the API server locally.
 
 ### Generate Zero-Knowledge Proofs via Sindri
 
-**All proofs are now EVM-compatible by default** using Sindri's cloud infrastructure:
+**All proofs are now EVM-compatible by default** using Sindri's cloud infrastructure.
 
+Proof generation is handled by the API server. You can generate proofs in two ways:
+
+**Option A: Via API Server** (Recommended)
 ```sh
-cd script
-# Generate Groth16 proof for specific values (default)
-cargo run --release -- --prove --a 5 --b 10
-
-# Generate PLONK proof for specific values
-cargo run --release -- --prove --a 5 --b 10 --system plonk
-
-# Generate proof for a previously computed result stored in database
-cargo run --release -- --prove --result 15
-
-# Generate proof with Solidity test fixtures
-cargo run --release -- --prove --a 5 --b 10 --generate-fixture
+# Generate proof during transaction submission
+curl -X POST http://localhost:8080/api/v1/transactions \
+  -H 'Content-Type: application/json' \
+  -d '{"a": 5, "b": 10, "generate_proof": true}'
 ```
 
-**Command Options:**
-- `--system groth16|plonk`: Choose EVM-compatible proof system (default: groth16)
-- `--generate-fixture`: Create Solidity test fixtures in `contracts/src/fixtures/`
-- `--a` and `--b`: Direct input values for computation
-- `--result`: Look up stored transaction inputs by result value
+**Option B: Via CLI Client**
+```sh
+# CLI client routes to API server
+cargo run --package arithmetic-cli --bin arithmetic -- store-transaction --a 5 --b 10
+```
 
-The `--prove` command will:
-1. Create SP1 inputs and serialize them for Sindri
-2. Generate EVM-compatible proofs (Groth16 or PLONK)
-3. Submit proof request to Sindri using the `demo-vapp` circuit
-4. Store proof metadata in PostgreSQL (database mode) or run standalone
-5. Display proof ID for external verification
+**⚠️ Legacy Commands**: The old CLI proof generation commands have been moved to the API server:
+```sh
+# Old: cd script && cargo run --release -- --prove --a 5 --b 10
+# New: Use API server endpoints for proof generation
+```
+
+The proof generation process:
+1. Creates SP1 inputs and serializes them for Sindri
+2. Generates EVM-compatible proofs (Groth16 by default)
+3. Submits proof request to Sindri using the `demo-vapp` circuit
+4. Stores proof metadata in PostgreSQL  
+5. Returns proof ID for external verification
 
 ### Verify Sindri Proofs
 
-There are two ways to verify proofs generated via Sindri:
+Proof verification is now handled through the API server:
 
 #### External Verification (Recommended for sharing proofs)
 
-Use the proof ID printed during the prove flow:
-
 ```sh
-cd script
-# Verify using proof ID (no database required)
-cargo run --release -- --verify --proof-id <PROOF_ID> --result <EXPECTED_RESULT>
-
-# Example:
-cargo run --release -- --verify --proof-id "proof_abc123def456" --result 15
+# Verify using proof ID via API server
+curl -X POST http://localhost:8080/api/v1/verify \
+  -H 'Content-Type: application/json' \
+  -d '{"proof_id": "proof_abc123def456", "expected_result": 15}'
 ```
 
 This method:
@@ -278,66 +332,35 @@ This method:
 For internal use with database access:
 
 ```sh
-cd script
-# Interactive verification mode
-cargo run --release -- --verify
+# Verify proof for stored result
+curl -X POST http://localhost:8080/api/v1/results/15/verify
 
-# Verify specific result
-cargo run --release -- --verify --result 15
+# Get proof information
+curl http://localhost:8080/api/v1/proofs/proof_abc123def456
 ```
 
-This method:
-1. Looks up the stored Sindri proof metadata by result
-2. Queries Sindri's API to get the current proof status
-3. Displays verification results and updates the stored status
-
-### Generate EVM-Compatible Proofs via Sindri
-
-All proofs generated through the main CLI are now EVM-compatible by default, using Sindri's cloud infrastructure. This provides scalable, production-ready proof generation without requiring local GPU resources.
-
-To generate a Groth16 proof (default):
-
+**⚠️ Legacy Commands**: The old CLI verification commands have been moved to the API server:
 ```sh
-cd script
-# Using specific inputs
-cargo run --release -- --prove --a 5 --b 10 --system groth16
-
-# Using database lookup by result
-cargo run --release -- --prove --result 15 --system groth16
+# Old: cd script && cargo run --release -- --verify --proof-id <ID> --result 15  
+# New: Use API server endpoints for proof verification
 ```
-
-To generate a PLONK proof:
-
-```sh
-cd script
-# Using specific inputs
-cargo run --release -- --prove --a 5 --b 10 --system plonk
-
-# Using database lookup by result
-cargo run --release -- --prove --result 15 --system plonk
-```
-
-To generate Solidity test fixtures for on-chain verification:
-
-```sh
-cd script
-# Generate proof with EVM fixture files
-cargo run --release -- --prove --a 5 --b 10 --system groth16 --generate-fixture
-```
-
-These commands will:
-1. Generate EVM-compatible proofs (Groth16/PLONK) via Sindri
-2. Optionally create fixtures for Solidity contract testing (with `--generate-fixture`)
-3. Provide proof IDs for external verification
-4. Store proof metadata for later verification (database mode only)
 
 ### Retrieve the Verification Key
 
-To retrieve your `programVKey` for your on-chain contract, run the following command in `script`:
+The verification key is now available through the API server:
 
 ```sh
-cargo run --release -- --vkey
+# Get verification key via API
+curl http://localhost:8080/api/v1/vkey
 ```
+
+**⚠️ Legacy Command**: The old verification key command has been moved:
+```sh  
+# Old: cd script && cargo run --release -- --vkey
+# New: Use API server endpoint for verification key
+```
+
+This key is needed for on-chain contract verification and can be retrieved at any time through the API.
 
 ## Sindri Integration for Serverless ZK Proofs
 
@@ -420,28 +443,31 @@ When you do the "setup" for a circuit (trusted or transparent), the compiler:
 
 ## REST API Server
 
-The project includes a comprehensive REST API server for external actors to interact with the vApp. The server provides HTTP endpoints for transaction submission, proof verification, and system monitoring.
+The project includes a comprehensive REST API server located in the `api/` directory. The server provides HTTP endpoints for transaction submission, proof verification, and system monitoring.
 
 ### Starting the Server
 
 #### Option 1: Using Docker Compose (Recommended)
 
 ```sh
-# Start both database and server
+# Start both database and API server
 docker-compose up -d
 
-# Or start just the server (if database is already running)
+# Or start just the API server (if database is already running)
 docker-compose up server -d
 ```
 
 #### Option 2: Local Development
 
 ```sh
-cd db
-cargo run --bin server --release
+# Start PostgreSQL database
+docker-compose up postgres -d
+
+# Run API server locally
+cargo run --package arithmetic-api --bin server --release
 ```
 
-The server will start on `http://localhost:8080` by default.
+The API server will start on `http://localhost:8080` by default.
 
 ### API Endpoints
 

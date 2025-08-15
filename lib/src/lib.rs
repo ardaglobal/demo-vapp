@@ -1,5 +1,7 @@
 use alloy_sol_types::sol;
 
+// Proof module only available for host-side operations
+#[cfg(feature = "sp1")]
 pub mod proof;
 
 sol! {

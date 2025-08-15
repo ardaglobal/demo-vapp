@@ -1,30 +1,27 @@
 [package]
-default-run = "arithmetic"
-edition     = "2021"
-license     = "MIT"
-name        = "arithmetic-script"
-version     = "0.1.0"
+edition = "2021"
+license = "MIT"
+name    = "arithmetic-program-builder"
+version = "0.1.0"
+
+# This crate builds the SP1 program via build.rs and provides local SP1 unit testing
+# The CLI functionality has been moved to the cli/ directory
 
 [[bin]]
-name = "arithmetic"
+name = "local-sp1-test"
 path = "src/bin/main.rs"
 
 [dependencies]
-alloy-sol-types    = { workspace = true }
-arithmetic-db      = { path = "../db" }
-arithmetic-lib     = { path = "../lib", features = [ "clap" ] }
-clap               = { workspace = true, features = [ "derive", "env" ] }
-dotenv             = { workspace = true }
-eyre               = { workspace = true }
-hex                = { workspace = true }
-serde              = { workspace = true }
-serde_json         = { workspace = true }
-sindri             = { version = "0.3.1", features = [ "sp1-v5" ] }
-sp1-sdk            = { workspace = true }
-sqlx               = { workspace = true }
-termion            = { workspace = true }
-tokio              = { workspace = true }
-tracing            = { workspace = true }
+# Core computation (for types)
+arithmetic-lib = { path = "../lib" }
+
+# SP1 SDK for local proving
+sp1-sdk = { workspace = true }
+
+# Utilities
+alloy-sol-types = { workspace = true }
+eyre = { workspace = true }
+tracing = { workspace = true }
 tracing-subscriber = "0.3"
 
 [build-dependencies]

@@ -1,543 +1,84 @@
-//! An end-to-end example of using the SP1 SDK to generate a proof of a program that can be executed
-//! or have a core proof generated.
-//!
-//! You can run this script using the following command:
-//! ```shell
-//! RUST_LOG=info cargo run --release -- --execute
-//! ```
-//! or
-//! ```shell
-//! RUST_LOG=info cargo run --release -- --prove
-//! ```
+//! Local SP1 Unit Testing
 //! 
-//! Customize background processor (execute mode only):
-//! ```shell
-//! RUST_LOG=info cargo run --release -- --execute --bg-interval 10 --bg-batch-size 50
-//! ```
+//! This program provides a simple way to test the SP1 arithmetic program locally.
+//! It generates fast Core proofs for development and testing purposes.
 //! 
-//! Run background processor once then exit:
+//! Usage:
 //! ```shell
-//! RUST_LOG=info cargo run --release -- --execute --bg-one-shot
+//! cargo run --package arithmetic-program-builder --bin local-sp1-test
 //! ```
 
 use alloy_sol_types::SolType;
-use arithmetic_db::db::{
-    get_sindri_proof_by_result, get_value_by_result, init_db, store_arithmetic_transaction,
-    upsert_sindri_proof,
-};
-use arithmetic_db::ProcessorBuilder;
-use arithmetic_lib::{PublicValuesStruct, proof::{ProofSystem, ProofGenerationRequest, ProofVerificationRequest, generate_sindri_proof, verify_sindri_proof}};
-use clap::{Parser, ValueEnum};
-// serde traits are now handled by the shared proof module
-use sindri::integrations::sp1_v5::SP1ProofInfo;
-use sindri::{client::SindriClient, JobStatus, ProofInfoResponse};
-use sp1_sdk::{include_elf, HashableKey, Prover, ProverClient};
-use sqlx::PgPool;
-use std::io::{self, Write};
-use tokio::task::JoinHandle;
+use arithmetic_lib::PublicValuesStruct;
+use eyre::Result;
+use sp1_sdk::{include_elf, ProverClient, SP1Stdin};
 use tracing::info;
 
 /// The ELF (executable and linkable format) file for the Succinct RISC-V zkVM.
+/// This is built by build.rs from the program/ directory.
 pub const ARITHMETIC_ELF: &[u8] = include_elf!("arithmetic-program");
 
-// Use the shared ProofSystem from arithmetic_lib::proof
-use arithmetic_lib::proof::ProofSystem;
+fn main() -> Result<()> {
+    // Setup logging
+    tracing_subscriber::fmt()
+        .with_env_filter("info")
+        .init();
 
-// SP1ArithmeticProofFixture is now defined in the shared proof module
+    info!("🧮 Starting local SP1 arithmetic unit test");
 
-/// The arguments for the command.
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    // Program execution mode
-    #[arg(long)]
-    execute: bool, // Run the program in interactive mode
-    #[arg(long)]
-    prove: bool, // Run the program in prove mode
-    #[arg(long)]
-    verify: bool, // Run the program in verify mode
-    #[arg(long)]
-    vkey: bool, // Print the vkey for the program
-
-    // Arithmetic inputs
-    #[arg(long, default_value = "1")]
-    a: i32,
-    #[arg(long, default_value = "1")]
-    b: i32,
-    #[arg(long, default_value = "20")]
-    result: i32,
-
-    // EVM-compatible proof system selection
-    #[arg(long, value_enum, default_value = "groth16", help = "EVM-compatible proof system to use")]
-    system: ProofSystem,
-
-    // Proof ID for external verification
-    #[arg(long)]
-    proof_id: Option<String>,
-
-    // Generate EVM fixture files (only used with --prove)
-    #[arg(long, help = "Generate Solidity test fixtures for EVM verification")]
-    generate_fixture: bool,
-
-    // Background processor configuration (only used with --execute)
-    #[arg(long, default_value = "30", help = "Background processor polling interval in seconds")]
-    bg_interval: u64,
-    #[arg(long, default_value = "100", help = "Background processor batch size for processing transactions")]
-    bg_batch_size: usize,
-    #[arg(long, help = "Run background processor once and exit (default: continuous mode)")]
-    bg_one_shot: bool,
-}
-
-#[tokio::main]
-async fn main() {
-    // Setup the logger.
-    sp1_sdk::utils::setup_logger();
-    dotenv::dotenv().ok();
-
-    // Parse the command line arguments.
-    let args = Args::parse();
-
-    // Determine the mode of operation.
-    // If multiple modes are specified, the modes are executed in alphabetic order, which also happens to be the execute, prove, verify order.
-    if args.execute {
-        // Execute mode requires database for storing results
-        let client = ProverClient::from_env();
-        let pool = init_db().await.expect("Failed to initialize database");
-        
-        // Start background processor for indexed Merkle tree construction with user configuration
-        let _background_handle = start_background_processor(
-            pool.clone(),
-            args.bg_interval,
-            args.bg_batch_size,
-            !args.bg_one_shot  // continuous = !one_shot
-        ).await;
-        
-        run_interactive_execute(&client, &pool).await;
-    }
+    // Create a prover client for local testing
+    let client = ProverClient::from_env();
     
-    if args.prove {
-        // Determine if we need database based on whether user provided a specific result to lookup
-        // vs. using provided/default a and b values
-        let using_default_inputs = args.a == 1 && args.b == 1; // Default values from clap
-        let using_specific_result = args.result != 20; // Non-default result value
-        
-        let needs_database = using_specific_result && using_default_inputs;
-
-        if needs_database {
-            // Need database to lookup inputs by result
-            println!("🔍 Looking up inputs for result = {} in database", args.result);
-            let pool = init_db().await.expect("Failed to initialize database - required to lookup inputs for the specified result");
-            run_prove_via_sindri(&pool, args.a, args.b, args.result, args.system, args.generate_fixture).await;
-        } else {
-            // Have explicit inputs or using default calculation - no database needed
-            if using_specific_result && !using_default_inputs {
-                println!("ℹ️  Using provided inputs (a={}, b={}) - ignoring --result parameter", args.a, args.b);
-            } else {
-                println!("ℹ️  Using provided inputs - database not required for proving");
-            }
-            run_prove_via_sindri_no_db(args.a, args.b, args.result, args.system, args.generate_fixture).await;
-        }
-    }
+    // Test case: 5 + 3 = 8
+    let a = 5i32;
+    let b = 3i32;
+    let expected_result = a + b;
     
-    if args.verify {
-        if let Some(proof_id) = args.proof_id {
-            // External verification flow - no database dependency
-            run_external_verify(&proof_id, args.result).await;
-        } else {
-            // Legacy database-based verification flow - requires database
-            let pool = init_db().await.expect("Failed to initialize database");
-            run_verify_mode(&pool, args.result).await;
-        }
-    }
-
-    if args.vkey {
-        let prover = ProverClient::builder().cpu().build();
-        let (_, vk) = prover.setup(ARITHMETIC_ELF);
-        println!("{}", vk.bytes32());
-    }
-}
-
-/// Start background processor for indexed Merkle tree construction
-/// Returns a join handle for the background task
-async fn start_background_processor(
-    pool: PgPool, 
-    interval_secs: u64, 
-    batch_size: usize, 
-    continuous: bool
-) -> JoinHandle<()> {
-    info!("🚀 Starting background processor for indexed Merkle tree construction...");
-    info!("⚙️  Configuration: interval={}s, batch_size={}, continuous={}", 
-          interval_secs, batch_size, continuous);
+    info!("Testing: {} + {} = {}", a, b, expected_result);
     
-    // Create and configure processor with user-provided settings
-    let mut processor = ProcessorBuilder::new()
-        .polling_interval(Duration::from_secs(interval_secs))
-        .batch_size(batch_size)
-        .continuous(continuous)
-        .build(pool);
-
-    // Spawn background task
-    tokio::spawn(async move {
-        let mode = if continuous { "continuous" } else { "one-shot" };
-        info!("📊 Background processor started in {} mode - monitoring for new arithmetic transactions", mode);
+    // Create inputs for the zkVM program
+    let mut stdin = SP1Stdin::new();
+    stdin.write(&a);
+    stdin.write(&b);
+    
+    info!("🔄 Generating Core proof (fast, for development)...");
+    
+    // Generate a Core proof (fast for local development)
+    let (pk, vk) = client.setup(ARITHMETIC_ELF);
+    let proof = client
+        .prove(&pk, &stdin)
+        .core()  // Use Core proof mode for speed
+        .run()
+        .expect("Failed to generate proof");
         
-        if let Err(e) = processor.start().await {
-            eprintln!("❌ Background processor error: {}", e);
-        } else if !continuous {
-            info!("✅ Background processor completed one-shot processing");
-        }
-    })
-}
-
-/// Helper function to get integer input from user with quit option
-/// Returns None if user wants to quit, Some(value) if valid integer entered
-fn get_integer_input(prompt: &str) -> Option<i32> {
-    loop {
-        print!("{}", prompt);
-        io::stdout().flush().unwrap();
-
-        let mut input = String::new();
-        if io::stdin().read_line(&mut input).is_err() {
-            println!("Error reading input. Please try again.");
-            continue;
-        }
-
-        let input = input.trim();
-        if input == "q" || input == "Q" {
-            return None; // User wants to quit
-        }
-
-        match input.parse::<i32>() {
-            Ok(num) => return Some(num),
-            Err(_) => {
-                println!("Invalid number '{input}'. Please enter an integer or 'q' to quit.");
-            }
-        }
-    }
-}
-
-async fn run_interactive_execute(client: &sp1_sdk::EnvProver, pool: &PgPool) {
-    println!("=== Interactive Arithmetic Execution ===");
-    println!("Enter two numbers to add them together.");
-    println!("Results will be stored in the database.");
-    println!("📊 Background processor is running - building indexed Merkle tree automatically.");
-    println!("💡 Tip: Use --bg-interval, --bg-batch-size, and --bg-one-shot to customize background processing.");
-    println!("Press 'q' + Enter to quit.\n");
-
-    loop {
-        // Get input for 'a'
-        let a = match get_integer_input("Enter value for 'a' (or 'q' to quit): ") {
-            Some(value) => value,
-            None => {
-                println!("Goodbye!");
-                break;
-            }
-        };
-
-        // Get input for 'b'
-        let b = match get_integer_input("Enter value for 'b' (or 'q' to quit): ") {
-            Some(value) => value,
-            None => {
-                println!("Goodbye!");
-                break;
-            }
-        };
-
-        // Execute the computation
-        println!("\nExecuting: {a} + {b} ...");
-
-        let mut stdin = SP1Stdin::new();
-        stdin.write(&a);
-        stdin.write(&b);
-
-        match client.execute(ARITHMETIC_ELF, &stdin).run() {
-            Ok((output, report)) => {
-                // Read the output
-                match PublicValuesStruct::abi_decode(output.as_slice()) {
-                    Ok(decoded) => {
-                        let PublicValuesStruct { result } = decoded;
-                        println!("✓ Computation successful: {a} + {b} = {result}");
-
-                        let expected = arithmetic_lib::addition(a, b);
-                        if result == expected {
-                            println!("✓ Result verified");
-                        } else {
-                            println!("✗ Result mismatch (expected {expected})");
-                            continue;
-                        }
-
-                        // Store in database
-                        match store_arithmetic_transaction(pool, a, b, result).await {
-                            Ok(()) => {
-                                println!("✓ Stored in database");
-                            }
-                            Err(e) => {
-                                println!("✗ Failed to store in database: {e}");
-                            }
-                        }
-
-                        println!("Cycles executed: {}\n", report.total_instruction_count());
-                    }
-                    Err(e) => {
-                        println!("✗ Failed to decode output: {e}\n");
-                    }
-                }
-            }
-            Err(e) => {
-                println!("✗ Execution failed: {e}\n");
-            }
-        }
-    }
-}
-
-async fn run_verify_mode(pool: &PgPool, result: i32) {
-    println!("=== Database Verification Mode ===");
-    println!("⚠️  This mode requires database access. For external verification, use --proof-id instead.");
-
-    if result == 20 {
-        // Default value
-        // Interactive verify mode
-        println!("Enter a result value to look up in the database.");
-        println!("Press 'q' + Enter to quit.\n");
-
-        loop {
-            let lookup_result = match get_integer_input("Enter result to verify (or 'q' to quit): ") {
-                Some(value) => value,
-                None => {
-                    println!("Goodbye!");
-                    break;
-                }
-            };
-
-            verify_result_via_sindri(pool, lookup_result).await;
-            println!();
-        }
+    info!("✅ Core proof generated successfully!");
+    
+    // Verify the proof
+    info!("🔍 Verifying proof...");
+    
+    client.verify(&proof, &vk)
+        .expect("Failed to verify proof");
+        
+    info!("✅ Proof verification passed!");
+    
+    // Check the public outputs
+    let public_values = proof.public_values;
+    let output = PublicValuesStruct::abi_decode(&public_values.as_slice())
+        .expect("Failed to decode public values");
+        
+    info!("📤 Public output: result = {}", output.result);
+    
+    // Verify the computation is correct
+    if output.result == expected_result {
+        info!("✅ Computation verified: {} + {} = {}", a, b, output.result);
+        info!("🎉 Local SP1 unit test completed successfully!");
     } else {
-        // Single verify mode
-        verify_result_via_sindri(pool, result).await;
-    }
-}
-
-/// Get proof from Sindri by proof_id
-async fn get_sindri_proof(proof_id: &str) -> Option<ProofInfoResponse> {
-    let client = SindriClient::default();
-    match client.get_proof(proof_id, None, None, None).await {
-        Ok(verification_result) => {
-            println!("Verification status from Sindri: {:?}", verification_result.status);
-            
-            match verification_result.status {
-                JobStatus::Ready => {
-                    println!("✓ Proof is READY on Sindri");
-                    Some(verification_result)
-                }
-                JobStatus::Failed => {
-                    println!("✗ Proof verification FAILED: {:?}", verification_result.error);
-                    None
-                }
-                other => {
-                    println!("⏳ Proof status: {other:?}");
-                    None
-                }
-            }
-        }
-        Err(e) => {
-            println!("✗ Failed to retrieve proof from Sindri: {e}");
-            None
-        }
-    }
-}
-
-/// Core verification function using the shared proof module
-async fn verify_proof_core(proof_info: &ProofInfoResponse, expected_result: i32) -> bool {
-    let request = ProofVerificationRequest {
-        proof_id: proof_info.proof_id.clone(),
-        expected_result,
-    };
-
-    match verify_sindri_proof(request).await {
-        Ok(verification_result) => {
-            // Color codes for output
-            let color_code = if verification_result.is_valid { "\x1b[32m" } else { "\x1b[31m" };
-            let reset_code = "\x1b[0m";
-
-            if verification_result.is_valid {
-                println!("{color_code}✓ ZERO-KNOWLEDGE PROOF VERIFIED: result = {} (ZKP verified){reset_code}", 
-                    verification_result.actual_result.unwrap_or(0));
-                println!("🔐 Proof cryptographically verified - computation integrity confirmed");
-                println!("🎭 Private inputs remain hidden - only the result is revealed");
-                println!("📊 The prover demonstrated knowledge of inputs that produce result = {}", expected_result);
-                true
-            } else {
-                println!("{color_code}✗ {}{reset_code}", verification_result.verification_message);
-                false
-            }
-        }
-        Err(e) => {
-            println!("✗ Proof verification failed: {}", e);
-            false
-        }
-    }
-}
-
-/// Verify proof by looking up result in database
-async fn verify_result_via_sindri(pool: &PgPool, result: i32) {
-    println!("Verifying proof for result: {result} via Sindri...");
-
-    // Get proof_id from database
-    let proof_id = match get_sindri_proof_by_result(pool, result).await {
-        Ok(Some(record)) => record.proof_id,
-        Ok(None) => {
-            println!("✗ No Sindri proof stored for result = {result}. Run --prove to create one.");
-            return;
-        }
-        Err(e) => {
-            println!("✗ Database error: {e}");
-            return;
-        }
-    };
-
-    // Get proof from Sindri
-    let proof_info = match get_sindri_proof(&proof_id).await {
-        Some(proof) => proof,
-        None => return, // Error already printed
-    };
-
-    // Perform verification
-    let verification_success = verify_proof_core(&proof_info, result).await;
-
-    // Update database with latest status (only for database-driven verification)
-    if verification_success {
-        let _ = upsert_sindri_proof(
-            pool,
-            result,
-            &proof_id,
-            Some(proof_info.circuit_id.clone()),
-            Some("Ready".to_string()),
-        ).await;
-    }
-}
-
-/// Verify proof directly by proof_id (no database required)
-async fn run_external_verify(proof_id: &str, expected_result: i32) {
-    println!("=== External Verification Mode ===");
-    println!("Verifying proof ID: {proof_id}");
-    println!("Expected result: {expected_result}");
-
-    // Get proof from Sindri
-    let proof_info = match get_sindri_proof(proof_id).await {
-        Some(proof) => proof,
-        None => {
-            println!("💡 Make sure the proof ID is correct and the proof exists on Sindri");
-            return;
-        }
-    };
-
-    // Perform verification (no database updates for external verification)
-    verify_proof_core(&proof_info, expected_result).await;
-}
-
-
-/// Core proving function that uses the shared proof module
-#[allow(clippy::future_not_send)]
-async fn prove_via_sindri_core(a: i32, b: i32, result: i32, system: ProofSystem, generate_fixtures: bool) -> Option<ProofInfoResponse> {
-    println!("Proving that {a} + {b} = {result} via Sindri...");
-
-    let request = ProofGenerationRequest {
-        a,
-        b,
-        result,
-        proof_system: system,
-        generate_fixtures,
-    };
-
-    match generate_sindri_proof(request).await {
-        Ok(response) => {
-            println!("✓ {} proof job submitted. Status: {}", system.to_sindri_scheme().to_uppercase(), response.status);
-            println!("\n🔗 PROOF ID FOR EXTERNAL VERIFICATION:");
-            println!("   {}", response.proof_id);
-            println!("\n📋 To verify this proof externally, use:");
-            println!("   {}", response.verification_command);
-            
-            Some(response.proof_info)
-        }
-        Err(e) => {
-            println!("✗ Proof generation failed: {}", e);
-            None
-        }
-    }
-}
-
-#[allow(clippy::future_not_send)]
-async fn run_prove_via_sindri(pool: &PgPool, arg_a: i32, arg_b: i32, arg_result: i32, system: ProofSystem, generate_fixture: bool) {
-    // Prefer proving by result if provided (not default), otherwise use provided a and b
-    let (a, b, result) = if arg_result == 20 {
-        let result = arithmetic_lib::addition(arg_a, arg_b);
-        (arg_a, arg_b, result)
-    } else {
-        match get_value_by_result(pool, arg_result).await {
-            Ok(Some((a, b, _))) => (a, b, arg_result),
-            Ok(None) => {
-                println!("✗ No stored transaction found with result = {arg_result}. Run --execute first.");
-                return;
-            }
-            Err(e) => {
-                println!("✗ Database error: {e}");
-                return;
-            }
-        }
-    };
-
-    // Use the common proving core
-    let proof_info = match prove_via_sindri_core(a, b, result, system, generate_fixture).await {
-        Some(info) => info,
-        None => return, // Error already printed in core function
-    };
-
-    // EVM fixture generation is now handled by the shared proof module
-
-    // Store proof metadata by result for later verification
-    if let Err(e) = upsert_sindri_proof(
-        pool,
-        result,
-        &proof_info.proof_id,
-        Some(proof_info.circuit_id.clone()),
-        Some(match proof_info.status {
-            JobStatus::Ready => "Ready".to_string(),
-            JobStatus::Failed => "Failed".to_string(),
-            _ => "Other".to_string(),
-        }),
-    )
-    .await
-    {
-        println!("✗ Failed to store proof metadata: {e}");
-    } else {
-        println!(
-            "✓ Stored Sindri proof metadata for result = {} (proof_id = {})",
-            result, proof_info.proof_id
+        eyre::bail!(
+            "❌ Computation mismatch: expected {}, got {}", 
+            expected_result, 
+            output.result
         );
     }
-}
-
-async fn run_prove_via_sindri_no_db(arg_a: i32, arg_b: i32, arg_result: i32, system: ProofSystem, generate_fixture: bool) {
-    // Calculate result from inputs (no database lookup needed)
-    // For database-free mode, we always calculate from provided inputs
-    if arg_result != 20 {
-        println!("⚠️  Database-free mode: Using provided inputs and ignoring --result parameter");
-    }
-    let result = arithmetic_lib::addition(arg_a, arg_b);
-    let (a, b) = (arg_a, arg_b);
-
-    println!("Database-free mode:");
     
-    // Use the common proving core
-    let proof_info = match prove_via_sindri_core(a, b, result, system, generate_fixture).await {
-        Some(info) => info,
-        None => return, // Error already printed in core function
-    };
-
-    // EVM fixture generation is now handled by the shared proof module
-
-    println!("ℹ️  Note: Proof metadata not stored (database-free mode)");
+    Ok(())
 }
-
-// EVM fixture creation is now handled by the shared proof module

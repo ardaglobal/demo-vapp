@@ -33,6 +33,7 @@
 #![allow(clippy::struct_excessive_bools)]
 #![allow(clippy::suboptimal_flops)]
 
+pub mod client;
 pub mod graphql;
 pub mod integration;
 pub mod middleware;
@@ -40,6 +41,7 @@ pub mod rest;
 pub mod server;
 
 // Re-export main API types for convenience
+pub use client::{ArithmeticApiClient, ApiClientError};
 pub use graphql::{create_schema, GraphQLSchema, MutationRoot, QueryRoot, SubscriptionRoot};
 pub use rest::{
     create_router, ApiConfig, ApiState, AuditTrailResponse, BatchInsertRequest, BatchInsertResponse,
