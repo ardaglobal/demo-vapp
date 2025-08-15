@@ -16,11 +16,15 @@ services:
     # Remove the image specification to force local build
     image: demo-vapp-server:dev
     
-    # Optional: Add development-specific environment variables
+    # Development-specific environment variables
+    env_file:
+      - .env  # Load environment variables from .env file
     environment:
+      # Override specific variables for development
       - DATABASE_URL=postgresql://postgres:password@postgres:5432/arithmetic_db
-      - RUST_LOG=debug  # More verbose logging for development
-      - SERVER_PORT=8080
+      - RUST_LOG=${RUST_LOG:-debug}  # More verbose logging for development
+      - SERVER_PORT=${SERVER_PORT:-8080}
+      # SINDRI_API_KEY and SINDRI_CIRCUIT_TAG will be loaded from .env file
       
     # Optional: Mount source code for hot reloading (if supported)
     # volumes:

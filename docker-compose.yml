@@ -27,10 +27,14 @@ services:
     #   dockerfile: Dockerfile
     
     container_name: arithmetic_server
+    env_file:
+      - .env  # Load environment variables from .env file
     environment:
+      # Override/add specific environment variables
       - DATABASE_URL=postgresql://postgres:password@postgres:5432/arithmetic_db
-      - RUST_LOG=info
-      - SERVER_PORT=8080
+      - RUST_LOG=${RUST_LOG:-info}
+      - SERVER_PORT=${SERVER_PORT:-8080}
+      # SINDRI_API_KEY and SINDRI_CIRCUIT_TAG will be loaded from .env file
     ports:
       - "8080:8080"
     depends_on:
