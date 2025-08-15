@@ -9,8 +9,8 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}🔧 Sindri Circuit Deployment Script${NC}"
-echo "=================================="
+echo -e "${BLUE}🔧 Sindri Circuit Build & Deployment Script${NC}"
+echo "==========================================="
 
 # Show usage if requested
 if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
@@ -35,6 +35,14 @@ if [ $# -gt 0 ]; then
     TAG="$1"
 fi
 
+# Source .env file if it exists and SINDRI_API_KEY is not already set
+if [ -z "$SINDRI_API_KEY" ] && [ -f ".env" ]; then
+    echo -e "${BLUE}📄 Loading environment from .env file...${NC}"
+    set -a  # Automatically export all variables
+    source .env
+    set +a  # Stop auto-exporting
+fi
+
 # Check if Sindri CLI is installed
 if ! command -v sindri &> /dev/null; then
     echo -e "${RED}❌ Sindri CLI not found. Please run ./install-dependencies.sh first${NC}"
@@ -44,11 +52,48 @@ fi
 # Check if API key is set
 if [ -z "$SINDRI_API_KEY" ]; then
     echo -e "${YELLOW}⚠️  SINDRI_API_KEY not set in environment${NC}"
-    echo "Please set your Sindri API key:"
-    echo "  export SINDRI_API_KEY=your_api_key_here"
+    echo "Please set your Sindri API key using one of these methods:"
     echo ""
-    echo "Or add it to your .env file and run:"
-    echo "  source .env"
+    echo "Method 1 - Export directly:"
+    echo "  export SINDRI_API_KEY=your_api_key_here"
+    echo "  $0 $*"
+    echo ""
+    echo "Method 2 - Add to .env file:"
+    echo "  echo 'SINDRI_API_KEY=your_api_key_here' >> .env"
+    echo "  $0 $*"
+    echo ""
+    echo "Method 3 - Source .env in current shell:"
+    echo "  source .env && $0 $*"
+    echo ""
+    if [ -f ".env" ]; then
+        echo "Note: Found .env file but SINDRI_API_KEY is not set or empty in it."
+    else
+        echo "Note: No .env file found in current directory."
+    fi
+    exit 1
+fi
+
+echo -e "${BLUE}🔨 Building SP1 program (ELF)...${NC}"
+if [ ! -d "program" ]; then
+    echo -e "${RED}❌ Program directory not found. Make sure you're in the project root.${NC}"
+    exit 1
+fi
+
+# Build the SP1 program to create the ELF file
+cd program
+if cargo prove build --output-directory ../build; then
+    echo -e "${GREEN}✅ SP1 program built successfully${NC}"
+    cd ..
+else
+    echo -e "${RED}❌ Failed to build SP1 program${NC}"
+    cd ..
+    exit 1
+fi
+
+# Verify ELF file exists
+if [ ! -f "build/arithmetic-program" ]; then
+    echo -e "${RED}❌ ELF file not found at ./build/arithmetic-program${NC}"
+    echo "Expected location: $(pwd)/build/arithmetic-program"
     exit 1
 fi
 
@@ -70,7 +115,12 @@ else
 fi
 
 if eval "$DEPLOY_CMD"; then
-    echo -e "${GREEN}✅ Circuit deployed successfully!${NC}"
+    echo -e "${GREEN}✅ Circuit built and deployed successfully!${NC}"
+    echo ""
+    echo -e "${BLUE}📝 Deployment Summary:${NC}"
+    echo "• SP1 program compiled to ELF: ./build/arithmetic-program"
+    echo "• Circuit deployed to Sindri with tag: ${TAG:-latest}"
+    echo "• Circuit name: demo-vapp:${TAG:-latest}"
     echo ""
     echo -e "${BLUE}📝 Next steps:${NC}"
     echo "1. Start the server: docker-compose up -d"
@@ -78,6 +128,9 @@ if eval "$DEPLOY_CMD"; then
     echo "   curl -X POST http://localhost:8080/api/v1/transactions \\"
     echo "     -H 'Content-Type: application/json' \\"
     echo "     -d '{\"a\": 5, \"b\": 10, \"generate_proof\": true}'"
+    echo ""
+    echo "3. Or use the CLI:"
+    echo "   cd script && cargo run --release -- --prove --a 5 --b 10"
 else
     echo -e "${RED}❌ Circuit deployment failed${NC}"
     exit 1
