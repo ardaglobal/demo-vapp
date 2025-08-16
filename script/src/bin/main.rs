@@ -5,7 +5,7 @@
 //!
 //! Usage:
 //! ```shell
-//! cargo run --package arithmetic-program-builder --bin local-sp1-test
+//! cargo run --package demo-vapp --bin demo-vapp
 //! ```
 
 use alloy_sol_types::SolType;
