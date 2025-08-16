@@ -25,7 +25,7 @@ async fn main() -> Result<()> {
         Err(e) => {
             eprintln!("✗ Failed to load configuration: {e}");
             eprintln!("Make sure you have set the required environment variables:");
-            eprintln!("  - ALCHEMY_API_KEY");
+            eprintln!("  - ETHEREUM_RPC_URL");
             eprintln!("  - ARITHMETIC_CONTRACT_ADDRESS");
             eprintln!("  - VERIFIER_CONTRACT_ADDRESS");
             return Err(e);

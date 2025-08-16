@@ -74,7 +74,7 @@ run_tests() {
             
             # Check required environment variables
             local env_ok=true
-            check_env "ALCHEMY_API_KEY" || env_ok=false
+            check_env "ETHEREUM_RPC_URL" || env_ok=false
             check_env "ARITHMETIC_CONTRACT_ADDRESS" || env_ok=false
             check_env "VERIFIER_CONTRACT_ADDRESS" || env_ok=false
             
@@ -93,7 +93,7 @@ run_tests() {
             run_test "CLI Help Command" "cd ethereum-client && cargo run --bin ethereum_service -- --help"
             
             # Test network stats (read-only, should work with any valid API key)
-            if check_env "ALCHEMY_API_KEY" && check_env "ARITHMETIC_CONTRACT_ADDRESS" && check_env "VERIFIER_CONTRACT_ADDRESS"; then
+            if check_env "ETHEREUM_RPC_URL" && check_env "ARITHMETIC_CONTRACT_ADDRESS" && check_env "VERIFIER_CONTRACT_ADDRESS"; then
                 run_test "CLI Network Stats" "cd ethereum-client && cargo run --bin ethereum_service network-stats"
                 
                 # Test state reading (will likely fail but tests the flow)
@@ -133,15 +133,15 @@ run_tests() {
             echo "Test Types:"
             echo "  unit   - Run unit tests (no network required)"
             echo "  mock   - Run mock integration tests (no network required)"
-            echo "  basic  - Run basic usage example (requires valid Alchemy config)"
-            echo "  cli    - Test CLI commands (requires valid Alchemy config)"
+            echo "  basic  - Run basic usage example (requires valid RPC config)"
+            echo "  cli    - Test CLI commands (requires valid RPC config)"
             echo "  build  - Test build process"
             echo "  lint   - Run lints and formatting checks"
             echo "  all    - Run all tests"
             echo ""
             echo "Setup:"
             echo "  1. Copy .env.example to .env: cp ethereum-client/.env.example ethereum-client/.env"
-            echo "  2. Fill in your Alchemy API key and contract addresses"
+            echo "  2. Fill in your Ethereum RPC URL and contract addresses"
             echo "  3. Run tests: $0 all"
             exit 1
             ;;

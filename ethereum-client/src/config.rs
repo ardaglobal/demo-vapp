@@ -1,5 +1,6 @@
 use crate::error::{EthereumError, Result};
-use alloy_primitives::Address;
+use alloy_primitives::{Address, FixedBytes};
+use alloy_signer_local::PrivateKeySigner;
 use serde::{Deserialize, Serialize};
 use std::env;
 use url::Url;
@@ -8,7 +9,7 @@ use url::Url;
 pub struct Config {
     pub network: NetworkConfig,
     pub contract: ContractConfig,
-    pub alchemy: AlchemyConfig,
+    pub rpc: RpcConfig,
     pub signer: Option<SignerConfig>,
     pub monitoring: MonitoringConfig,
 }
@@ -31,10 +32,7 @@ pub struct ContractConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AlchemyConfig {
-    pub api_key: String,
-    pub app_id: Option<String>,
-    pub webhook_url: Option<Url>,
+pub struct RpcConfig {
     pub notify_addresses: Vec<Address>,
     pub rate_limit_per_second: u32,
 }
@@ -75,41 +73,49 @@ impl Config {
             .parse()
             .map_err(|e| EthereumError::Config(format!("Invalid chain ID: {e}")))?;
 
-        let alchemy_api_key = env::var("ALCHEMY_API_KEY")
-            .map_err(|_| EthereumError::Config("ALCHEMY_API_KEY is required".to_string()))?;
+        let rpc_url = env::var("ETHEREUM_RPC_URL")
+            .map_err(|_| EthereumError::Config("ETHEREUM_RPC_URL is required".to_string()))?;
 
-        let rpc_url = Self::build_alchemy_url(&network_name, &alchemy_api_key)?;
-        let ws_url = Self::build_alchemy_ws_url(&network_name, &alchemy_api_key).ok();
+        let rpc_url = Url::parse(&rpc_url)
+            .map_err(|e| EthereumError::Config(format!("Invalid ETHEREUM_RPC_URL: {e}")))?;
+        let ws_url = Self::build_ws_url_from_rpc(&rpc_url).ok();
 
-        let arithmetic_contract = env::var("ARITHMETIC_CONTRACT_ADDRESS")
+        let ethereum_contract = env::var("ETHEREUM_CONTRACT_ADDRESS")
             .map_err(|_| {
-                EthereumError::Config("ARITHMETIC_CONTRACT_ADDRESS is required".to_string())
+                EthereumError::Config("ETHEREUM_CONTRACT_ADDRESS is required".to_string())
             })?
             .parse::<Address>()
             .map_err(|e| EthereumError::InvalidAddress(format!("Invalid contract address: {e}")))?;
 
-        let verifier_contract = env::var("VERIFIER_CONTRACT_ADDRESS")
-            .map_err(|_| {
-                EthereumError::Config("VERIFIER_CONTRACT_ADDRESS is required".to_string())
-            })?
-            .parse::<Address>()
-            .map_err(|e| EthereumError::InvalidAddress(format!("Invalid verifier address: {e}")))?;
-
-        let signer = if let Ok(private_key) = env::var("PRIVATE_KEY") {
-            let signer_address = env::var("SIGNER_ADDRESS")
+        let signer = if let Ok(private_key) = env::var("ETHEREUM_WALLET_PRIVATE_KEY") {
+            let deployer_address = env::var("ETHEREUM_DEPLOYER_ADDRESS")
                 .map_err(|_| {
                     EthereumError::Config(
-                        "SIGNER_ADDRESS is required when PRIVATE_KEY is provided".to_string(),
+                        "ETHEREUM_DEPLOYER_ADDRESS is required when ETHEREUM_WALLET_PRIVATE_KEY is provided".to_string(),
                     )
                 })?
                 .parse::<Address>()
                 .map_err(|e| {
-                    EthereumError::InvalidAddress(format!("Invalid signer address: {e}"))
+                    EthereumError::InvalidAddress(format!("Invalid deployer address: {e}"))
                 })?;
+
+            // Validate that the private key corresponds to the deployer address
+            let signer = PrivateKeySigner::from_bytes(&FixedBytes::<32>::try_from(
+                hex::decode(&private_key)?.as_slice(),
+            )?)
+            .map_err(|e| EthereumError::Signer(e.to_string()))?;
+
+            if signer.address() != deployer_address {
+                return Err(EthereumError::Config(format!(
+                    "Private key address ({}) does not match ETHEREUM_DEPLOYER_ADDRESS ({})",
+                    signer.address(),
+                    deployer_address
+                )));
+            }
 
             Some(SignerConfig {
                 private_key,
-                address: signer_address,
+                address: deployer_address,
             })
         } else {
             None
@@ -125,18 +131,13 @@ impl Config {
                 is_testnet: Self::is_testnet(chain_id),
             },
             contract: ContractConfig {
-                arithmetic_contract,
-                verifier_contract,
+                arithmetic_contract: ethereum_contract,
+                verifier_contract: ethereum_contract,
                 deployment_block: env::var("DEPLOYMENT_BLOCK")
                     .ok()
                     .and_then(|s| s.parse().ok()),
             },
-            alchemy: AlchemyConfig {
-                api_key: alchemy_api_key,
-                app_id: env::var("ALCHEMY_APP_ID").ok(),
-                webhook_url: env::var("ALCHEMY_WEBHOOK_URL")
-                    .ok()
-                    .and_then(|s| Url::parse(&s).ok()),
+            rpc: RpcConfig {
                 notify_addresses: env::var("NOTIFY_ADDRESSES")
                     .unwrap_or_default()
                     .split(',')
@@ -173,45 +174,24 @@ impl Config {
         })
     }
 
-    fn build_alchemy_url(network: &str, api_key: &str) -> Result<Url> {
-        let base_url = match network {
-            "mainnet" => format!("https://eth-mainnet.g.alchemy.com/v2/{api_key}"),
-            "sepolia" => format!("https://eth-sepolia.g.alchemy.com/v2/{api_key}"),
-            "base" => format!("https://base-mainnet.g.alchemy.com/v2/{api_key}"),
-            "base-sepolia" => format!("https://base-sepolia.g.alchemy.com/v2/{api_key}"),
-            "arbitrum" => format!("https://arb-mainnet.g.alchemy.com/v2/{api_key}"),
-            "arbitrum-sepolia" => format!("https://arb-sepolia.g.alchemy.com/v2/{api_key}"),
-            "optimism" => format!("https://opt-mainnet.g.alchemy.com/v2/{api_key}"),
-            "optimism-sepolia" => format!("https://opt-sepolia.g.alchemy.com/v2/{api_key}"),
+    fn build_ws_url_from_rpc(rpc_url: &Url) -> Result<Url> {
+        let mut ws_url = rpc_url.clone();
+
+        match rpc_url.scheme() {
+            "https" => ws_url.set_scheme("wss").map_err(|()| {
+                EthereumError::Config("Failed to convert HTTPS to WSS".to_string())
+            })?,
+            "http" => ws_url
+                .set_scheme("ws")
+                .map_err(|()| EthereumError::Config("Failed to convert HTTP to WS".to_string()))?,
             _ => {
-                return Err(EthereumError::Config(format!(
-                    "Unsupported network: {network}"
-                )))
+                return Err(EthereumError::Config(
+                    "Unsupported RPC URL scheme".to_string(),
+                ))
             }
-        };
+        }
 
-        Url::parse(&base_url).map_err(|e| EthereumError::Config(format!("Invalid RPC URL: {e}")))
-    }
-
-    fn build_alchemy_ws_url(network: &str, api_key: &str) -> Result<Url> {
-        let base_url = match network {
-            "mainnet" => format!("wss://eth-mainnet.g.alchemy.com/v2/{api_key}"),
-            "sepolia" => format!("wss://eth-sepolia.g.alchemy.com/v2/{api_key}"),
-            "base" => format!("wss://base-mainnet.g.alchemy.com/v2/{api_key}"),
-            "base-sepolia" => format!("wss://base-sepolia.g.alchemy.com/v2/{api_key}"),
-            "arbitrum" => format!("wss://arb-mainnet.g.alchemy.com/v2/{api_key}"),
-            "arbitrum-sepolia" => format!("wss://arb-sepolia.g.alchemy.com/v2/{api_key}"),
-            "optimism" => format!("wss://opt-mainnet.g.alchemy.com/v2/{api_key}"),
-            "optimism-sepolia" => format!("wss://opt-sepolia.g.alchemy.com/v2/{api_key}"),
-            _ => {
-                return Err(EthereumError::Config(format!(
-                    "Unsupported network: {network}"
-                )))
-            }
-        };
-
-        Url::parse(&base_url)
-            .map_err(|e| EthereumError::Config(format!("Invalid WebSocket URL: {e}")))
+        Ok(ws_url)
     }
 
     fn get_explorer_url(network: &str) -> Option<Url> {
@@ -235,21 +215,15 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<()> {
-        if self.alchemy.api_key.is_empty() {
+        if self.network.rpc_url.as_str().is_empty() {
             return Err(EthereumError::Config(
-                "Alchemy API key is required".to_string(),
+                "ETHEREUM_RPC_URL is required".to_string(),
             ));
         }
 
         if self.contract.arithmetic_contract == Address::ZERO {
             return Err(EthereumError::Config(
-                "Arithmetic contract address is required".to_string(),
-            ));
-        }
-
-        if self.contract.verifier_contract == Address::ZERO {
-            return Err(EthereumError::Config(
-                "Verifier contract address is required".to_string(),
+                "Ethereum contract address is required".to_string(),
             ));
         }
 
@@ -279,10 +253,7 @@ impl Default for Config {
                 verifier_contract: Address::ZERO,
                 deployment_block: None,
             },
-            alchemy: AlchemyConfig {
-                api_key: String::new(),
-                app_id: None,
-                webhook_url: None,
+            rpc: RpcConfig {
                 notify_addresses: Vec::new(),
                 rate_limit_per_second: 100,
             },

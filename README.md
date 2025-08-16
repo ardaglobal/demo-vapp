@@ -250,9 +250,8 @@ For smart contract integration to work, set these environment variables:
 ```bash
 # Required for --submit-to-contract flag
 export ETHEREUM_RPC_URL=https://eth-mainnet.alchemyapi.io/v2/demo
-export ARITHMETIC_CONTRACT_ADDRESS=0x1234567890123456789012345678901234567890
-export VERIFIER_CONTRACT_ADDRESS=0x0987654321098765432109876543210987654321
-export PRIVATE_KEY=your_private_key_without_0x_prefix
+export ETHEREUM_CONTRACT_ADDRESS=0x1234567890123456789012345678901234567890
+export ETHEREUM_WALLET_PRIVATE_KEY=your_private_key_without_0x_prefix
 ```
 
 ### Usage Examples
@@ -261,7 +260,7 @@ export PRIVATE_KEY=your_private_key_without_0x_prefix
 # Generate proof and submit to smart contract (default behavior)
 cargo run --release -- --prove --a 5 --b 10
 
-# Generate proof with result lookup and submit to contract  
+# Generate proof with result lookup and submit to contract
 cargo run --release -- --prove --result 15
 
 # Generate proof, create EVM fixture, and submit to contract
@@ -307,9 +306,9 @@ This project integrates with [Sindri](https://sindri.app) for serverless zero-kn
    ```bash
    # Required for --submit-to-contract flag
    export ETHEREUM_RPC_URL=https://eth-mainnet.alchemyapi.io/v2/demo
-   export ARITHMETIC_CONTRACT_ADDRESS=0x1234567890123456789012345678901234567890
-   export VERIFIER_CONTRACT_ADDRESS=0x0987654321098765432109876543210987654321
-   export PRIVATE_KEY=your_private_key_without_0x_prefix
+   export ETHEREUM_CONTRACT_ADDRESS=0x1234567890123456789012345678901234567890
+   export ETHEREUM_WALLET_PRIVATE_KEY=your_private_key_without_0x_prefix
+   export ETHEREUM_DEPLOYER_ADDRESS=0x1234567890123456789012345678901234567890
    ```
 
 ### Continuous Integration

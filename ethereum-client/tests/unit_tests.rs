@@ -13,7 +13,7 @@ mod tests {
         assert!(config.validate().is_err());
 
         // Set required fields
-        config.alchemy.api_key = "test_key".to_string();
+        config.network.rpc_url = Url::parse("https://test.example.com").unwrap();
         config.contract.arithmetic_contract = Address::from_slice(&[1; 20]);
         config.contract.verifier_contract = Address::from_slice(&[2; 20]);
 
@@ -115,37 +115,26 @@ mod tests {
     }
 
     #[test]
-    fn test_alchemy_url_parsing() {
-        // This tests the internal URL building logic
+    fn test_rpc_url_parsing() {
+        // Test various RPC URL formats
         let test_cases = vec![
-            ("mainnet", "https://eth-mainnet.g.alchemy.com/v2/test_key"),
-            ("sepolia", "https://eth-sepolia.g.alchemy.com/v2/test_key"),
-            ("base", "https://base-mainnet.g.alchemy.com/v2/test_key"),
-            ("arbitrum", "https://arb-mainnet.g.alchemy.com/v2/test_key"),
+            "https://eth-mainnet.g.alchemy.com/v2/test_key",
+            "https://mainnet.infura.io/v3/test_key",
+            "https://eth.llamarpc.com",
+            "http://localhost:8545",
         ];
 
-        for (network, expected_url) in test_cases {
-            let url = build_test_alchemy_url(network, "test_key").unwrap();
-            assert_eq!(url.as_str(), expected_url);
+        for url_str in test_cases {
+            let url = Url::parse(url_str).unwrap();
+            assert!(!url.as_str().is_empty());
+            assert!(matches!(url.scheme(), "http" | "https"));
         }
-    }
-
-    // Helper function for testing URL building
-    fn build_test_alchemy_url(network: &str, api_key: &str) -> Result<Url, url::ParseError> {
-        let base_url = match network {
-            "mainnet" => format!("https://eth-mainnet.g.alchemy.com/v2/{api_key}"),
-            "sepolia" => format!("https://eth-sepolia.g.alchemy.com/v2/{api_key}"),
-            "base" => format!("https://base-mainnet.g.alchemy.com/v2/{api_key}"),
-            "arbitrum" => format!("https://arb-mainnet.g.alchemy.com/v2/{api_key}"),
-            _ => return Err(url::ParseError::RelativeUrlWithoutBase),
-        };
-        Url::parse(&base_url)
     }
 
     #[tokio::test]
     async fn test_config_from_env() {
         // Set test environment variables
-        env::set_var("ALCHEMY_API_KEY", "test_key_123");
+        env::set_var("ETHEREUM_RPC_URL", "https://test.example.com");
         env::set_var(
             "ARITHMETIC_CONTRACT_ADDRESS",
             "0x1234567890123456789012345678901234567890",
@@ -158,14 +147,14 @@ mod tests {
 
         // This should work now
         if let Ok(config) = Config::from_env() {
-            assert_eq!(config.alchemy.api_key, "test_key_123");
+            assert_eq!(config.network.rpc_url.as_str(), "https://test.example.com");
             assert_eq!(config.network.name, "sepolia");
             assert_eq!(config.network.chain_id, 11_155_111);
             assert!(config.network.is_testnet);
         }
 
         // Clean up
-        env::remove_var("ALCHEMY_API_KEY");
+        env::remove_var("ETHEREUM_RPC_URL");
         env::remove_var("ARITHMETIC_CONTRACT_ADDRESS");
         env::remove_var("VERIFIER_CONTRACT_ADDRESS");
         env::remove_var("ETHEREUM_NETWORK");

@@ -172,10 +172,10 @@ cp .env.example .env
 export SINDRI_API_KEY=your_api_key_here
 
 # Smart contract integration (required for --submit-to-contract)
-export ETHEREUM_RPC_URL=https://eth-mainnet.alchemyapi.io/v2/demo
-export ARITHMETIC_CONTRACT_ADDRESS=0x1234567890123456789012345678901234567890
-export VERIFIER_CONTRACT_ADDRESS=0x0987654321098765432109876543210987654321
-export PRIVATE_KEY=your_private_key_without_0x_prefix
+export ETHEREUM_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/your_api_key_here
+export ETHEREUM_CONTRACT_ADDRESS=0x1234567890123456789012345678901234567890
+export ETHEREUM_WALLET_PRIVATE_KEY=your_private_key_without_0x_prefix
+export ETHEREUM_DEPLOYER_ADDRESS=0x1234567890123456789012345678901234567890
 ```
 
 ## Database Architecture
@@ -377,9 +377,9 @@ cargo run --release -- --prove --a 5 --b 10 --skip-contract-submission
 For smart contract integration to work, the following environment variables must be configured:
 
 - `ETHEREUM_RPC_URL` - Ethereum RPC endpoint (e.g., Alchemy, Infura)
-- `ARITHMETIC_CONTRACT_ADDRESS` - Address of deployed Arithmetic contract
-- `VERIFIER_CONTRACT_ADDRESS` - Address of SP1 verifier contract  
-- `PRIVATE_KEY` - Private key for signing transactions (without 0x prefix)
+- `ETHEREUM_CONTRACT_ADDRESS` - Address of deployed Arithmetic contract (handles both arithmetic and verification)
+- `ETHEREUM_WALLET_PRIVATE_KEY` - Private key for signing transactions (without 0x prefix)
+- `ETHEREUM_DEPLOYER_ADDRESS` - Address that deployed the contract (must match private key address)
 - `SINDRI_API_KEY` - For proof generation
 
 ### Integration Flow

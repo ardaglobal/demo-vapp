@@ -1,6 +1,6 @@
 # Ethereum Client
 
-A comprehensive Rust client for interacting with Ethereum networks via Alchemy, specifically designed for SP1 zero-knowledge proof vApp state management.
+A comprehensive Rust client for interacting with Ethereum networks, specifically designed for SP1 zero-knowledge proof vApp state management.
 
 ## Features
 
@@ -10,7 +10,7 @@ A comprehensive Rust client for interacting with Ethereum networks via Alchemy, 
 - **Inclusion Proofs**: Generate and verify Merkle inclusion proofs
 - **Event Monitoring**: Real-time monitoring of contract events
 - **Multi-Network Support**: Ethereum mainnet, Sepolia, Base, Arbitrum, Optimism and their testnets
-- **Alchemy Integration**: Optimized for Alchemy's enhanced APIs
+- **RPC Integration**: Compatible with any Ethereum RPC endpoint
 - **Database Caching**: Optional PostgreSQL integration for performance
 - **Batch Operations**: Gas-efficient batch state updates and reads
 
@@ -37,13 +37,14 @@ Configure your environment variables:
 
 ```env
 # Required
-ALCHEMY_API_KEY=your_alchemy_api_key_here
+ETHEREUM_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/your_api_key_here
 ARITHMETIC_CONTRACT_ADDRESS=0x1234567890123456789012345678901234567890
 VERIFIER_CONTRACT_ADDRESS=0x0987654321098765432109876543210987654321
 
 # Optional
 ETHEREUM_NETWORK=sepolia
-PRIVATE_KEY=your_private_key_for_write_operations
+ETHEREUM_WALLET_PRIVATE_KEY=your_private_key_for_write_operations
+ETHEREUM_DEPLOYER_ADDRESS=0xYourDeployerAddressHere
 DATABASE_URL=postgresql://user:pass@localhost:5432/ethereum_cache
 ```
 
@@ -181,12 +182,13 @@ async fn get_network_stats(&self) -> Result<NetworkStats>
 
 | Variable | Description | Required | Default |
 |----------|-------------|----------|---------|
-| `ALCHEMY_API_KEY` | Alchemy API key | ✓ | - |
+| `ETHEREUM_RPC_URL` | Ethereum RPC endpoint URL | ✓ | - |
 | `ETHEREUM_NETWORK` | Network name | - | `sepolia` |
 | `CHAIN_ID` | Chain ID | - | Auto-detected |
 | `ARITHMETIC_CONTRACT_ADDRESS` | Main contract address | ✓ | - |
 | `VERIFIER_CONTRACT_ADDRESS` | SP1 verifier address | ✓ | - |
-| `PRIVATE_KEY` | Private key for signing | - | - |
+| `ETHEREUM_WALLET_PRIVATE_KEY` | Private key for signing | - | - |
+| `ETHEREUM_DEPLOYER_ADDRESS` | Address that deployed the contract (must match private key) | - | - |
 | `SIGNER_ADDRESS` | Signer address | - | - |
 | `DEPLOYMENT_BLOCK` | Contract deployment block | - | Current - 10000 |
 | `ENABLE_EVENT_MONITORING` | Enable event monitoring | - | `true` |
@@ -200,7 +202,7 @@ async fn get_network_stats(&self) -> Result<NetworkStats>
 - **Mainnet**: Ethereum, Base, Arbitrum, Optimism
 - **Testnets**: Sepolia, Base Sepolia, Arbitrum Sepolia, Optimism Sepolia
 
-Network-specific Alchemy URLs are automatically configured based on the `ETHEREUM_NETWORK` setting.
+The client works with any Ethereum-compatible RPC endpoint including Alchemy, Infura, QuickNode, or self-hosted nodes.
 
 ## Database Integration
 
@@ -241,7 +243,7 @@ pub enum EthereumError {
     Config(String),
     ProofVerificationFailed(String),
     StateNotFound(String),
-    AlchemyApi { status_code: u16, message: String },
+    RpcApi { status_code: u16, message: String },
     Database(sqlx::Error),
 }
 ```

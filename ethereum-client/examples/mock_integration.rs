@@ -1,6 +1,6 @@
 use alloy_primitives::Address;
 use ethereum_client::{
-    config::{AlchemyConfig, ContractConfig, MonitoringConfig, NetworkConfig},
+    config::{ContractConfig, MonitoringConfig, NetworkConfig, RpcConfig},
     Config,
 };
 use url::Url;
@@ -25,10 +25,7 @@ async fn main() -> ethereum_client::Result<()> {
             verifier_contract: Address::from_slice(&[0; 20]),
             deployment_block: Some(1_000_000),
         },
-        alchemy: AlchemyConfig {
-            api_key: "mock-api-key".to_string(),
-            app_id: Some("mock-app-id".to_string()),
-            webhook_url: None,
+        rpc: RpcConfig {
             notify_addresses: vec![Address::from_slice(&[0; 20])],
             rate_limit_per_second: 10, // Low rate limit for testing
         },
@@ -80,7 +77,7 @@ fn test_error_scenarios() {
     let mut invalid_config = Config::default();
     assert!(invalid_config.validate().is_err());
 
-    invalid_config.alchemy.api_key = "test".to_string();
+    invalid_config.network.rpc_url = Url::parse("https://test.example.com").unwrap();
     assert!(invalid_config.validate().is_err()); // Still missing contracts
 
     invalid_config.contract.arithmetic_contract = Address::from_slice(&[0; 20]);

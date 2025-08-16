@@ -39,6 +39,9 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Load environment variables from .env file
+    dotenv::dotenv().ok();
+
     tracing_subscriber::fmt::init();
 
     let args = Args::parse();
@@ -138,7 +141,7 @@ fn check_signer_configuration(config: &Config) {
         info!("🚀 Ready for proof submission and contract interactions!");
     } else {
         warn!("⚠️  No signer configured - read-only mode");
-        info!("💡 Set ETHEREUM_PRIVATE_KEY for transaction capabilities");
+        info!("💡 Set ETHEREUM_WALLET_PRIVATE_KEY for transaction capabilities");
     }
 }
 
