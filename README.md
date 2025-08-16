@@ -120,7 +120,11 @@ cargo run -p cli --bin cli -- get-transaction --result 15
 For fast local SP1 unit testing during development:
 ```sh
 # Quick SP1 unit test (generates Core proof in ~3.5 seconds)
-cargo run -p demo-vapp --bin demo-vapp --release
+# This is the default package and bin
+cargo run --release
+
+# For the full package and bin command
+# cargo run -p demo-vapp --bin demo-vapp --release
 ```
 
 This provides a fast feedback loop for SP1 development without database or Sindri dependencies.
@@ -140,159 +144,7 @@ That's it! 🎉 You now have a running zero-knowledge arithmetic server with mul
 
 **Installed Tools**: The script installs all necessary development tools including Rust toolchain, SP1, Foundry, Docker, Node.js, PostgreSQL client tools, sqlx-cli for database migrations, and other utilities.
 
-## Running the Project
-
-This project provides multiple interaction methods based on your development needs:
-
-### 🚀 **Local SP1 Development** (Fast Unit Testing)
-For rapid SP1 development with instant feedback:
-```sh
-# Fast Core proof generation (~3.5 seconds)
-cargo run -p demo-vapp --bin demo-vapp --release
-```
-✅ **Perfect for**: SP1 program development, quick verification, unit testing  
-❌ **Not included**: Database, Sindri, production workflows
-
-### 🖥️ **CLI Client** (Simple API Interaction)  
-For basic API server interaction:
-```sh
-# Available commands:
-cargo run -p cli --bin cli -- health-check
-cargo run -p cli --bin cli -- store-transaction --a 5 --b 10  
-cargo run -p cli --bin cli -- get-transaction --result 15
-
-# Configure API server URL (default: http://localhost:8080)
-export ARITHMETIC_API_URL=http://your-server:8080
-```
-✅ **Perfect for**: API testing, scripting, external tool integration  
-❌ **Not included**: Interactive modes, direct database access
-
-### 🌐 **API Server** (Production System)
-For full-featured production deployment:
-```sh
-# Start with Docker (recommended)
-docker-compose up -d
-
-# Or run locally
-docker-compose up postgres -d
-cargo run -p api --bin server --release
-```
-✅ **Includes**: Complex workflows, Sindri integration, interactive features, database operations
-
-### Environment Setup
-
-**Required**: Copy the environment file and configure your database connection:
-
-```sh
-cp .env.example .env
-```
-
-The `.env` file contains database credentials and SP1 configuration. For development and testing, the default PostgreSQL credentials are already configured for use with Docker Compose (see Database Setup section below).
-
-### Database Setup
-
-This project requires a PostgreSQL database for storing arithmetic transactions. The easiest way to set this up is using Docker Compose:
-
-#### Option 1: Database Only (for local development)
-
-```sh
-# Start only PostgreSQL container
-docker-compose up postgres -d
-
-# Verify the database is running
-docker-compose ps
-```
-
-#### Option 2: Full Stack (database + server)
-
-```sh
-# Start both PostgreSQL and the REST API server (uses pre-built image)
-docker-compose up -d
-
-# For local development (builds image locally):
-docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
-
-# Verify both services are running
-docker-compose ps
-
-# View server logs
-docker-compose logs server -f
-```
-
-The database will be automatically initialized with the required schema when the server starts.
-
-#### Stopping Services
-
-```sh
-# Stop all services
-docker-compose down
-
-# Stop and remove all data (clean slate)
-docker-compose down -v
-```
-
-#### Service URLs
-
-When running the full stack:
-- **Database**: `localhost:5432` 
-- **REST API Server**: `http://localhost:8080`
-- **Health Check**: `http://localhost:8080/api/v1/health`
-
-### Program Compilation
-
-The SP1 program is automatically compiled during the build process. For manual compilation:
-
-```sh
-cd program && cargo prove build --output-directory ../build
-```
-
-The program is also automatically built through `script/build.rs` when building the `demo-vapp` package.
-
-### Legacy Commands (Replaced by CLI)
-
-**⚠️ The following interactive modes have been moved to the API server:**
-
-**Interactive Transaction Submission**: Use the API server's endpoints or the CLI client instead:
-```sh
-# Old: cd script && cargo run --release -- --execute
-# New: Use API server + CLI client
-cargo run -p cli --bin cli -- store-transaction --a 5 --b 10
-```
-
-**Result Verification**: Use the CLI client for simple queries:
-```sh
-# Old: cd script && cargo run --release -- --verify
-# New: Use CLI client
-cargo run -p cli --bin cli -- get-transaction --result 15
-```
-
-For complex interactive workflows, use the API server's REST endpoints or run the API server locally.
-
-### Generate Zero-Knowledge Proofs via Sindri
-
-**All proofs are now EVM-compatible by default** using Sindri's cloud infrastructure.
-
-Proof generation is handled by the API server. You can generate proofs in two ways:
-
-**Option A: Via API Server** (Recommended)
-```sh
-# Generate proof during transaction submission
-curl -X POST http://localhost:8080/api/v1/transactions \
-  -H 'Content-Type: application/json' \
-  -d '{"a": 5, "b": 10, "generate_proof": true}'
-```
-
-**Option B: Via CLI Client**
-```sh
-# CLI client routes to API server
-cargo run -p cli --bin cli -- store-transaction --a 5 --b 10
-```
-
-**⚠️ Legacy Commands**: The old CLI proof generation commands have been moved to the API server:
-```sh
-# Old: cd script && cargo run --release -- --prove --a 5 --b 10
-# New: Use API server endpoints for proof generation
-```
+## Proofs 
 
 The proof generation process:
 1. Creates SP1 inputs and serializes them for Sindri
@@ -300,75 +152,6 @@ The proof generation process:
 3. Submits proof request to Sindri using the `demo-vapp` circuit
 4. Stores proof metadata in PostgreSQL  
 5. Returns proof ID for external verification
-
-### Verify Sindri Proofs
-
-Proof verification is now handled through the API server:
-
-#### External Verification (Recommended for sharing proofs)
-
-```sh
-# Verify using proof ID via API server
-curl -X POST http://localhost:8080/api/v1/verify \
-  -H 'Content-Type: application/json' \
-  -d '{"proof_id": "proof_abc123def456", "expected_result": 15}'
-```
-
-This method:
-- ✅ Works for external users without database access
-- ✅ Only requires the proof ID and expected result
-- ✅ Performs full cryptographic verification using Sindri's verification key
-- ✅ Demonstrates true zero-knowledge properties
-
-#### Database Verification (Internal use)
-
-For internal use with database access:
-
-```sh
-# Verify proof for stored result
-curl -X POST http://localhost:8080/api/v1/results/15/verify
-
-# Get proof information
-curl http://localhost:8080/api/v1/proofs/proof_abc123def456
-```
-
-**⚠️ Legacy Commands**: The old CLI verification commands have been moved to the API server:
-```sh
-# Old: cd script && cargo run --release -- --verify --proof-id <ID> --result 15  
-# New: Use API server endpoints for proof verification
-```
-
-### Retrieve the Verification Key
-
-The verification key is now available through the API server:
-
-```sh
-# Get verification key via API
-curl http://localhost:8080/api/v1/vkey
-```
-
-**⚠️ Legacy Command**: The old verification key command has been moved:
-```sh  
-# Old: cd script && cargo run --release -- --vkey
-# New: Use API server endpoint for verification key
-```
-
-This key is needed for on-chain contract verification and can be retrieved at any time through the API.
-
-## Sindri Integration for Serverless ZK Proofs
-
-This project integrates with [Sindri](https://sindri.app) for serverless zero-knowledge proof generation, providing a scalable alternative to local SP1 proving.
-
-### Setup
-
-1. **Get your Sindri API key:**
-   - Sign up at [sindri.app](https://sindri.app)
-   - Create an API key from your account dashboard
-
-2. **Set your API key as an environment variable:**
-   ```bash
-   export SINDRI_API_KEY=your_api_key_here
-   ```
 
 ### Continuous Integration
 
@@ -436,30 +219,6 @@ When you do the "setup" for a circuit (trusted or transparent), the compiler:
 
 ## REST API Server
 
-The project includes a comprehensive REST API server located in the `api/` directory. The server provides HTTP endpoints for transaction submission, proof verification, and system monitoring.
-
-### Starting the Server
-
-#### Option 1: Using Docker Compose (Recommended)
-
-```sh
-# Start both database and API server
-docker-compose up -d
-
-# Or start just the API server (if database is already running)
-docker-compose up server -d
-```
-
-#### Option 2: Local Development
-
-```sh
-# Start PostgreSQL database
-docker-compose up postgres -d
-
-# Run API server locally
-cargo run -p api --bin server --release
-```
-
 The API server will start on `http://localhost:8080` by default.
 
 ### API Endpoints
@@ -508,57 +267,3 @@ curl http://localhost:8080/api/v1/health
 This enables trustless verification where external parties can cryptographically verify computation results without seeing private inputs or requiring database access.
 
 This enables trustless verification where external parties can cryptographically verify computation results without seeing private inputs or requiring database access.
-
-
-## Troubleshooting
-
-### Common Linux/Ubuntu Issues
-
-**OpenSSL compilation errors** (like `openssl-sys` build failures):
-```bash
-# Install missing development libraries
-sudo apt-get update
-sudo apt-get install -y libssl-dev pkg-config libpq-dev
-
-# Retry the dependency installation
-./install-dependencies.sh
-```
-
-**Docker permission errors**:
-```bash
-# Add user to docker group (requires logout/login)
-sudo usermod -aG docker $USER
-
-# Or run with sudo temporarily
-sudo docker-compose up -d
-```
-
-**sqlx-cli installation failures**:
-```bash
-# Ensure PostgreSQL development libraries are installed
-sudo apt-get install -y libpq-dev
-
-# Install sqlx-cli manually if needed
-cargo install sqlx-cli --no-default-features --features rustls,postgres
-```
-
-**Sindri circuit deployment issues**:
-```bash
-# Check if circuit is properly configured
-sindri lint
-
-# Verify API key is set
-echo $SINDRI_API_KEY
-
-# Deploy with explicit tag
-sindri deploy --tag "manual-$(date +%s)"
-
-# Check deployed circuits
-sindri list
-```
-
-**Proof generation failures**:
-- Ensure circuit is deployed to Sindri first (`sindri deploy`)
-- Verify `SINDRI_API_KEY` is set in `.env`
-- Check circuit name matches in `sindri.json` (should be "demo-vapp")
-- Transactions without `generate_proof: true` will work without Sindri
