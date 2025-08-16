@@ -85,7 +85,7 @@ docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
 # Option 2: Run API server locally (requires PostgreSQL running)
 docker-compose up postgres -d
-cargo run -p api --bin server --release
+cargo run --bin server --release
 ```
 
 ### 5. Test the API
@@ -104,15 +104,18 @@ curl -X POST http://localhost:8080/api/v1/transactions \
 ```
 
 **Option B: CLI Client (Recommended)**
+
+> **💡 Note**: Since binary names are unique across packages, you can use `cargo run --bin <binary>` from the workspace root. Only use `-p <package>` if you encounter naming conflicts or want to be explicit.
+
 ```sh
 # Check API server health
-cargo run -p cli --bin cli -- health-check
+cargo run --bin cli -- health-check
 
 # Store a transaction via CLI
-cargo run -p cli --bin cli -- store-transaction --a 5 --b 10
+cargo run --bin cli -- store-transaction --a 5 --b 10
 
 # Query a transaction by result
-cargo run -p cli --bin cli -- get-transaction --result 15
+cargo run --bin cli -- get-transaction --result 15
 ```
 
 ### 6. Local SP1 Development
@@ -120,11 +123,11 @@ cargo run -p cli --bin cli -- get-transaction --result 15
 For fast local SP1 unit testing during development:
 ```sh
 # Quick SP1 unit test (generates Core proof in ~3.5 seconds)
-# This is the default package and bin
+# This runs the default binary (main) from the script package
 cargo run --release
 
-# For the full package and bin command
-# cargo run -p demo-vapp --bin demo-vapp --release
+# Equivalent explicit command:
+# cargo run --bin main --release
 ```
 
 This provides a fast feedback loop for SP1 development without database or Sindri dependencies.
