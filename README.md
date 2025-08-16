@@ -42,20 +42,21 @@ make up       # Start services
 ### 2. Set Environment Variables
 ```sh
 cp .env.example .env
-# Edit .env and add your Sindri API key for proof generation:
+# Edit .env and add your Sindri API key for proof generation and circuit deployment:
+# Get your API key from https://sindri.app
 # SINDRI_API_KEY=your_sindri_api_key_here
 ```
 
 ### 3. Deploy Circuit to Sindri (Required for Proof Generation)
 ```sh
-# Get your API key from https://sindri.app and set it in .env
-export SINDRI_API_KEY=your_sindri_api_key_here
-
 # Deploy the circuit (uses 'latest' tag by default)
 ./deploy-circuit.sh
 
 # Or deploy with a specific tag
 ./deploy-circuit.sh "dev-v1.0"
+
+# Or set SINDRI_CIRCUIT_TAG in your .env
+# SINDRI_CIRCUIT_TAG=dev-v1.0
 
 # Or deploy manually:
 # sindri lint
@@ -64,11 +65,6 @@ export SINDRI_API_KEY=your_sindri_api_key_here
 ```
 
 **Note**: This step is required for proof generation. Without deploying the circuit, you can still run the server and submit transactions, but proof generation will fail.
-
-**Circuit Tag Configuration**: By default, proof generation uses the `latest` circuit tag. To use a specific circuit version:
-1. Deploy with a specific tag: `./deploy-circuit.sh "my-tag"`
-2. Set `SINDRI_CIRCUIT_TAG=my-tag` in your `.env` file
-3. Restart your server to pick up the new tag
 
 ### 4. Start the Full Stack
 ```sh
@@ -87,12 +83,9 @@ curl http://localhost:8080/api/v1/health
 # Option 1: Use the development compose file
 docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
-# Option 2: Edit docker-compose.yml and uncomment the build section
-# (see comments in docker-compose.yml)
-
-# Option 3: Run API server locally (requires PostgreSQL running)
+# Option 2: Run API server locally (requires PostgreSQL running)
 docker-compose up postgres -d
-cargo run --package arithmetic-api --bin server --release
+cargo run -p api --bin server --release
 ```
 
 ### 5. Test the API
@@ -113,13 +106,13 @@ curl -X POST http://localhost:8080/api/v1/transactions \
 **Option B: CLI Client (Recommended)**
 ```sh
 # Check API server health
-cargo run --package arithmetic-cli --bin arithmetic -- health-check
+cargo run -p cli --bin cli -- health-check
 
 # Store a transaction via CLI
-cargo run --package arithmetic-cli --bin arithmetic -- store-transaction --a 5 --b 10
+cargo run -p cli --bin cli -- store-transaction --a 5 --b 10
 
 # Query a transaction by result
-cargo run --package arithmetic-cli --bin arithmetic -- get-transaction --result 15
+cargo run -p cli --bin cli -- get-transaction --result 15
 ```
 
 ### 6. Local SP1 Development
@@ -127,7 +120,7 @@ cargo run --package arithmetic-cli --bin arithmetic -- get-transaction --result 
 For fast local SP1 unit testing during development:
 ```sh
 # Quick SP1 unit test (generates Core proof in ~3.5 seconds)
-cargo run --package arithmetic-program-builder --bin local-sp1-test --release
+cargo run -p demo-vapp --bin demo-vapp --release
 ```
 
 This provides a fast feedback loop for SP1 development without database or Sindri dependencies.
@@ -155,7 +148,7 @@ This project provides multiple interaction methods based on your development nee
 For rapid SP1 development with instant feedback:
 ```sh
 # Fast Core proof generation (~3.5 seconds)
-cargo run --package arithmetic-program-builder --bin local-sp1-test --release
+cargo run -p demo-vapp --bin demo-vapp --release
 ```
 ✅ **Perfect for**: SP1 program development, quick verification, unit testing  
 ❌ **Not included**: Database, Sindri, production workflows
@@ -164,9 +157,9 @@ cargo run --package arithmetic-program-builder --bin local-sp1-test --release
 For basic API server interaction:
 ```sh
 # Available commands:
-cargo run --package arithmetic-cli --bin arithmetic -- health-check
-cargo run --package arithmetic-cli --bin arithmetic -- store-transaction --a 5 --b 10  
-cargo run --package arithmetic-cli --bin arithmetic -- get-transaction --result 15
+cargo run -p cli --bin cli -- health-check
+cargo run -p cli --bin cli -- store-transaction --a 5 --b 10  
+cargo run -p cli --bin cli -- get-transaction --result 15
 
 # Configure API server URL (default: http://localhost:8080)
 export ARITHMETIC_API_URL=http://your-server:8080
@@ -182,7 +175,7 @@ docker-compose up -d
 
 # Or run locally
 docker-compose up postgres -d
-cargo run --package arithmetic-api --bin server --release
+cargo run -p api --bin server --release
 ```
 ✅ **Includes**: Complex workflows, Sindri integration, interactive features, database operations
 
@@ -253,7 +246,7 @@ The SP1 program is automatically compiled during the build process. For manual c
 cd program && cargo prove build --output-directory ../build
 ```
 
-The program is also automatically built through `script/build.rs` when building the `arithmetic-program-builder` package.
+The program is also automatically built through `script/build.rs` when building the `demo-vapp` package.
 
 ### Legacy Commands (Replaced by CLI)
 
@@ -263,14 +256,14 @@ The program is also automatically built through `script/build.rs` when building 
 ```sh
 # Old: cd script && cargo run --release -- --execute
 # New: Use API server + CLI client
-cargo run --package arithmetic-cli --bin arithmetic -- store-transaction --a 5 --b 10
+cargo run -p cli --bin cli -- store-transaction --a 5 --b 10
 ```
 
 **Result Verification**: Use the CLI client for simple queries:
 ```sh
 # Old: cd script && cargo run --release -- --verify
 # New: Use CLI client
-cargo run --package arithmetic-cli --bin arithmetic -- get-transaction --result 15
+cargo run -p cli --bin cli -- get-transaction --result 15
 ```
 
 For complex interactive workflows, use the API server's REST endpoints or run the API server locally.
@@ -292,7 +285,7 @@ curl -X POST http://localhost:8080/api/v1/transactions \
 **Option B: Via CLI Client**
 ```sh
 # CLI client routes to API server
-cargo run --package arithmetic-cli --bin arithmetic -- store-transaction --a 5 --b 10
+cargo run -p cli --bin cli -- store-transaction --a 5 --b 10
 ```
 
 **⚠️ Legacy Commands**: The old CLI proof generation commands have been moved to the API server:
@@ -464,7 +457,7 @@ docker-compose up server -d
 docker-compose up postgres -d
 
 # Run API server locally
-cargo run --package arithmetic-api --bin server --release
+cargo run -p api --bin server --release
 ```
 
 The API server will start on `http://localhost:8080` by default.

@@ -6,13 +6,13 @@
 //! Usage examples:
 //! ```shell
 //! # Store a transaction
-//! arithmetic-cli store-transaction --a 5 --b 3
+//! cli store-transaction --a 5 --b 3
 //! 
 //! # Get transaction by result
-//! arithmetic-cli get-transaction --result 8
+//! cli get-transaction --result 8
 //! 
 //! # Check API health
-//! arithmetic-cli health-check
+//! cli health-check
 //! ```
 
 use clap::{Parser, Subcommand};
@@ -64,7 +64,7 @@ impl SimpleApiClient {
 }
 
 #[derive(Parser)]
-#[command(name = "arithmetic-cli")]
+#[command(name = "cli")]
 #[command(about = "CLI for interacting with the arithmetic API server")]
 #[command(version)]
 struct Cli {
@@ -103,7 +103,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             env::var("RUST_LOG")
-                .unwrap_or_else(|_| "arithmetic_cli=info".to_string())
+                .unwrap_or_else(|_| "cli=info".to_string())
         )
         .init();
 

@@ -547,12 +547,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
 
 [[package]]
-name = "arithmetic-api"
+name = "api"
 version = "0.1.0"
 dependencies = [
  "alloy-sol-types",
- "arithmetic-db",
- "arithmetic-lib",
  "async-graphql",
  "async-graphql-axum",
  "async-trait",
@@ -560,12 +558,14 @@ dependencies = [
  "axum-test",
  "chrono",
  "clap",
+ "db",
  "dotenv",
  "futures-util",
  "hex",
  "http 1.3.1",
  "hyper 1.6.0",
  "io-uring",
+ "lib",
  "rand 0.8.5",
  "regex",
  "reqwest 0.11.27",
@@ -585,73 +585,6 @@ dependencies = [
  "tracing-test",
  "url",
  "uuid",
-]
-
-[[package]]
-name = "arithmetic-cli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "eyre",
- "reqwest 0.11.27",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "arithmetic-db"
-version = "0.1.0"
-dependencies = [
- "alloy-sol-types",
- "arithmetic-lib",
- "async-trait",
- "chrono",
- "hex",
- "io-uring",
- "rand 0.8.5",
- "serde",
- "serde_json",
- "sha2",
- "sindri",
- "sp1-sdk",
- "sqlx",
- "tempfile",
- "thiserror 1.0.69",
- "tikv-jemallocator",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "tracing-test",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "arithmetic-lib"
-version = "0.1.0"
-dependencies = [
- "alloy-sol-types",
- "clap",
- "hex",
- "serde",
- "serde_json",
- "sindri",
- "sp1-sdk",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "arithmetic-program"
-version = "0.1.0"
-dependencies = [
- "alloy-sol-types",
- "arithmetic-lib",
- "sp1-zkvm",
 ]
 
 [[package]]
@@ -1972,6 +1905,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b94f61472cee1439c0b966b47e3aca9ae07e45d070759512cd390ea2bebc6675"
 
 [[package]]
+name = "cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "eyre",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "cmake"
 version = "0.1.54"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2323,12 +2270,40 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a2330da5de22e8a3cb63252ce2abb30116bf5265e89c0e01bc17015ce30a476"
 
 [[package]]
+name = "db"
+version = "0.1.0"
+dependencies = [
+ "alloy-sol-types",
+ "async-trait",
+ "chrono",
+ "hex",
+ "io-uring",
+ "lib",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sindri",
+ "sp1-sdk",
+ "sqlx",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tikv-jemallocator",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "tracing-test",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "demo-vapp"
 version = "0.1.0"
 dependencies = [
  "alloy-sol-types",
- "arithmetic-lib",
  "eyre",
+ "lib",
  "sp1-build",
  "sp1-sdk",
  "tracing",
@@ -3822,6 +3797,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
+name = "lib"
+version = "0.1.0"
+dependencies = [
+ "alloy-sol-types",
+ "clap",
+ "hex",
+ "serde",
+ "serde_json",
+ "sindri",
+ "sp1-sdk",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.174"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4976,6 +4967,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02b3e5e68a3a1a02aad3ec490a98007cbc13c37cbe84a3cd7b8e406d76e7f778"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "program"
+version = "0.1.0"
+dependencies = [
+ "alloy-sol-types",
+ "lib",
+ "sp1-zkvm",
 ]
 
 [[package]]

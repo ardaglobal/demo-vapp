@@ -16,7 +16,7 @@ path = "src/bin/main.rs"
 
 [dependencies]
 # Core computation (for types)
-arithmetic-lib = { path = "../lib" }
+arithmetic-lib = { path = "../lib", package = "lib" }
 
 # SP1 SDK for local proving
 sp1-sdk = { workspace = true }

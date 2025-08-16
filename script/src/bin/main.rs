@@ -16,7 +16,7 @@ use tracing::info;
 
 /// The ELF (executable and linkable format) file for the Succinct RISC-V zkVM.
 /// This is built by build.rs from the program/ directory.
-pub const ARITHMETIC_ELF: &[u8] = include_elf!("arithmetic-program");
+pub const ARITHMETIC_ELF: &[u8] = include_elf!("program");
 
 fn main() -> Result<()> {
     // Setup logging
