@@ -100,9 +100,9 @@ else
 fi
 
 # Verify ELF file exists
-if [ ! -f "build/arithmetic-program" ]; then
-    echo -e "${RED}❌ ELF file not found at ./build/arithmetic-program${NC}"
-    echo "Expected location: $(pwd)/build/arithmetic-program"
+if [ ! -f "build/program" ]; then
+    echo -e "${RED}❌ ELF file not found at ./build/program${NC}"
+    echo "Expected location: $(pwd)/build/program"
     exit 1
 fi
 
@@ -128,7 +128,7 @@ if sindri "${DEPLOY_ARGS[@]}"; then
     echo -e "${GREEN}✅ Circuit built and deployed successfully!${NC}"
     echo ""
     echo -e "${BLUE}📝 Deployment Summary:${NC}"
-    echo "• SP1 program compiled to ELF: ./build/arithmetic-program"
+    echo "• SP1 program compiled to ELF: ./build/program"
     echo "• Circuit deployed to Sindri with tag: ${TAG:-latest}"
     echo "• Circuit name: demo-vapp:${TAG:-latest}"
     echo ""
