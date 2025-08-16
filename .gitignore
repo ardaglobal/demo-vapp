@@ -23,3 +23,6 @@ ADS/
 
 # Builds
 **/build
+
+# Backup files
+*.bak
