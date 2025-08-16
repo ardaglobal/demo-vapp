@@ -1,7 +1,14 @@
 # Demo vApp Makefile
 # Provides convenient shortcuts for common development tasks
 
-.PHONY: help install deploy up up-dev down logs test clean run cli server
+# Docker registry configuration
+REGISTRY ?= ghcr.io
+OWNER ?= ardaglobal
+IMAGE_NAME ?= demo-vapp
+DOCKER_TAG ?= $(shell whoami)-dev
+PLATFORM ?= linux/amd64
+
+.PHONY: help install deploy up up-dev down logs test clean run cli server docker-build docker-push
 
 # Default target
 help:
@@ -16,6 +23,8 @@ help:
 	@echo "  make up-dev      Start services (builds locally)"
 	@echo "  make down        Stop all services"
 	@echo "  make logs        View server logs"
+	@echo "  make docker-build Build image locally"
+	@echo "  make docker-push Build and push image to GitHub registry"
 	@echo ""
 	@echo "Development:"
 	@echo "  make run         Local SP1 unit testing (fast ~3.5s Core proofs)"
@@ -26,6 +35,11 @@ help:
 	@echo ""
 	@echo "Environment:"
 	@echo "  make env         Copy .env.example to .env"
+	@echo ""
+	@echo "Docker Configuration:"
+	@echo "  PLATFORM=linux/amd64  Build for x86_64 (default)"
+	@echo "  PLATFORM=linux/arm64  Build for ARM64"
+	@echo "  Example: make docker-push PLATFORM=linux/amd64"
 
 # Setup commands
 install:
@@ -56,6 +70,23 @@ down:
 
 logs:
 	docker-compose logs server -f
+
+docker-build:
+	@echo "Building Docker image locally..."
+	@echo "Image: $(REGISTRY)/$(OWNER)/$(IMAGE_NAME):$(DOCKER_TAG)"
+	@echo "Platform: $(PLATFORM)"
+	@echo ""
+	docker build --platform $(PLATFORM) -t $(REGISTRY)/$(OWNER)/$(IMAGE_NAME):$(DOCKER_TAG) .
+	@echo "✅ Image built successfully!"
+	@echo "🐳 Image: $(REGISTRY)/$(OWNER)/$(IMAGE_NAME):$(DOCKER_TAG)"
+	@echo "🏗️  Platform: $(PLATFORM)"
+
+docker-push: docker-build
+	@echo "Pushing Docker image..."
+	@echo "Registry: $(REGISTRY)"
+	docker push $(REGISTRY)/$(OWNER)/$(IMAGE_NAME):$(DOCKER_TAG)
+	@echo "✅ Image pushed successfully!"
+	@echo "🚀 Published: $(REGISTRY)/$(OWNER)/$(IMAGE_NAME):$(DOCKER_TAG)"
 
 # Development commands
 test:
