@@ -84,7 +84,5 @@ mod error_tests;
 // #[cfg(test)]
 // mod ads_service_tests;
 
-
-
 #[cfg(test)]
 mod proof_verification_tests;

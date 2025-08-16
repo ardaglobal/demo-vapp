@@ -12,13 +12,13 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, instrument, warn};
 
+use alloy_sol_types::SolType;
 use arithmetic_db::ads_service::{AuthenticatedDataStructure, IndexedMerkleTreeADS};
 use arithmetic_db::db::{
     get_current_global_state, get_sindri_proof_by_result, get_state_history, get_transaction_count,
     get_value_by_result, store_transaction_with_state_update, validate_state_integrity,
 };
 use arithmetic_db::vapp_integration::VAppAdsIntegration;
-use alloy_sol_types::SolType;
 use arithmetic_lib::{addition, PublicValuesStruct};
 use sindri::integrations::sp1_v5::SP1ProofInfo;
 use sindri::{client::SindriClient, JobStatus};
@@ -1552,14 +1552,16 @@ async fn verify_proof(
 
 /// Generate a proof via Sindri using the shared proof module
 async fn generate_sindri_proof(a: i32, b: i32, result: i32) -> Result<(String, String), String> {
-    use arithmetic_lib::proof::{ProofGenerationRequest, ProofSystem, generate_sindri_proof as shared_generate};
-    
+    use arithmetic_lib::proof::{
+        generate_sindri_proof as shared_generate, ProofGenerationRequest, ProofSystem,
+    };
+
     let request = ProofGenerationRequest {
         a,
         b,
         result,
         proof_system: ProofSystem::Groth16, // Default for API
-        generate_fixtures: false, // Don't generate fixtures in API by default
+        generate_fixtures: false,           // Don't generate fixtures in API by default
     };
 
     match shared_generate(request).await {
@@ -1573,8 +1575,8 @@ async fn verify_proof_internal(
     proof_id: &str,
     expected_result: i32,
 ) -> Result<Json<VerifyProofResponse>, (StatusCode, String)> {
-    use arithmetic_lib::proof::{ProofVerificationRequest, verify_sindri_proof};
-    
+    use arithmetic_lib::proof::{verify_sindri_proof, ProofVerificationRequest};
+
     let request = ProofVerificationRequest {
         proof_id: proof_id.to_string(),
         expected_result,

@@ -41,17 +41,15 @@ pub mod rest;
 pub mod server;
 
 // Re-export main API types for convenience
-pub use client::{ArithmeticApiClient, ApiClientError};
+pub use client::{ApiClientError, ArithmeticApiClient};
 pub use graphql::{create_schema, GraphQLSchema, MutationRoot, QueryRoot, SubscriptionRoot};
 pub use rest::{
-    create_router, ApiConfig, ApiState, AuditTrailResponse, BatchInsertRequest, BatchInsertResponse,
-    HealthResponse, InsertNullifierRequest, InsertNullifierResponse, MembershipCheckResponse,
-    NonMembershipResponse, ProofResponse, TransactionRequest, TransactionResponse,
-    TreeStatsResponse, VerifyProofRequest, VerifyProofResponse,
+    create_router, ApiConfig, ApiState, AuditTrailResponse, BatchInsertRequest,
+    BatchInsertResponse, HealthResponse, InsertNullifierRequest, InsertNullifierResponse,
+    MembershipCheckResponse, NonMembershipResponse, ProofResponse, TransactionRequest,
+    TransactionResponse, TreeStatsResponse, VerifyProofRequest, VerifyProofResponse,
 };
 pub use server::{ApiServer, ApiServerBuilder, ApiServerConfig};
 
 // Re-export database types that the API uses
-pub use arithmetic_db::{
-    AdsServiceFactory, IndexedMerkleTreeADS, VAppAdsIntegration, VAppConfig,
-};
+pub use arithmetic_db::{AdsServiceFactory, IndexedMerkleTreeADS, VAppAdsIntegration, VAppConfig};

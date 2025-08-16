@@ -1,16 +1,16 @@
 //! Simple CLI for interacting with the arithmetic API server
-//! 
+//!
 //! This CLI acts as a thin client that makes HTTP requests to the API server.
 //! All complex logic, interactive modes, and database operations are handled by the server.
-//! 
+//!
 //! Usage examples:
 //! ```shell
 //! # Store a transaction
 //! cli store-transaction --a 5 --b 3
-//! 
+//!
 //! # Get transaction by result
 //! cli get-transaction --result 8
-//! 
+//!
 //! # Check API health
 //! cli health-check
 //! ```
@@ -76,7 +76,11 @@ impl SimpleApiClient {
 #[command(version)]
 struct Cli {
     /// API server base URL
-    #[arg(long, env = "ARITHMETIC_API_URL", default_value = "http://localhost:8080")]
+    #[arg(
+        long,
+        env = "ARITHMETIC_API_URL",
+        default_value = "http://localhost:8080"
+    )]
     api_url: String,
 
     #[command(subcommand)]
@@ -126,20 +130,21 @@ enum Commands {
 async fn main() -> Result<()> {
     // Setup logging
     tracing_subscriber::fmt()
-        .with_env_filter(
-            env::var("RUST_LOG")
-                .unwrap_or_else(|_| "cli=info".to_string())
-        )
+        .with_env_filter(env::var("RUST_LOG").unwrap_or_else(|_| "cli=info".to_string()))
         .init();
 
     let cli = Cli::parse();
-    
+
     // Create API client
     let client = SimpleApiClient::new(cli.api_url);
-    
+
     // Execute command
     match cli.command {
-        Commands::StoreTransaction { a, b, generate_proof } => {
+        Commands::StoreTransaction {
+            a,
+            b,
+            generate_proof,
+        } => {
             store_transaction(&client, a, b, generate_proof).await?;
         }
         Commands::GetTransaction { result } => {
@@ -148,37 +153,42 @@ async fn main() -> Result<()> {
         Commands::GetProof { proof_id } => {
             get_proof(&client, proof_id).await?;
         }
-        Commands::VerifyProof { proof_id, expected_result } => {
+        Commands::VerifyProof {
+            proof_id,
+            expected_result,
+        } => {
             verify_proof(&client, proof_id, expected_result).await?;
         }
         Commands::HealthCheck => {
             health_check(&client).await?;
         }
     }
-    
+
     Ok(())
 }
 
 /// Store an arithmetic transaction
 async fn store_transaction(
-    client: &SimpleApiClient, 
-    a: i32, 
+    client: &SimpleApiClient,
+    a: i32,
     b: i32,
-    generate_proof: bool
+    generate_proof: bool,
 ) -> Result<()> {
     let result = a + b;
-    
-    info!("Storing transaction: {} + {} = {} (generate_proof: {})", a, b, result, generate_proof);
-    
-    let request = StoreTransactionRequest { a, b, generate_proof };
+
+    info!(
+        "Storing transaction: {} + {} = {} (generate_proof: {})",
+        a, b, result, generate_proof
+    );
+
+    let request = StoreTransactionRequest {
+        a,
+        b,
+        generate_proof,
+    };
     let url = format!("{}/api/v1/transactions", client.base_url);
-    
-    match client.client
-        .post(&url)
-        .json(&request)
-        .send()
-        .await
-    {
+
+    match client.client.post(&url).json(&request).send().await {
         Ok(response) if response.status().is_success() => {
             info!("✅ Transaction stored successfully!");
             info!("   Status: {}", response.status());
@@ -193,19 +203,16 @@ async fn store_transaction(
             error!("❌ Failed to send request: {}", e);
         }
     }
-    
+
     Ok(())
 }
 
 /// Get transaction by result value
-async fn get_transaction(
-    client: &SimpleApiClient, 
-    result: i32
-) -> Result<()> {
+async fn get_transaction(client: &SimpleApiClient, result: i32) -> Result<()> {
     info!("Looking up transaction with result: {}", result);
-    
+
     let url = format!("{}/api/v1/results/{}", client.base_url, result);
-    
+
     match client.client.get(&url).send().await {
         Ok(response) if response.status().is_success() => {
             info!("✅ Transaction found:");
@@ -226,16 +233,16 @@ async fn get_transaction(
             error!("❌ Failed to send request: {}", e);
         }
     }
-    
+
     Ok(())
 }
 
 /// Check API server health
 async fn health_check(client: &SimpleApiClient) -> Result<()> {
     info!("Checking API server health...");
-    
+
     let url = format!("{}/api/v1/health", client.base_url);
-    
+
     match client.client.get(&url).send().await {
         Ok(response) if response.status().is_success() => {
             info!("✅ API server is healthy!");
@@ -248,19 +255,16 @@ async fn health_check(client: &SimpleApiClient) -> Result<()> {
             error!("❌ Failed to check API health: {}", e);
         }
     }
-    
+
     Ok(())
 }
 
 /// Get proof information by proof ID
-async fn get_proof(
-    client: &SimpleApiClient, 
-    proof_id: String
-) -> Result<()> {
+async fn get_proof(client: &SimpleApiClient, proof_id: String) -> Result<()> {
     info!("Getting proof information for: {}", proof_id);
-    
+
     let url = format!("{}/api/v1/proofs/{}", client.base_url, proof_id);
-    
+
     match client.client.get(&url).send().await {
         Ok(response) if response.status().is_success() => {
             info!("✅ Proof found:");
@@ -281,30 +285,28 @@ async fn get_proof(
             error!("❌ Failed to send request: {}", e);
         }
     }
-    
+
     Ok(())
 }
 
 /// Verify proof with proof ID and expected result
 async fn verify_proof(
-    client: &SimpleApiClient, 
+    client: &SimpleApiClient,
     proof_id: String,
-    expected_result: i32
+    expected_result: i32,
 ) -> Result<()> {
-    info!("Verifying proof {} with expected result: {}", proof_id, expected_result);
-    
-    let request = VerifyProofRequest { 
-        proof_id: proof_id.clone(), 
-        expected_result 
+    info!(
+        "Verifying proof {} with expected result: {}",
+        proof_id, expected_result
+    );
+
+    let request = VerifyProofRequest {
+        proof_id: proof_id.clone(),
+        expected_result,
     };
     let url = format!("{}/api/v1/verify", client.base_url);
-    
-    match client.client
-        .post(&url)
-        .json(&request)
-        .send()
-        .await
-    {
+
+    match client.client.post(&url).json(&request).send().await {
         Ok(response) if response.status().is_success() => {
             info!("✅ Proof verification completed:");
             if let Ok(text) = response.text().await {
@@ -321,6 +323,6 @@ async fn verify_proof(
             error!("❌ Failed to send request: {}", e);
         }
     }
-    
+
     Ok(())
 }

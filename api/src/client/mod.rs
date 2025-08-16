@@ -20,10 +20,10 @@ pub struct ArithmeticApiClient {
 pub enum ApiClientError {
     #[error("HTTP request failed: {0}")]
     RequestFailed(#[from] reqwest::Error),
-    
+
     #[error("API returned error: {status} - {message}")]
     ApiError { status: u16, message: String },
-    
+
     #[error("Failed to serialize/deserialize: {0}")]
     SerializationError(#[from] serde_json::Error),
 }
@@ -66,13 +66,13 @@ impl ArithmeticApiClient {
             .timeout(Duration::from_secs(30))
             .build()
             .expect("Failed to create HTTP client");
-            
+
         Self {
             client,
             base_url: base_url.into(),
         }
     }
-    
+
     /// Store an arithmetic transaction
     pub async fn store_transaction(
         &self,
@@ -82,47 +82,37 @@ impl ArithmeticApiClient {
     ) -> Result<StoreTransactionResponse, ApiClientError> {
         let url = format!("{}/api/v1/transactions", self.base_url);
         let request = StoreTransactionRequest { a, b, result };
-        
-        let response = self.client
-            .post(&url)
-            .json(&request)
-            .send()
-            .await?;
-            
+
+        let response = self.client.post(&url).json(&request).send().await?;
+
         self.handle_response(response).await
     }
-    
+
     /// Get transaction by result value
     pub async fn get_transaction_by_result(
         &self,
         result: i32,
     ) -> Result<Option<Transaction>, ApiClientError> {
         let url = format!("{}/api/v1/transactions/by-result/{}", self.base_url, result);
-        
-        let response = self.client
-            .get(&url)
-            .send()
-            .await?;
-            
+
+        let response = self.client.get(&url).send().await?;
+
         match response.status().as_u16() {
             200 => Ok(Some(self.handle_response(response).await?)),
             404 => Ok(None),
             _ => Err(self.handle_error_response(response).await),
         }
     }
-    
+
     /// Check API health
     pub async fn health_check(&self) -> Result<bool, ApiClientError> {
         let url = format!("{}/api/v1/health", self.base_url);
-        
-        let response = self.client
-            .get(&url)
-            .send()
-            .await?;
-            
+
+        let response = self.client.get(&url).send().await?;
+
         Ok(response.status().is_success())
     }
-    
+
     /// Generic response handler
     async fn handle_response<T: for<'de> Deserialize<'de>>(
         &self,
@@ -135,7 +125,7 @@ impl ArithmeticApiClient {
             Err(self.handle_error_response(response).await)
         }
     }
-    
+
     /// Handle error responses
     async fn handle_error_response(&self, response: Response) -> ApiClientError {
         let status = response.status().as_u16();
@@ -143,7 +133,7 @@ impl ArithmeticApiClient {
             .text()
             .await
             .unwrap_or_else(|_| "Unknown error".to_string());
-            
+
         ApiClientError::ApiError { status, message }
     }
 }

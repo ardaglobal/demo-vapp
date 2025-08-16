@@ -9,7 +9,7 @@ use alloy_sol_types::SolType;
 use serde::{Deserialize, Serialize};
 use sindri::integrations::sp1_v5::SP1ProofInfo;
 use sindri::{client::SindriClient, JobStatus, ProofInfoResponse, ProofInput};
-use sp1_sdk::{SP1Stdin, HashableKey};
+use sp1_sdk::{HashableKey, SP1Stdin};
 use std::path::PathBuf;
 use std::time::Duration;
 use thiserror::Error;
@@ -84,28 +84,28 @@ pub struct ProofVerificationResponse {
 pub enum ProofError {
     #[error("Failed to serialize SP1 stdin: {0}")]
     SerializationError(String),
-    
+
     #[error("Sindri API error: {0}")]
     SindriError(String),
-    
+
     #[error("Proof generation failed: {0}")]
     ProofGenerationFailed(String),
-    
+
     #[error("Proof verification failed: {0}")]
     VerificationFailed(String),
-    
+
     #[error("Failed to decode public values: {0}")]
     PublicValuesDecodeError(String),
-    
+
     #[error("EVM fixture generation failed: {0}")]
     FixtureGenerationError(String),
-    
+
     #[error("Environment configuration error: {0}")]
     ConfigError(String),
-    
+
     #[error("JSON serialization error: {0}")]
     JsonError(#[from] serde_json::Error),
-    
+
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 }
@@ -139,28 +139,28 @@ pub async fn generate_sindri_proof(
     stdin.write(&request.a);
     stdin.write(&request.b);
 
-    let stdin_json = serde_json::to_string(&stdin)
-        .map_err(|e| ProofError::SerializationError(e.to_string()))?;
+    let stdin_json =
+        serde_json::to_string(&stdin).map_err(|e| ProofError::SerializationError(e.to_string()))?;
     let proof_input = ProofInput::from(stdin_json);
 
     // Get circuit name with configurable tag from environment
-    let circuit_tag = std::env::var("SINDRI_CIRCUIT_TAG")
-        .unwrap_or_else(|_| "latest".to_string());
+    let circuit_tag = std::env::var("SINDRI_CIRCUIT_TAG").unwrap_or_else(|_| "latest".to_string());
     let circuit_name = format!("demo-vapp:{}", circuit_tag);
 
     info!("📋 Using circuit: {} (tag: {})", circuit_name, circuit_tag);
 
     let client = SindriClient::default();
-    
+
     let proof_info = client
         .prove_circuit(&circuit_name, proof_input, None, None, None)
         .await
         .map_err(|e| ProofError::SindriError(e.to_string()))?;
 
     if proof_info.status == JobStatus::Failed {
-        return Err(ProofError::ProofGenerationFailed(
-            format!("Sindri proof generation failed: {:?}", proof_info.error)
-        ));
+        return Err(ProofError::ProofGenerationFailed(format!(
+            "Sindri proof generation failed: {:?}",
+            proof_info.error
+        )));
     }
 
     let status = match proof_info.status {
@@ -191,7 +191,15 @@ pub async fn generate_sindri_proof(
 
     // Generate EVM fixture if requested
     if request.generate_fixtures {
-        if let Err(e) = create_evm_fixture(&response.proof_info, request.a, request.b, request.result, request.proof_system).await {
+        if let Err(e) = create_evm_fixture(
+            &response.proof_info,
+            request.a,
+            request.b,
+            request.result,
+            request.proof_system,
+        )
+        .await
+        {
             warn!("⚠️  Failed to generate EVM fixture: {}", e);
         }
     }
@@ -204,11 +212,11 @@ pub async fn verify_sindri_proof(
     request: ProofVerificationRequest,
 ) -> Result<ProofVerificationResponse, ProofError> {
     let start_time = std::time::Instant::now();
-    
+
     info!("🔍 Verifying proof ID: {}", request.proof_id);
 
     let client = SindriClient::default();
-    
+
     let proof_info = client
         .get_proof(&request.proof_id, None, None, None)
         .await
@@ -227,13 +235,13 @@ pub async fn verify_sindri_proof(
     }
 
     // Extract SP1 proof and verification key from Sindri response
-    let sp1_proof = proof_info
-        .to_sp1_proof_with_public()
-        .map_err(|e| ProofError::VerificationFailed(format!("Failed to extract SP1 proof: {}", e)))?;
+    let sp1_proof = proof_info.to_sp1_proof_with_public().map_err(|e| {
+        ProofError::VerificationFailed(format!("Failed to extract SP1 proof: {}", e))
+    })?;
 
-    let sindri_verifying_key = proof_info
-        .get_sp1_verifying_key()
-        .map_err(|e| ProofError::VerificationFailed(format!("Failed to extract verification key: {}", e)))?;
+    let sindri_verifying_key = proof_info.get_sp1_verifying_key().map_err(|e| {
+        ProofError::VerificationFailed(format!("Failed to extract verification key: {}", e))
+    })?;
 
     // Perform local verification using Sindri's verification key
     let cryptographic_proof_valid = proof_info
@@ -358,17 +366,21 @@ async fn create_evm_fixture(
     // Create fixtures directory and save the fixture
     let fixture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .ok_or_else(|| ProofError::FixtureGenerationError("Failed to get parent directory".to_string()))?
+        .ok_or_else(|| {
+            ProofError::FixtureGenerationError("Failed to get parent directory".to_string())
+        })?
         .join("contracts/src/fixtures");
-    
-    std::fs::create_dir_all(&fixture_path)
-        .map_err(|e| ProofError::FixtureGenerationError(format!("Failed to create fixtures directory: {}", e)))?;
+
+    std::fs::create_dir_all(&fixture_path).map_err(|e| {
+        ProofError::FixtureGenerationError(format!("Failed to create fixtures directory: {}", e))
+    })?;
 
     let filename = format!("{}-fixture.json", system.to_sindri_scheme());
     let fixture_file = fixture_path.join(&filename);
 
-    std::fs::write(&fixture_file, serde_json::to_string_pretty(&fixture)?)
-        .map_err(|e| ProofError::FixtureGenerationError(format!("Failed to write fixture file: {}", e)))?;
+    std::fs::write(&fixture_file, serde_json::to_string_pretty(&fixture)?).map_err(|e| {
+        ProofError::FixtureGenerationError(format!("Failed to write fixture file: {}", e))
+    })?;
 
     info!("✅ EVM fixture saved to: {}", fixture_file.display());
     info!("🔑 Verification Key: {}", fixture.vkey);
