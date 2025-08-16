@@ -5,35 +5,71 @@ target/
 # IDE files
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
 
 # OS files
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # Git
 .git/
 .gitignore
+.gitattributes
 
 # Environment files
-.env
+.env*
 .envrc
 
 # Documentation
 *.md
 !README.md
+CHANGELOG*
+LICENSE*
+CONTRIBUTING*
 
 # Docker files
-Dockerfile
+Dockerfile*
 .dockerignore
-docker-compose.yml
+docker-compose*.yml
 
 # Build artifacts
 build/
 **/build/
+dist/
+node_modules/
 
 # Proofs and temporary files
 **/proof-with-pis.json
 **/proof-with-io.json
+*.proof
+*.json.bak
 
 # Cache directories
 .cargo/
+.npm/
+.cache/
+
+# Testing and CI
+.github/
+coverage/
+*.log
+*.tmp
+
+# Development tools
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+
+# Foundry/Contracts (if not needed for runtime)
+contracts/cache/
+contracts/out/
+contracts/broadcast/
+
+# Unnecessary for Docker build
+Makefile
+*.sh
+!install-dependencies.sh
