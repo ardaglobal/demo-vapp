@@ -65,8 +65,7 @@ cd program && cargo prove build --output-directory ../build
 
 ### Zero-Knowledge Proofs
 ```bash
-# Prerequisites: Circuit must be deployed to Sindri first
-# ./deploy-circuit.sh
+# Prerequisites: Circuit must be deployed to Sindri first (see Quick Start)
 
 # 🌐 Generate proof via API server (Groth16 default)
 curl -X POST http://localhost:8080/api/v1/transactions \
@@ -84,15 +83,9 @@ curl -X POST http://localhost:8080/api/v1/verify \
 # Get verification key
 curl http://localhost:8080/api/v1/vkey
 
-# Circuit management
+# Circuit management (see Quick Start for deployment)
 sindri lint                           # Validate circuit
-sindri deploy                         # Deploy with 'latest' tag
-sindri deploy --tag "custom-tag"      # Deploy with specific tag
 sindri list                           # Show deployed circuits
-
-# ⚠️ Legacy Commands (moved to API server):
-# Old: cd script && cargo run --release -- --prove --a 5 --b 10
-# New: Use API server endpoints or CLI client
 ```
 
 ### Testing
@@ -244,21 +237,17 @@ When you do the "setup" for a circuit (trusted or transparent), the compiler:
 
 ## Environment
 
+**Key Environment Variables:**
 ```bash
-# Complete setup flow
-./install-dependencies.sh             # Install all dependencies
-cp .env.example .env                   # Copy environment template
-export SINDRI_API_KEY=your_api_key_here
-./deploy-circuit.sh                    # Deploy circuit to Sindri
-docker-compose up -d                   # Start full stack
-
-# Environment variables in .env file:
-# DATABASE_URL=postgresql://postgres:password@localhost:5432/arithmetic_db
-# SINDRI_API_KEY=your_sindri_api_key_here
-# SINDRI_CIRCUIT_TAG=latest
-# RUST_LOG=info
-# SERVER_PORT=8080
+# Required in .env file:
+DATABASE_URL=postgresql://postgres:password@localhost:5432/arithmetic_db
+SINDRI_API_KEY=your_sindri_api_key_here
+SINDRI_CIRCUIT_TAG=latest
+RUST_LOG=info
+SERVER_PORT=8080
 ```
+
+*Complete setup flow: See "Quick Start" section above.*
 
 ## Database Architecture
 
@@ -384,25 +373,8 @@ This enables trustless verification where external parties can cryptographically
 ## Deployment & Development Workflow
 
 ### Fresh Environment Setup
-```bash
-# 1. Install dependencies (one-time setup)
-./install-dependencies.sh
 
-# 2. Configure environment
-cp .env.example .env
-# Edit .env: Add SINDRI_API_KEY and configure SINDRI_CIRCUIT_TAG if needed
-
-# 3. Deploy circuit to Sindri
-export SINDRI_API_KEY=your_api_key_here
-./deploy-circuit.sh                    # Default: latest tag
-# ./deploy-circuit.sh "dev-v1.0"       # Custom tag
-
-# 4. Start services
-docker-compose up -d
-
-# 5. Verify deployment
-curl http://localhost:8080/api/v1/health
-```
+*See "Quick Start" section at the top for complete setup instructions.*
 
 ### Development Workflow
 ```bash
