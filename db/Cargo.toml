@@ -1,12 +1,8 @@
 [package]
 edition = "2021"
 license = "MIT"
-name    = "arithmetic-db"
+name    = "db"
 version = "0.1.0"
-
-[[bin]]
-name = "server"
-path = "src/bin/server.rs"
 
 
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -25,7 +21,7 @@ sqlx = { workspace = true, features = [
     "chrono",
     "json",
     "postgres",
-    "runtime-tokio-rustls",
+    "runtime-tokio-rustls", 
     "uuid",
 ] }
 thiserror = "1.0"
@@ -35,44 +31,21 @@ uuid = { version = "1.0", features = [ "serde", "v4" ] }
 
 # SP1 and arithmetic dependencies  
 alloy-sol-types = { workspace = true }
-arithmetic-lib  = { path = "../lib" }
+arithmetic-lib  = { path = "../lib", package = "lib" }
 sindri          = { version = "0.3.1", features = [ "sp1-v5" ] }
 sp1-sdk         = { workspace = true }
 
-# API dependencies
-async-graphql = { version = "7.0", features = [ "chrono" ] }
-async-graphql-axum = "7.0"
+# Utility dependencies (kept for non-API uses)
 async-trait = "0.1"
-axum = { version = "0.8", features = [ "ws" ] }
-futures-util = "0.3"
 hex = "0.4"
-http = "1.0"
-hyper = "1.0"
-rand = "0.8"
-regex = "1.0"
 serde_json = "1.0"
+rand = "0.8"
 sha2 = "0.10"
-tokio-stream = "0.1"
-tower = { version = "0.4", features = [ "util" ] }
-tower-http = { version = "0.5", features = [
-    "compression-gzip",
-    "cors",
-    "limit",
-    "timeout",
-    "trace",
-] }
 url = "2.5"
 
-# Server binary dependencies
-clap               = { version = "4.0", features = [ "derive" ] }
-dotenv             = "0.15"
-tracing-subscriber = { version = "0.3", features = [ "env-filter" ] }
-
 [dev-dependencies]
-arithmetic-lib     = { path = "../lib" }
-axum-test          = "17.3.0"
+arithmetic-lib     = { path = "../lib", package = "lib" }
 tempfile           = "3.10"
 tracing-subscriber = "0.3"
 tracing-test       = "0.2"
-url                = "2.5"
 uuid               = { version = "1.0", features = [ "v4" ] }

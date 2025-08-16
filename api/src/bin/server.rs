@@ -6,12 +6,12 @@
 //!
 //! Run this server using:
 //! ```shell
-//! cd db && cargo run --bin server
+//! cd api && cargo run --bin server
 //! ```
 
+use api::{ApiConfig, ApiServerBuilder};
 use arithmetic_db::{
     ads_service::AdsServiceFactory,
-    api::{ApiConfig, ApiServerBuilder},
     db::init_db,
     vapp_integration::{
         MockComplianceService, MockNotificationService, MockProofService, MockSettlementService,
@@ -189,14 +189,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     };
 
     // Create API state for the router
-    let api_state = arithmetic_db::api::ApiState {
+    let api_state = api::rest::ApiState {
         ads: ads.clone(),
         vapp_integration: vapp_integration.clone(),
         config: api_config.clone(),
     };
 
     // Create the router using the REST API directly
-    let mut app = arithmetic_db::api::create_router(api_state);
+    let mut app = api::rest::create_router(api_state);
 
     // Apply CORS if enabled
     if args.cors {

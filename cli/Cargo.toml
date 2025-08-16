@@ -1,0 +1,26 @@
+[package]
+edition     = "2021"
+license     = "MIT"
+name        = "cli"
+version     = "0.1.0"
+
+[[bin]]
+name = "cli"
+path = "src/bin/cli.rs"
+
+[dependencies]
+# Simple HTTP client (avoid full API server dependencies)
+reqwest            = { version = "0.11", features = ["json"] }
+serde              = { workspace = true }
+serde_json         = { workspace = true }
+
+# CLI functionality  
+clap               = { workspace = true, features = [ "derive", "env" ] }
+eyre               = { workspace = true }
+
+# Runtime and utilities
+tokio              = { workspace = true }
+tracing            = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# No build dependencies needed for CLI

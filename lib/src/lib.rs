@@ -1,5 +1,9 @@
 use alloy_sol_types::sol;
 
+// Proof module only available for host-side operations
+#[cfg(feature = "sp1")]
+pub mod proof;
+
 sol! {
     /// The public values encoded as a struct that can be easily deserialized inside Solidity.
     /// In true zero-knowledge fashion, only the result is public - the inputs a and b remain private.

@@ -1,244 +1,160 @@
 # Arda Demo vApp
 
-A simple counter demo demonstrating the [vApp Archtiecture](https://arxiv.org/pdf/2504.14809)
+A simple arithmetic demo demonstrating the [vApp Architecture](https://arxiv.org/pdf/2504.14809)
 
 Based off the template for creating an end-to-end [SP1](https://github.com/succinctlabs/sp1) project
 that can generate a proof of any RISC-V program.
+
+## Architecture Overview
+
+This project features a clean separation of concerns:
+
+- **`script/`** - Local SP1 unit testing (`cargo run` for fast development)
+- **`cli/`** - Simple HTTP client for API server interaction
+- **`api/`** - Production web server with complex logic and Sindri integration
+- **`db/`** - Database layer with PostgreSQL and indexed Merkle trees
+- **`lib/`** - Pure computation logic (zkVM compatible)
+- **`program/`** - RISC-V program source for SP1 zkVM
 
 ## Requirements
 
 - [Rust](https://rustup.rs/)
 - [SP1](https://docs.succinct.xyz/docs/sp1/getting-started/install)
+- [Foundry](https://book.getfoundry.sh/getting-started/installation) (for smart contracts)
+- [Docker](https://docs.docker.com/get-docker/) (for database)
+- [Node.js](https://nodejs.org/) (for Sindri CLI)
 
-## You will need to install the following dependencies:
+## Quick Start (Zero to Running Server)
 
+**💡 Pro Tip**: Use the included `Makefile` for even simpler commands:
+```sh
+make setup    # Install dependencies + copy .env
+# Update .env file with needed env vars
+make deploy   # Deploy circuit to Sindri  
+make up       # Start services
+```
+
+### 1. Install Dependencies
 ```sh
 ./install-dependencies.sh
 ```
 
-## Running the Project
-
-There are 3 main ways to run this project: execute a program, generate a core proof, and
-generate an EVM-compatible proof.
-
-### Environment Setup
-
-**Required**: Copy the environment file and configure your database connection:
-
+### 2. Set Environment Variables
 ```sh
 cp .env.example .env
+# Edit .env and add your Sindri API key for proof generation and circuit deployment:
+# Get your API key from https://sindri.app
+# SINDRI_API_KEY=your_sindri_api_key_here
 ```
 
-The `.env` file contains database credentials and SP1 configuration. For development and testing, the default PostgreSQL credentials are already configured for use with Docker Compose (see Database Setup section below).
-
-### Database Setup
-
-This project requires a PostgreSQL database for storing arithmetic transactions. The easiest way to set this up is using Docker Compose:
-
+### 3. Deploy Circuit to Sindri (Required for Proof Generation)
 ```sh
-# Start PostgreSQL container in the background
+# Deploy the circuit (uses 'latest' tag by default)
+./deploy-circuit.sh
+
+# Or deploy with a specific tag
+./deploy-circuit.sh "dev-v1.0"
+
+# Or set SINDRI_CIRCUIT_TAG in your .env
+# SINDRI_CIRCUIT_TAG=dev-v1.0
+
+# Or deploy manually:
+# sindri lint
+# sindri deploy                    # Uses 'latest' tag
+# sindri deploy --tag "custom-tag" # Uses specific tag
+```
+
+**Note**: This step is required for proof generation. Without deploying the circuit, you can still run the server and submit transactions, but proof generation will fail.
+
+### 4. Start the Full Stack
+```sh
+# Start database + API server (uses pre-built image from GitHub Container Registry)
 docker-compose up -d
 
-# Verify the database is running
+# Verify services are running
 docker-compose ps
+
+# Check server health
+curl http://localhost:8080/api/v1/health
 ```
 
-The database will be automatically initialized with the required schema when you first run the execute command.
+**For Local Development**: If you're actively developing and want to build the Docker image locally for faster iteration:
+```sh
+# Option 1: Use the development compose file
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
-To stop the database:
+# Option 2: Run API server locally (requires PostgreSQL running)
+docker-compose up postgres -d
+cargo run --bin server --release
+```
+
+### 5. Test the API
+
+**Option A: Direct HTTP API**
+```sh
+# Submit a transaction
+curl -X POST http://localhost:8080/api/v1/transactions \
+  -H 'Content-Type: application/json' \
+  -d '{"a": 7, "b": 13, "generate_proof": false}'
+
+# Generate a proof via Sindri (requires SINDRI_API_KEY in .env)
+curl -X POST http://localhost:8080/api/v1/transactions \
+  -H 'Content-Type: application/json' \
+  -d '{"a": 5, "b": 10, "generate_proof": true}'
+```
+
+**Option B: CLI Client (Recommended)**
+
+> **💡 Note**: Since binary names are unique across packages, you can use `cargo run --bin <binary>` from the workspace root. Only use `-p <package>` if you encounter naming conflicts or want to be explicit.
 
 ```sh
-# Stop the container
-docker-compose down
+# Check API server health
+cargo run --bin cli -- health-check
 
-# Stop and remove all data (clean slate)
-docker-compose down -v
+# Store a transaction via CLI
+cargo run --bin cli -- store-transaction --a 5 --b 10
+
+# Query a transaction by result
+cargo run --bin cli -- get-transaction --result 15
 ```
 
-### Upon first run
+### 6. Local SP1 Development
 
-Before we can run the program inside the zkVM, it must be compiled to a RISC-V executable using the succinct Rust toolchain. This is called an ELF (Executable and Linkable Format).
-To compile the program to the ELF, you can run the following command:
-
+For fast local SP1 unit testing during development:
 ```sh
-cd program && cargo prove build --output-directory ../build
+# Quick SP1 unit test (generates Core proof in ~3.5 seconds)
+# This runs the default binary (main) from the script package
+cargo run --release
+
+# Equivalent explicit command:
+# cargo run --bin main --release
 ```
 
-### Build the Program
+This provides a fast feedback loop for SP1 development without database or Sindri dependencies.
 
-The program is automatically built through `script/build.rs` when the script is built.
+---
 
-### Execute the Program
+That's it! 🎉 You now have a running zero-knowledge arithmetic server with multiple interaction methods.
 
-To run the program interactively without generating a proof:
+---
 
-```sh
-cd script
-cargo run --release -- --execute
-```
+## Detailed Setup Instructions
 
-This will start an interactive CLI where you can:
-- Enter pairs of numbers (a and b) to compute their sum
-- See the results stored in the PostgreSQL database
-- Continue entering new calculations until you press 'q' to quit
+**Note for Linux users**: 
+- After running the install script, you may need to log out and back in (or restart your terminal) for Docker group membership to take effect. You can verify Docker is working by running `docker --version` and `docker compose version`.
+- The script installs OpenSSL development libraries (`libssl-dev`) required for Rust crates compilation.
+- If you encounter OpenSSL-related compilation errors, ensure you have the latest packages: `sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config`
 
-Each calculation is verified and stored in the database for later retrieval.
+**Installed Tools**: The script installs all necessary development tools including Rust toolchain, SP1, Foundry, Docker, Node.js, PostgreSQL client tools, sqlx-cli for database migrations, and other utilities.
 
-### Verify Stored Results
+## Proofs 
 
-To verify that results are stored in the database:
-
-```sh
-cd script
-cargo run --release -- --verify
-```
-
-This will start an interactive CLI where you can:
-- Enter a result value (e.g., 15)
-- See what values of 'a' and 'b' were added to get that result
-- Continue looking up different results until you press 'q' to quit
-
-You can also verify a specific result non-interactively:
-
-```sh
-cargo run --release -- --verify --result 15
-```
-
-### Generate Zero-Knowledge Proofs via Sindri
-
-**All proofs are now EVM-compatible by default** using Sindri's cloud infrastructure:
-
-```sh
-cd script
-# Generate Groth16 proof for specific values (default)
-cargo run --release -- --prove --a 5 --b 10
-
-# Generate PLONK proof for specific values
-cargo run --release -- --prove --a 5 --b 10 --system plonk
-
-# Generate proof for a previously computed result stored in database
-cargo run --release -- --prove --result 15
-
-# Generate proof with Solidity test fixtures
-cargo run --release -- --prove --a 5 --b 10 --generate-fixture
-```
-
-**Command Options:**
-- `--system groth16|plonk`: Choose EVM-compatible proof system (default: groth16)
-- `--generate-fixture`: Create Solidity test fixtures in `contracts/src/fixtures/`
-- `--a` and `--b`: Direct input values for computation
-- `--result`: Look up stored transaction inputs by result value
-
-The `--prove` command will:
-1. Create SP1 inputs and serialize them for Sindri
-2. Generate EVM-compatible proofs (Groth16 or PLONK)
-3. Submit proof request to Sindri using the `demo-vapp` circuit
-4. Store proof metadata in PostgreSQL (database mode) or run standalone
-5. Display proof ID for external verification
-
-### Verify Sindri Proofs
-
-There are two ways to verify proofs generated via Sindri:
-
-#### External Verification (Recommended for sharing proofs)
-
-Use the proof ID printed during the prove flow:
-
-```sh
-cd script
-# Verify using proof ID (no database required)
-cargo run --release -- --verify --proof-id <PROOF_ID> --result <EXPECTED_RESULT>
-
-# Example:
-cargo run --release -- --verify --proof-id "proof_abc123def456" --result 15
-```
-
-This method:
-- ✅ Works for external users without database access
-- ✅ Only requires the proof ID and expected result
-- ✅ Performs full cryptographic verification using Sindri's verification key
-- ✅ Demonstrates true zero-knowledge properties
-
-#### Database Verification (Internal use)
-
-For internal use with database access:
-
-```sh
-cd script
-# Interactive verification mode
-cargo run --release -- --verify
-
-# Verify specific result
-cargo run --release -- --verify --result 15
-```
-
-This method:
-1. Looks up the stored Sindri proof metadata by result
-2. Queries Sindri's API to get the current proof status
-3. Displays verification results and updates the stored status
-
-### Generate EVM-Compatible Proofs via Sindri
-
-All proofs generated through the main CLI are now EVM-compatible by default, using Sindri's cloud infrastructure. This provides scalable, production-ready proof generation without requiring local GPU resources.
-
-To generate a Groth16 proof (default):
-
-```sh
-cd script
-# Using specific inputs
-cargo run --release -- --prove --a 5 --b 10 --system groth16
-
-# Using database lookup by result
-cargo run --release -- --prove --result 15 --system groth16
-```
-
-To generate a PLONK proof:
-
-```sh
-cd script
-# Using specific inputs
-cargo run --release -- --prove --a 5 --b 10 --system plonk
-
-# Using database lookup by result
-cargo run --release -- --prove --result 15 --system plonk
-```
-
-To generate Solidity test fixtures for on-chain verification:
-
-```sh
-cd script
-# Generate proof with EVM fixture files
-cargo run --release -- --prove --a 5 --b 10 --system groth16 --generate-fixture
-```
-
-These commands will:
-1. Generate EVM-compatible proofs (Groth16/PLONK) via Sindri
-2. Optionally create fixtures for Solidity contract testing (with `--generate-fixture`)
-3. Provide proof IDs for external verification
-4. Store proof metadata for later verification (database mode only)
-
-### Retrieve the Verification Key
-
-To retrieve your `programVKey` for your on-chain contract, run the following command in `script`:
-
-```sh
-cargo run --release -- --vkey
-```
-
-## Sindri Integration for Serverless ZK Proofs
-
-This project integrates with [Sindri](https://sindri.app) for serverless zero-knowledge proof generation, providing a scalable alternative to local SP1 proving.
-
-### Setup
-
-1. **Get your Sindri API key:**
-   - Sign up at [sindri.app](https://sindri.app)
-   - Create an API key from your account dashboard
-
-2. **Set your API key as an environment variable:**
-   ```bash
-   export SINDRI_API_KEY=your_api_key_here
-   ```
+The proof generation process:
+1. Creates SP1 inputs and serializes them for Sindri
+2. Generates EVM-compatible proofs (Groth16 by default)
+3. Submits proof request to Sindri using the `demo-vapp` circuit
+4. Stores proof metadata in PostgreSQL  
+5. Returns proof ID for external verification
 
 ### Continuous Integration
 
@@ -306,16 +222,7 @@ When you do the "setup" for a circuit (trusted or transparent), the compiler:
 
 ## REST API Server
 
-The project includes a comprehensive REST API server for external actors to interact with the vApp. The server provides HTTP endpoints for transaction submission, proof verification, and system monitoring.
-
-### Starting the Server
-
-```sh
-cd db
-cargo run --bin server --release
-```
-
-The server will start on `http://localhost:8080` by default.
+The API server will start on `http://localhost:8080` by default.
 
 ### API Endpoints
 
@@ -333,6 +240,8 @@ The server will start on `http://localhost:8080` by default.
 - `GET /api/v1/info` - API information and capabilities
 
 ### Usage Examples
+
+**Note**: `curl` is installed by the dependency script and ready for API testing.
 
 ```sh
 # Submit a transaction with proof generation
@@ -357,5 +266,7 @@ curl http://localhost:8080/api/v1/health
 3. **Share Proof:** Proof ID can be shared for trustless verification
 4. **Verify Independently:** Others can verify using proof ID without database access
 5. **Read from Smart Contract:** Can also read verified proofs from on-chain storage
+
+This enables trustless verification where external parties can cryptographically verify computation results without seeing private inputs or requiring database access.
 
 This enables trustless verification where external parties can cryptographically verify computation results without seeing private inputs or requiring database access.

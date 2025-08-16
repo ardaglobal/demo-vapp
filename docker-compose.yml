@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:15
@@ -17,6 +15,28 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  server:
+    # Production: Use pre-built image from GitHub Container Registry
+    image: ghcr.io/ardaglobal/demo-vapp:latest
+    
+    container_name: arithmetic_server
+    env_file:
+      - .env  # Load environment variables from .env file
+    environment:
+      # Override/add specific environment variables
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/arithmetic_db
+      - RUST_LOG=${RUST_LOG:-info}
+      - SERVER_PORT=${SERVER_PORT:-8080}
+      # Pass through Sindri configuration from host environment or .env file
+      - SINDRI_API_KEY=${SINDRI_API_KEY}
+      - SINDRI_CIRCUIT_TAG=${SINDRI_CIRCUIT_TAG:-latest}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   postgres_data:
