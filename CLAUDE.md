@@ -7,7 +7,7 @@ SP1 zero-knowledge proof project demonstrating arithmetic addition with indexed 
 ### 🏗️ **New Architecture (Post-Refactor)**
 
 1. **RISC-V Program** (`program/`): Arithmetic addition in SP1 zkVM
-2. **Local SP1 Testing** (`script/`): Fast unit testing with Core proofs (`cargo run`)  
+2. **Local SP1 Testing** (`script/`): Fast unit testing with Core proofs (`cargo run -p demo-vapp`)  
 3. **CLI Client** (`cli/`): Simple HTTP client for API server interaction
 4. **API Server** (`api/`): Production web server with Sindri integration and complex workflows
 5. **Database Module** (`db/`): PostgreSQL with indexed Merkle tree operations
@@ -15,7 +15,7 @@ SP1 zero-knowledge proof project demonstrating arithmetic addition with indexed 
 7. **Shared Library** (`lib/`): Pure computation logic (zkVM compatible)
 
 ### 🎯 **Clear Separation of Concerns**
-- **`cargo run`** → Local SP1 development (3.5s Core proofs)
+- **`cargo run -p demo-vapp`** → Local SP1 development (3.5s Core proofs)
 - **CLI** → Simple API client (no interactive modes, no database)  
 - **API Server** → Production system (Sindri, database, complex workflows)
 
@@ -48,16 +48,16 @@ curl http://localhost:8080/api/v1/health
 ### Development Commands
 ```bash
 # 🚀 Local SP1 unit testing (fast development)
-cargo run --package arithmetic-program-builder --bin local-sp1-test --release
+cargo run -p demo-vapp --bin demo-vapp --release
 
 # 🖥️ CLI client (simple API interaction) 
-cargo run --package arithmetic-cli --bin arithmetic -- health-check
-cargo run --package arithmetic-cli --bin arithmetic -- store-transaction --a 5 --b 10
-cargo run --package arithmetic-cli --bin arithmetic -- get-transaction --result 15
+cargo run -p cli --bin cli -- health-check
+cargo run -p cli --bin cli -- store-transaction --a 5 --b 10
+cargo run -p cli --bin cli -- get-transaction --result 15
 
 # 🌐 Local API server development (alternative to Docker)
 docker-compose up postgres -d
-cargo run --package arithmetic-api --bin server --release
+cargo run -p api --bin server --release
 
 # Manual program compilation (done automatically in Docker)
 cd program && cargo prove build --output-directory ../build
@@ -74,7 +74,7 @@ curl -X POST http://localhost:8080/api/v1/transactions \
   -d '{"a": 5, "b": 10, "generate_proof": true}'
 
 # 🖥️ Generate proof via CLI client  
-cargo run --package arithmetic-cli --bin arithmetic -- store-transaction --a 5 --b 10
+cargo run -p cli --bin cli -- store-transaction --a 5 --b 10
 
 # Verify with proof ID (external - no database required)
 curl -X POST http://localhost:8080/api/v1/verify \
@@ -150,7 +150,7 @@ cp .env.example .env
 ### 🏗️ **Clean Separation Architecture**
 
 **🚀 Local Development Path (`script/`):**
-- `cargo run` → Fast SP1 unit testing (~3.5s Core proofs)
+- `cargo run -p demo-vapp` → Fast SP1 unit testing (~3.5s Core proofs)
 - Zero dependencies on database, Sindri, or production workflows
 - Perfect for SP1 program development and quick verification
 
@@ -168,12 +168,12 @@ cp .env.example .env
 - GraphQL and REST endpoints
 
 ### Core Components
-- **arithmetic-lib** (`lib/`): Shared arithmetic computation logic (zkVM compatible)
-- **arithmetic-program** (`program/`): RISC-V program for zkVM (private inputs → public result)
-- **arithmetic-program-builder** (`script/`): Local SP1 unit testing with fast Core proofs
-- **arithmetic-cli** (`cli/`): Simple HTTP client for API interaction
-- **arithmetic-api** (`api/`): Production web server with Sindri integration
-- **arithmetic-db** (`db/`): PostgreSQL with indexed Merkle tree operations
+- **lib** (`lib/`): Shared arithmetic computation logic (zkVM compatible)
+- **program** (`program/`): RISC-V program for zkVM (private inputs → public result)
+- **demo-vapp** (`script/`): Local SP1 unit testing with fast Core proofs
+- **cli** (`cli/`): Simple HTTP client for API interaction
+- **api** (`api/`): Production web server with Sindri integration
+- **db** (`db/`): PostgreSQL with indexed Merkle tree operations
 - **state-management-system** (`contracts/src/interfaces/`): Complete state lifecycle management with proof verification
 
 ### Zero-Knowledge Properties
@@ -228,7 +228,7 @@ When you do the "setup" for a circuit (trusted or transparent), the compiler:
 ### Key Files
 - `program/src/main.rs`: SP1 zkVM program (ZK public values: result only)
 - `script/src/bin/main.rs`: Local SP1 unit testing (fast Core proofs) 
-- `cli/src/bin/arithmetic.rs`: Simple CLI client for API interaction
+- `cli/src/bin/cli.rs`: Simple CLI client for API interaction
 - `api/src/bin/server.rs`: Production API server with Sindri integration
 - `api/src/client/mod.rs`: HTTP client library for API interaction
 - `db/src/merkle_tree.rs`: 32-level indexed Merkle tree
@@ -330,7 +330,7 @@ The project includes a comprehensive REST API server located in the `api/` direc
 
 ```bash
 # Start the API server
-cargo run --package arithmetic-api --bin server --release
+cargo run -p api --bin server --release
 
 # Submit a transaction with proof generation (continuous state)
 curl -X POST http://localhost:8080/api/v1/transactions \
@@ -447,7 +447,7 @@ sqlx migrate info                      # Check migration status
 
 ```bash
 # Start API server with background processing enabled
-cargo run --package arithmetic-api --bin server --release
+cargo run -p api --bin server --release
 
 # Background processing is automatically enabled when the API server starts
 # Configuration is handled via environment variables in .env file
