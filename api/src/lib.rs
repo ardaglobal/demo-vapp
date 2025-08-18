@@ -47,7 +47,7 @@ pub use rest::{
     create_router, ApiConfig, ApiState, AuditTrailResponse, BatchInsertRequest,
     BatchInsertResponse, HealthResponse, InsertNullifierRequest, InsertNullifierResponse,
     MembershipCheckResponse, NonMembershipResponse, ProofResponse, TransactionRequest,
-    TransactionResponse, TreeStatsResponse, VerifyProofRequest, VerifyProofResponse,
+    TransactionResponse, TreeStatsResponse,
 };
 pub use server::{ApiServer, ApiServerBuilder, ApiServerConfig};
 

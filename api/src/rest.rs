@@ -12,14 +12,13 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, instrument, warn};
 
-use alloy_sol_types::SolType;
 use arithmetic_db::ads_service::{AuthenticatedDataStructure, IndexedMerkleTreeADS};
 use arithmetic_db::db::{
     get_current_global_state, get_sindri_proof_by_result, get_state_history, get_transaction_count,
     get_value_by_result, store_transaction_with_state_update, validate_state_integrity,
 };
 use arithmetic_db::vapp_integration::VAppAdsIntegration;
-use arithmetic_lib::{addition, PublicValuesStruct};
+use arithmetic_lib::addition;
 use sindri::integrations::sp1_v5::SP1ProofInfo;
 use sindri::{client::SindriClient, JobStatus};
 use sp1_sdk::HashableKey;
@@ -421,42 +420,7 @@ pub struct ProofCircuitInfo {
     pub proof_system: String,
 }
 
-/// Request for proof verification
-#[derive(Debug, Serialize, Deserialize)]
-pub struct VerifyProofRequest {
-    pub proof_id: String,
-    pub expected_result: i32,
-}
 
-/// Response for proof verification
-#[derive(Debug, Serialize, Deserialize)]
-pub struct VerifyProofResponse {
-    pub valid: bool,
-    pub proof_id: String,
-    pub actual_result: Option<i32>,
-    pub expected_result: i32,
-    pub verification_details: VerificationDetails,
-    pub zero_knowledge_properties: ZkProperties,
-}
-
-/// Detailed verification information
-#[derive(Debug, Serialize, Deserialize)]
-pub struct VerificationDetails {
-    pub sindri_status: String,
-    pub cryptographic_proof_valid: bool,
-    pub result_matches_expected: bool,
-    pub verification_time_ms: u64,
-}
-
-/// Zero-knowledge proof properties
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ZkProperties {
-    pub privacy_preserved: bool,
-    pub inputs_hidden: bool,
-    pub soundness: bool,
-    pub completeness: bool,
-    pub description: String,
-}
 
 // ============================================================================
 // ROUTER SETUP
@@ -1313,8 +1277,8 @@ async fn submit_transaction(
 
     let verification_command = proof_id.as_ref().map(|pid| {
         format!(
-            "cargo run --release -- --verify --proof-id {} --result {}",
-            pid, result
+            "cargo run --bin cli -- download-proof --proof-id {} && cargo run --bin cli -- verify-proof --proof-file proof_{}.json --expected-result {}",
+            pid, pid, result
         )
     });
 
@@ -1436,69 +1400,11 @@ async fn get_proof_info(
 
     match client.get_proof(&proof_id, None, None, None).await {
         Ok(proof_info) => {
-            let verification_data = if proof_info.status == JobStatus::Ready {
-                // Perform local verification
-                if let Ok(sp1_proof) = proof_info.to_sp1_proof_with_public() {
-                    if let Ok(vk) = proof_info.get_sp1_verifying_key() {
-                        match proof_info.verify_sp1_proof_locally(&vk) {
-                            Ok(()) => {
-                                // Proof verification succeeded, extract public values
-                                match PublicValuesStruct::abi_decode(
-                                    sp1_proof.public_values.as_slice(),
-                                ) {
-                                    Ok(decoded) => Some(ProofVerificationData {
-                                        is_verified: true,
-                                        public_result: decoded.result,
-                                        verification_message: "Proof cryptographically verified"
-                                            .to_string(),
-                                        cryptographic_proof_valid: true,
-                                    }),
-                                    Err(decode_err) => Some(ProofVerificationData {
-                                        is_verified: false,
-                                        public_result: 0,
-                                        verification_message: format!(
-                                            "Failed to decode public values: {}",
-                                            decode_err
-                                        ),
-                                        cryptographic_proof_valid: true, // Crypto verification passed, decode failed
-                                    }),
-                                }
-                            }
-                            Err(verify_err) => Some(ProofVerificationData {
-                                is_verified: false,
-                                public_result: 0,
-                                verification_message: format!(
-                                    "Cryptographic proof verification failed: {}",
-                                    verify_err
-                                ),
-                                cryptographic_proof_valid: false,
-                            }),
-                        }
-                    } else {
-                        Some(ProofVerificationData {
-                            is_verified: false,
-                            public_result: 0,
-                            verification_message: "Failed to get verifying key".to_string(),
-                            cryptographic_proof_valid: false,
-                        })
-                    }
-                } else {
-                    Some(ProofVerificationData {
-                        is_verified: false,
-                        public_result: 0,
-                        verification_message: "Failed to convert to SP1 proof".to_string(),
-                        cryptographic_proof_valid: false,
-                    })
-                }
-            } else {
-                None
-            };
-
             let response = ProofResponse {
                 proof_id: proof_id.clone(),
                 status: format!("{:?}", proof_info.status),
-                result: verification_data.as_ref().map(|v| v.public_result),
-                verification_data,
+                result: None, // Result extraction moved to local verification
+                verification_data: None, // Verification moved to local CLI
                 circuit_info: ProofCircuitInfo {
                     circuit_id: proof_info.circuit_id,
                     circuit_name: "demo-vapp".to_string(),
@@ -1546,7 +1452,7 @@ async fn download_proof_data(
                                 },
                                 "verification_info": {
                                     "instructions": "Use the local verification tool with this data",
-                                    "command": format!("cargo run --bin local-verifier -- --proof-data <proof_hex> --public-values <public_values_hex> --verifying-key <vk_hex> --expected-result <result>"),
+                                    "command": format!("cargo run --bin cli -- verify-proof --proof-file proof_{}.json --expected-result <result>", proof_id),
                                     "note": "All verification is done locally without network dependencies"
                                 },
                                 "circuit_info": {

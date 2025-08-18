@@ -1,7 +1,7 @@
 //! `RESTful` API server for the SP1 arithmetic counter vApp
 //!
 //! This server provides a REST API for submitting transactions, generating proofs,
-//! and verifying proofs externally. It integrates with the existing Merkle tree
+//! and downloading proofs for local verification. It integrates with the existing Merkle tree
 //! infrastructure and Sindri proof generation.
 //!
 //! Run this server using:
@@ -228,8 +228,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("   • POST   /api/v1/transactions      - Submit new transactions");
     println!("   • GET    /api/v1/results/{{result}}  - Get transaction by result");
     println!("   • GET    /api/v1/proofs/{{proof_id}} - Get proof information");
-    println!("   • POST   /api/v1/results/{{result}}/verify - Verify proof for result");
-    println!("   • POST   /api/v1/verify            - Verify proof by ID");
+    println!("   • GET    /api/v1/proofs/{{proof_id}}/download - Download proof for local verification");
     println!("   • GET    /api/v1/health             - Health check");
     println!("   • GET    /api/v1/info               - API information");
 
