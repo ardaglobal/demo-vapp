@@ -48,7 +48,7 @@ struct SimpleApiClient {
 }
 
 // Import API response types instead of redefining them
-use arithmetic_api::{TransactionRequest, TransactionResponse};
+use arithmetic_api::{ProofResponse, TransactionRequest, TransactionResponse};
 use arithmetic_api::rest::TransactionByResultResponse;
 
 /// Response from downloading proof data (for API downloads)
@@ -339,9 +339,26 @@ async fn get_proof(client: &SimpleApiClient, proof_id: String) -> Result<()> {
 
     match client.client.get(&url).send().await {
         Ok(response) if response.status().is_success() => {
-            println!("✅ Proof found:");
-            if let Ok(text) = response.text().await {
-                println!("   Response: {text}");
+            if let Ok(proof_response) = response.json::<ProofResponse>().await {
+                println!("✅ Proof found:");
+                println!("   Proof ID: {}", proof_response.proof_id);
+                println!("   Status: {}", proof_response.status);
+                println!("   Circuit: {} ({})", proof_response.circuit_info.circuit_name, proof_response.circuit_info.proof_system);
+                
+                if let Some(result) = proof_response.result {
+                    println!("   Result: {}", result);
+                }
+                
+                if let Some(verification_data) = &proof_response.verification_data {
+                    println!("   Verified: {}", verification_data.is_verified);
+                    if verification_data.is_verified {
+                        println!("   Public Result: {}", verification_data.public_result);
+                    }
+                    println!("   Message: {}", verification_data.verification_message);
+                }
+            } else {
+                println!("✅ Proof found:");
+                println!("   (Could not parse detailed response)");
             }
         }
         Ok(response) if response.status() == 404 => {
