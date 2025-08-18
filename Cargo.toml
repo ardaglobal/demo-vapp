@@ -1,5 +1,5 @@
 [workspace]
-members  = [ "script", "api", "cli", "db", "lib", "program" ]
+members  = [ "api", "cli", "db", "lib", "program", "script" ]
 resolver = "2"
 
 [workspace.dependencies]

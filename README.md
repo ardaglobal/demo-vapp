@@ -116,6 +116,14 @@ cargo run --bin cli -- store-transaction --a 5 --b 10
 
 # Query a transaction by result
 cargo run --bin cli -- get-transaction --result 15
+
+# Download proof data for local verification
+cargo run --bin cli -- download-proof --proof-id <proof_id>
+
+# Verify proof locally using the downloaded JSON file
+cargo run --bin cli -- verify-proof \
+  --proof-file proof_<proof_id>.json \
+  --expected-result 15
 ```
 
 ### 6. Local SP1 Development
@@ -229,11 +237,10 @@ The API server will start on `http://localhost:8080` by default.
 **Transaction Operations:**
 - `POST /api/v1/transactions` - Submit new transactions (a + b), optionally generate ZK proofs
 - `GET /api/v1/results/{result}` - Query transaction inputs by result value
-- `GET /api/v1/results/{result}/verify` - Verify stored proof for a specific result
 
 **Proof Operations:**
 - `GET /api/v1/proofs/{proof_id}` - Retrieve proof information by Sindri proof ID
-- `POST /api/v1/verify` - Verify proof independently with proof ID and expected result
+- `GET /api/v1/proofs/{proof_id}/download` - Download raw proof data for local verification
 
 **System Operations:**
 - `GET /api/v1/health` - Health check and service status
@@ -259,14 +266,50 @@ curl http://localhost:8080/api/v1/results/15/verify
 curl http://localhost:8080/api/v1/health
 ```
 
-### External Actor Workflow
+### Local Verification Workflow
 
-1. **Submit Transaction:** External actors POST to `/api/v1/transactions`
-2. **Get Proof ID:** Response includes proof ID and verification command
-3. **Share Proof:** Proof ID can be shared for trustless verification
-4. **Verify Independently:** Others can verify using proof ID without database access
-5. **Read from Smart Contract:** Can also read verified proofs from on-chain storage
+The system provides a clean separation between proof generation (via the API server) and proof verification (done locally):
 
-This enables trustless verification where external parties can cryptographically verify computation results without seeing private inputs or requiring database access.
+#### 1. Generate Proof via API
+```sh
+# Submit transaction with proof generation
+curl -X POST http://localhost:8080/api/v1/transactions \
+  -H 'Content-Type: application/json' \
+  -d '{"a": 5, "b": 10, "generate_proof": true}'
 
-This enables trustless verification where external parties can cryptographically verify computation results without seeing private inputs or requiring database access.
+# Response includes proof_id for later verification
+```
+
+#### 2. Download Proof Data
+```sh
+# Get raw proof data for local verification
+curl http://localhost:8080/api/v1/proofs/{proof_id}/download
+
+# Response includes:
+# - proof_data: hex-encoded SP1 proof
+# - public_values: hex-encoded public values
+# - verifying_key: hex-encoded verification key
+```
+
+#### 3. Verify Locally (No Network Dependencies)
+```sh
+# Run local verification tool with downloaded JSON file
+cargo run --bin cli -- verify-proof \
+  --proof-file proof_<proof_id>.json \
+  --expected-result 15
+
+# Output:
+# ✅ Cryptographic proof verification PASSED
+# ✅ Computation result verification PASSED
+# 🎉 Zero-knowledge proof successfully verified!
+```
+
+### Benefits of Local Verification
+
+- **No Docker Dependencies:** Verification runs on any machine with Rust
+- **Trustless:** No need to trust the API server for verification
+- **Privacy:** All verification happens locally
+- **Offline:** Works without network access once proof data is downloaded
+- **Portable:** Verification can be done on any machine or integrated into other systems
+
+This enables trustless verification where external parties can cryptographically verify computation results without seeing private inputs, requiring database access, or trusting external services.

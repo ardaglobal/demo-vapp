@@ -31,7 +31,7 @@ WORKDIR /app/api
 ENV SQLX_OFFLINE=true
 RUN cargo build --release --bin server
 
-# Runtime stage
+# Runtime stage - simple and lightweight since verification is done locally
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y \
