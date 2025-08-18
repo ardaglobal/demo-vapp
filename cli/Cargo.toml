@@ -28,4 +28,7 @@ alloy-sol-types = { workspace = true }
 arithmetic-lib  = { path = "../lib", package = "lib" }
 hex             = { workspace = true }
 
+# API types for consistent response parsing
+arithmetic-api = { path = "../api", package = "api", default-features = false }
+
 # No build dependencies needed for CLI

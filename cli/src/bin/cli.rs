@@ -34,7 +34,7 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::time::Instant;
-use tracing::{error, info};
+use tracing::error;
 
 // Additional imports for local verification
 use alloy_sol_types::SolType;
@@ -47,30 +47,9 @@ struct SimpleApiClient {
     base_url: String,
 }
 
-/// Request to store an arithmetic transaction
-#[derive(Debug, Serialize)]
-struct StoreTransactionRequest {
-    pub a: i32,
-    pub b: i32,
-    pub generate_proof: bool,
-}
-
-/// Response from storing an arithmetic transaction
-#[derive(Debug, Deserialize)]
-struct StoreTransactionResponse {
-    pub transaction_id: i32,
-    pub success: bool,
-}
-
-/// Transaction data response
-#[derive(Debug, Deserialize)]
-struct Transaction {
-    pub id: i32,
-    pub a: i32,
-    pub b: i32,
-    pub result: i32,
-    pub created_at: String,
-}
+// Import API response types instead of redefining them
+use arithmetic_api::{TransactionRequest, TransactionResponse};
+use arithmetic_api::rest::TransactionByResultResponse;
 
 /// Response from downloading proof data (for API downloads)
 #[derive(Debug, Serialize, Deserialize)]
@@ -257,22 +236,28 @@ async fn store_transaction(
     generate_proof: bool,
 ) -> Result<()> {
 
-    let request = StoreTransactionRequest {
+    let request = TransactionRequest {
         a,
         b,
-        generate_proof,
+        generate_proof: Some(generate_proof),
     };
     let url = format!("{}/api/v1/transactions", client.base_url);
 
     match client.client.post(&url).json(&request).send().await {
         Ok(response) if response.status().is_success() => {
-            if let Ok(store_response) = response.json::<StoreTransactionResponse>().await {
+            if let Ok(store_response) = response.json::<TransactionResponse>().await {
                 println!("✅ Transaction stored successfully!");
                 println!("   Transaction ID: {}", store_response.transaction_id);
-                println!("   Success: {}", store_response.success);
+                println!("   Calculation: {} + {} = {}", store_response.a, store_response.b, store_response.result);
+                println!("   State: {} → {}", store_response.previous_state, store_response.new_state);
+                if let Some(proof_id) = &store_response.proof_id {
+                    println!("   Proof ID: {}", proof_id);
+                    if let Some(status) = &store_response.proof_status {
+                        println!("   Proof Status: {}", status);
+                    }
+                }
             } else {
                 println!("✅ Transaction stored successfully!");
-                info!("   (Could not parse detailed response)");
             }
         }
         Ok(response) => {
@@ -295,18 +280,24 @@ async fn get_transaction(client: &SimpleApiClient, result: i32) -> Result<()> {
 
     match client.client.get(&url).send().await {
         Ok(response) if response.status().is_success() => {
-            if let Ok(transaction) = response.json::<Transaction>().await {
+            if let Ok(transaction) = response.json::<TransactionByResultResponse>().await {
                 println!("✅ Transaction found:");
-                println!("   ID: {}", transaction.id);
                 println!("   Calculation: {} + {} = {}", transaction.a, transaction.b, transaction.result);
-                println!("   Created: {}", transaction.created_at);
+                if let Some(stored_at) = &transaction.metadata.stored_at {
+                    println!("   Created: {}", stored_at.format("%Y-%m-%d %H:%M:%S UTC"));
+                }
+                if let Some(proof_id) = &transaction.metadata.proof_id {
+                    println!("   Proof ID: {}", proof_id);
+                    if let Some(status) = &transaction.metadata.verification_status {
+                        println!("   Proof Status: {}", status);
+                    }
+                }
             } else {
                 println!("✅ Transaction found:");
-                info!("   (Could not parse detailed response)");
             }
         }
         Ok(response) if response.status() == 404 => {
-            println!("ℹ️ No transaction found with result: {}", result);
+            println!("ℹ️ No transaction found with result: {result}");
         }
         Ok(response) => {
             error!("❌ API returned error: {}", response.status());
@@ -350,7 +341,7 @@ async fn get_proof(client: &SimpleApiClient, proof_id: String) -> Result<()> {
         Ok(response) if response.status().is_success() => {
             println!("✅ Proof found:");
             if let Ok(text) = response.text().await {
-                println!("   Response: {}", text);
+                println!("   Response: {text}");
             }
         }
         Ok(response) if response.status() == 404 => {
