@@ -20,7 +20,7 @@ jobs:
       - runner=16cpu-linux-x64
       - run-id=${{ github.run_id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
 

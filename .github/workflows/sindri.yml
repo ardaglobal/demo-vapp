@@ -15,7 +15,7 @@ jobs:
       SINDRI_API_KEY: ${{ secrets.SINDRI_API_KEY }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
         id: setup-node
