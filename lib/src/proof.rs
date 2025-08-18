@@ -64,7 +64,8 @@ pub struct ProofGenerationResponse {
 #[derive(Debug, Clone)]
 pub struct ProofVerificationRequest {
     pub proof_id: String,
-    pub expected_result: i32,
+    pub expected_initial_balance: i32,
+    pub expected_final_balance: i32,
 }
 
 /// Response from proof verification
@@ -72,9 +73,11 @@ pub struct ProofVerificationRequest {
 pub struct ProofVerificationResponse {
     pub is_valid: bool,
     pub cryptographic_proof_valid: bool,
-    pub result_matches_expected: bool,
-    pub actual_result: Option<i32>,
-    pub expected_result: i32,
+    pub balances_match_expected: bool,
+    pub actual_initial_balance: Option<i32>,
+    pub actual_final_balance: Option<i32>,
+    pub expected_initial_balance: i32,
+    pub expected_final_balance: i32,
     pub verification_message: String,
     pub verification_time_ms: u64,
 }
@@ -226,9 +229,11 @@ pub async fn verify_sindri_proof(
         return Ok(ProofVerificationResponse {
             is_valid: false,
             cryptographic_proof_valid: false,
-            result_matches_expected: false,
-            actual_result: None,
-            expected_result: request.expected_result,
+            balances_match_expected: false,
+            actual_initial_balance: None,
+            actual_final_balance: None,
+            expected_initial_balance: request.expected_initial_balance,
+            expected_final_balance: request.expected_final_balance,
             verification_message: format!("Proof not ready. Status: {:?}", proof_info.status),
             verification_time_ms: start_time.elapsed().as_millis() as u64,
         });
@@ -252,31 +257,36 @@ pub async fn verify_sindri_proof(
         return Ok(ProofVerificationResponse {
             is_valid: false,
             cryptographic_proof_valid: false,
-            result_matches_expected: false,
-            actual_result: None,
-            expected_result: request.expected_result,
+            balances_match_expected: false,
+            actual_initial_balance: None,
+            actual_final_balance: None,
+            expected_initial_balance: request.expected_initial_balance,
+            expected_final_balance: request.expected_final_balance,
             verification_message: "Cryptographic proof verification failed".to_string(),
             verification_time_ms: start_time.elapsed().as_millis() as u64,
         });
     }
 
-    // Verification successful - now validate the computation result
+    // Verification successful - now validate the balance transition
     let decoded = PublicValuesStruct::abi_decode(sp1_proof.public_values.as_slice())
         .map_err(|e| ProofError::PublicValuesDecodeError(e.to_string()))?;
 
-    let actual_result = decoded.result;
-    let result_matches_expected = actual_result == request.expected_result;
-    let is_valid = cryptographic_proof_valid && result_matches_expected;
+    let actual_initial_balance = decoded.initial_balance;
+    let actual_final_balance = decoded.final_balance;
+    let balances_match_expected = actual_initial_balance == request.expected_initial_balance 
+        && actual_final_balance == request.expected_final_balance;
+    let is_valid = cryptographic_proof_valid && balances_match_expected;
 
     let verification_message = if is_valid {
         format!(
-            "✅ ZERO-KNOWLEDGE PROOF VERIFIED: result = {} (cryptographically verified)",
-            actual_result
+            "✅ CONTINUOUS BALANCE TRACKING VERIFIED: {} -> {} (cryptographically verified)",
+            actual_initial_balance, actual_final_balance
         )
     } else {
         format!(
-            "❌ Proof verification failed: Expected {}, got {}",
-            request.expected_result, actual_result
+            "❌ Balance transition verification failed: Expected {} -> {}, got {} -> {}",
+            request.expected_initial_balance, request.expected_final_balance,
+            actual_initial_balance, actual_final_balance
         )
     };
 
@@ -285,9 +295,11 @@ pub async fn verify_sindri_proof(
     Ok(ProofVerificationResponse {
         is_valid,
         cryptographic_proof_valid,
-        result_matches_expected,
-        actual_result: Some(actual_result),
-        expected_result: request.expected_result,
+        balances_match_expected,
+        actual_initial_balance: Some(actual_initial_balance),
+        actual_final_balance: Some(actual_final_balance),
+        expected_initial_balance: request.expected_initial_balance,
+        expected_final_balance: request.expected_final_balance,
         verification_message,
         verification_time_ms: start_time.elapsed().as_millis() as u64,
     })
