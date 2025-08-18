@@ -8,16 +8,16 @@ SP1 zero-knowledge proof project demonstrating arithmetic addition with indexed 
 
 1. **RISC-V Program** (`program/`): Arithmetic addition in SP1 zkVM
 2. **Local SP1 Testing** (`script/`): Fast unit testing with Core proofs (`cargo run -p demo-vapp`)  
-3. **CLI Client** (`cli/`): Simple HTTP client for API server interaction
-4. **API Server** (`api/`): Production web server with Sindri integration and complex workflows
+3. **Unified CLI** (`cli/`): HTTP client + local verification tool (no database dependencies)
+4. **API Server** (`api/`): Proof generation and data distribution (verification removed)
 5. **Database Module** (`db/`): PostgreSQL with indexed Merkle tree operations
 6. **Smart Contracts** (`contracts/`): Solidity proof verification with state management
 7. **Shared Library** (`lib/`): Pure computation logic (zkVM compatible)
 
 ### 🎯 **Clear Separation of Concerns**
 - **`cargo run -p demo-vapp`** → Local SP1 development (3.5s Core proofs)
-- **CLI** → Simple API client (no interactive modes, no database)  
-- **API Server** → Production system (Sindri, database, complex workflows)
+- **CLI** → API client + local verification (unified tool, no server dependencies for verification)
+- **API Server** → Proof generation and data distribution (Sindri integration, no verification)
 
 ## Essential Commands
 
@@ -50,10 +50,12 @@ curl http://localhost:8080/api/v1/health
 # 🚀 Local SP1 unit testing (fast development)
 cargo run -p demo-vapp --bin demo-vapp --release
 
-# 🖥️ CLI client (simple API interaction) 
-cargo run -p cli --bin cli -- health-check
-cargo run -p cli --bin cli -- store-transaction --a 5 --b 10
-cargo run -p cli --bin cli -- get-transaction --result 15
+# 🖥️ Unified CLI (API client + local verification)
+cargo run --bin cli -- health-check
+cargo run --bin cli -- store-transaction --a 5 --b 10 --generate-proof
+cargo run --bin cli -- get-transaction --result 15
+cargo run --bin cli -- download-proof --proof-id <proof_id>
+cargo run --bin cli -- verify-proof --proof-file proof_<id>.json --expected-result 15
 
 # 🌐 Local API server development (alternative to Docker)
 docker-compose up postgres -d
@@ -64,6 +66,8 @@ cd program && cargo prove build --output-directory ../build
 ```
 
 ### Zero-Knowledge Proofs
+
+#### Proof Generation
 ```bash
 # Prerequisites: Circuit must be deployed to Sindri first (see Quick Start)
 
@@ -73,19 +77,32 @@ curl -X POST http://localhost:8080/api/v1/transactions \
   -d '{"a": 5, "b": 10, "generate_proof": true}'
 
 # 🖥️ Generate proof via CLI client  
-cargo run -p cli --bin cli -- store-transaction --a 5 --b 10
+cargo run --bin cli -- store-transaction --a 5 --b 10 --generate-proof
+```
 
-# Verify with proof ID (external - no database required)
-curl -X POST http://localhost:8080/api/v1/verify \
-  -H 'Content-Type: application/json' \
-  -d '{"proof_id": "<PROOF_ID>", "expected_result": 15}'
+#### Local Verification Workflow
+```bash
+# 1. Download proof data from API server
+cargo run --bin cli -- download-proof --proof-id <PROOF_ID>
 
-# Get verification key
-curl http://localhost:8080/api/v1/vkey
+# 2. Verify proof locally (no server/database dependencies)
+cargo run --bin cli -- verify-proof \
+  --proof-file proof_<PROOF_ID>.json \
+  --expected-result 15
 
-# Circuit management (see Quick Start for deployment)
+# Alternative: Direct hex data verification (advanced)
+cargo run --bin cli -- verify-proof \
+  --proof-data <hex_proof> \
+  --public-values <hex_values> \
+  --verifying-key <hex_vkey> \
+  --expected-result 15
+```
+
+#### Circuit Management
+```bash
 sindri lint                           # Validate circuit
 sindri list                           # Show deployed circuits
+sindri deploy --tag "v1.0.0"         # Deploy with version tag
 ```
 
 ### Testing
@@ -147,25 +164,26 @@ cp .env.example .env
 - Zero dependencies on database, Sindri, or production workflows
 - Perfect for SP1 program development and quick verification
 
-**🖥️ CLI Client Path (`cli/`):**
-- Simple HTTP client for API server interaction
-- Basic commands: health-check, store-transaction, get-transaction  
+**🖥️ Unified CLI Path (`cli/`):**
+- HTTP client for API server interaction + local verification tool
+- API commands: health-check, store-transaction, get-transaction, download-proof
+- Local verification: verify-proof (no server dependencies)
 - No interactive modes, no direct database access
 - Environment variable configuration: `ARITHMETIC_API_URL`
 
 **🌐 Production API Path (`api/` + `db/`):**
-- Full-featured API server with complex workflows
+- Proof generation and data distribution server
 - Sindri integration for proof generation
 - Database operations and indexed Merkle trees
 - Background processing and state management
-- GraphQL and REST endpoints
+- GraphQL and REST endpoints (verification removed)
 
 ### Core Components
 - **lib** (`lib/`): Shared arithmetic computation logic (zkVM compatible)
 - **program** (`program/`): RISC-V program for zkVM (private inputs → public result)
 - **demo-vapp** (`script/`): Local SP1 unit testing with fast Core proofs
-- **cli** (`cli/`): Simple HTTP client for API interaction
-- **api** (`api/`): Production web server with Sindri integration
+- **cli** (`cli/`): Unified HTTP client + local verification tool
+- **api** (`api/`): Proof generation server with Sindri integration
 - **db** (`db/`): PostgreSQL with indexed Merkle tree operations
 - **state-management-system** (`contracts/src/interfaces/`): Complete state lifecycle management with proof verification
 
@@ -211,7 +229,8 @@ When you do the "setup" for a circuit (trusted or transparent), the compiler:
 - *Verification* = anyone with VK + proof + public inputs can check correctness — no need for the PK or the private data
 
 ### Key Features
-- **Database-Free Verification**: External users verify with proof ID + expected result
+- **Local Verification**: Trustless proof verification without server dependencies
+- **Unified CLI Tool**: Single binary for API interaction and local verification
 - **Sindri Integration**: Cloud proof generation with SP1 v5
 - **32-Level Merkle Trees**: 8x fewer constraints than traditional 256-level trees
 - **REST/GraphQL APIs**: Production-ready endpoints for tree operations
@@ -221,7 +240,7 @@ When you do the "setup" for a circuit (trusted or transparent), the compiler:
 ### Key Files
 - `program/src/main.rs`: SP1 zkVM program (ZK public values: result only)
 - `script/src/bin/main.rs`: Local SP1 unit testing (fast Core proofs) 
-- `cli/src/bin/cli.rs`: Simple CLI client for API interaction
+- `cli/src/bin/cli.rs`: Unified CLI for API interaction and local verification
 - `api/src/bin/server.rs`: Production API server with Sindri integration
 - `api/src/client/mod.rs`: HTTP client library for API interaction
 - `db/src/merkle_tree.rs`: 32-level indexed Merkle tree
@@ -295,7 +314,6 @@ The project includes a comprehensive REST API server located in the `api/` direc
 **Transaction Operations**:
 - `POST /api/v1/transactions` - Submit new transactions (a + b), optionally generate ZK proofs
 - `GET /api/v1/results/{result}` - Query transaction inputs (a,b) by result value
-- `POST /api/v1/results/{result}/verify` - Verify stored proof for a specific result
 
 **State Operations**:
 - `GET /api/v1/state` - Get current global state counter
@@ -303,8 +321,8 @@ The project includes a comprehensive REST API server located in the `api/` direc
 - `GET /api/v1/state/validate` - State integrity validation across all transactions
 
 **Proof Operations**:
-- `GET /api/v1/proofs/{proof_id}` - Retrieve proof information by Sindri proof ID
-- `POST /api/v1/verify` - Verify proof independently with proof ID and expected result
+- `GET /api/v1/proofs/{proof_id}` - Retrieve basic proof information by Sindri proof ID
+- `GET /api/v1/proofs/{proof_id}/download` - Download raw proof data for local verification
 
 **System Operations**:
 - `GET /api/v1/health` - Health check and service status
@@ -338,11 +356,11 @@ curl http://localhost:8080/api/v1/state/validate
 # Query transaction by result
 curl http://localhost:8080/api/v1/results/15
 
-# Verify proof for result
-curl -X POST http://localhost:8080/api/v1/results/15/verify
-
 # Get proof information
 curl http://localhost:8080/api/v1/proofs/proof_abc123
+
+# Download proof data for local verification
+curl http://localhost:8080/api/v1/proofs/proof_abc123/download
 
 # Health check
 curl http://localhost:8080/api/v1/health
@@ -358,15 +376,15 @@ The server supports various configuration options via command line arguments:
 - `--playground`: Enable GraphQL playground (default: true)
 - `--log-level`: Log level (trace, debug, info, warn, error)
 
-### External Verification
+### Local Verification Workflow
 
-External actors can verify proofs without access to the database:
+External actors can verify proofs without server dependencies:
 1. Submit transaction with `generate_proof: true`
 2. Receive proof ID in response
-3. Share proof ID with external verifiers
-4. External verifiers use proof verification endpoints or CLI tools
+3. Download proof data: `GET /api/v1/proofs/{proof_id}/download`
+4. Verify locally using CLI: `cargo run --bin cli -- verify-proof --proof-file <file> --expected-result <result>`
 
-This enables trustless verification where external parties can cryptographically verify computation results without seeing private inputs or requiring database access.
+This enables trustless verification where external parties can cryptographically verify computation results without seeing private inputs, requiring database access, or trusting the API server for verification.
 
 **Note**: Proof generation requires a valid `SINDRI_API_KEY` environment variable and deployed circuit. Without the API key, transactions will be stored successfully but proof generation will fail with a 401 Unauthorized error. Without circuit deployment, proof generation will fail with circuit not found errors. The REST API endpoints remain fully functional for transaction storage and retrieval.
 
@@ -448,10 +466,10 @@ cargo run -p api --bin server --release
 ## Key Features
 
 ### 🏗️ **Clean Architecture**
-- **Separation of Concerns**: Local development, CLI client, and production server as separate packages
+- **Separation of Concerns**: Local development, unified CLI, and proof generation server as separate packages
 - **Fast Local Testing**: SP1 Core proofs in ~3.5s for development workflows
-- **Simple CLI Client**: HTTP-based interaction without complex dependencies
-- **Production API Server**: Full-featured server with all complex logic
+- **Unified CLI Tool**: HTTP client + local verification in a single binary
+- **Focused API Server**: Proof generation and data distribution (verification moved to CLI)
 
 ### 🚀 **Development Experience** 
 - **Automated Setup**: One-command dependency installation for all platforms (`./install-dependencies.sh`)
@@ -461,7 +479,7 @@ cargo run -p api --bin server --release
 
 ### 🔒 **Zero-Knowledge Features**
 - **Zero-Knowledge Proofs**: Private inputs (`a`, `b`) → public result only
-- **External Verification**: Database-free proof verification with shareable proof IDs  
+- **Local Verification**: Trustless proof verification without server dependencies
 - **Sindri Integration**: Cloud proof generation with SP1 v5 and configurable circuit versions
 - **Circuit Management**: Configurable Sindri circuit deployment with version tagging
 
@@ -473,6 +491,30 @@ cargo run -p api --bin server --release
 - **Continuous Ledger State**: Global state counter with atomic transitions and audit trail
 - **Comprehensive Testing**: End-to-end CI with automated ZK validation
 - **Development Tools**: Automated circuit linting, deployment, and management via Sindri CLI
+
+### 🔐 **Local Verification Benefits**
+
+The new local verification approach provides several key advantages:
+
+**🛡️ Trustless Verification:**
+- No need to trust the API server for proof verification
+- Cryptographic verification happens entirely in your local environment
+- External parties can verify proofs without any server dependencies
+
+**🚀 Performance & Scalability:**
+- API server no longer performs expensive cryptographic operations
+- Verification can be done offline once proof data is downloaded
+- Reduces server load and improves response times
+
+**🔒 Security & Privacy:**
+- All verification happens locally where you control the environment
+- No sensitive verification data sent over the network
+- Proof verification can be done in air-gapped environments
+
+**🧹 Clean Architecture:**
+- Clear separation: API server handles generation, CLI handles verification
+- Unified CLI tool provides single entry point for all operations
+- Simplified API server focused on core responsibilities
 
 ## State Management System
 
