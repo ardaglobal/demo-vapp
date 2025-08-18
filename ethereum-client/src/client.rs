@@ -1,6 +1,6 @@
 use crate::{
     config::Config,
-    contracts::{ContractAddresses, IArithmetic, IArithmeticInstance, ISP1Verifier},
+    contracts::{ContractAddresses, IArithmetic, IArithmeticInstance, ISP1Verifier, ITest},
     error::{EthereumError, Result},
     types::{
         BatchStateUpdate, InclusionProof, NetworkStats, ProofVerificationResult, StateHistory,
@@ -93,6 +93,20 @@ impl EthereumClient {
             #[cfg(feature = "database")]
             cache,
         })
+    }
+
+    pub async fn verify_proof(&self, public_values: Bytes, proof: Bytes) -> Result<i32> {
+        let contract = IArithmetic::new(self.contracts.arithmetic, &self.http_provider);
+        let call_builder = contract
+            .verifyArithmeticProof(public_values.clone(), proof.clone())
+            .from(self.signer.as_ref().unwrap().address());
+
+        let tx_result = call_builder.call().await.map_err(|e| {
+            error!("Failed to send verify proof transaction: {e}");
+            EthereumError::Transaction(format!("Transaction failed: {e}"))
+        })?;
+
+        Ok(tx_result)
     }
 
     pub async fn update_state(
@@ -239,20 +253,6 @@ impl EthereumClient {
         };
 
         Ok(batch_update)
-    }
-
-    pub async fn verify_proof(&self, _proof: Bytes) -> Result<ProofVerificationResult> {
-        // TODO: Implement proper proof verification
-        let current_block = self.http_provider.get_block_number().await?;
-
-        Ok(ProofVerificationResult {
-            proof_id: FixedBytes::ZERO,
-            verified: true,
-            result: Some(Bytes::new()),
-            block_number: current_block,
-            gas_used: U256::ZERO,
-            error_message: None,
-        })
     }
 
     pub async fn get_current_state(

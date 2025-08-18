@@ -87,6 +87,15 @@ impl Config {
             .parse::<Address>()
             .map_err(|e| EthereumError::InvalidAddress(format!("Invalid contract address: {e}")))?;
 
+        let verifier_contract = env::var("VERIFIER_CONTRACT_ADDRESS")
+            .map_err(|_| {
+                EthereumError::Config("VERIFIER_CONTRACT_ADDRESS is required".to_string())
+            })?
+            .parse::<Address>()
+            .map_err(|e| {
+                EthereumError::InvalidAddress(format!("Invalid verifier contract address: {e}"))
+            })?;
+
         let signer = if let Ok(private_key) = env::var("ETHEREUM_WALLET_PRIVATE_KEY") {
             let deployer_address = env::var("ETHEREUM_DEPLOYER_ADDRESS")
                 .map_err(|_| {
@@ -132,7 +141,7 @@ impl Config {
             },
             contract: ContractConfig {
                 arithmetic_contract: ethereum_contract,
-                verifier_contract: ethereum_contract,
+                verifier_contract,
                 deployment_block: env::var("DEPLOYMENT_BLOCK")
                     .ok()
                     .and_then(|s| s.parse().ok()),
