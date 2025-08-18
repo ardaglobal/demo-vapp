@@ -124,6 +124,8 @@ This document outlines the comprehensive release management strategy for the dem
 
 ## Version Compatibility Matrix
 
+> [!NOTE] this is a placeholder for the version compatibility matrix.
+
 | Main App Version | Contract Version | Program Version | SP1 SDK Version |
 |------------------|------------------|-----------------|-----------------|
 | v1.0.0           | contracts-v1.0.0 | program-v1.0.0  | 5.2.1          |
