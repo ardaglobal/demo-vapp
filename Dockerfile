@@ -19,7 +19,7 @@ COPY lib/Cargo.toml ./lib/
 COPY program/Cargo.toml ./program/
 COPY script/Cargo.toml ./script/
 
-# Copy source code
+# Copy source code and SQLX query cache
 COPY . .
 
 # Build SP1 program first
