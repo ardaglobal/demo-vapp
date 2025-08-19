@@ -538,6 +538,12 @@ async fn get_batch_endpoint(
 }
 
 /// Update batch with ZK proof information
+///
+/// Validates:
+/// - Status must be one of: "pending", "proven", "failed"
+/// - When status is "proven", merkle_root is required and must be exactly 32 bytes
+/// - When status is not "proven", merkle_root is optional but if provided must be valid hex and 32 bytes
+/// - Hex values can optionally start with "0x" prefix
 #[instrument(skip(state), level = "info")]
 async fn update_batch_proof_endpoint(
     State(state): State<ApiState>,
@@ -549,6 +555,82 @@ async fn update_batch_proof_endpoint(
         batch_id, request.sindri_proof_id
     );
 
+    // Validate status against allowed values
+    const ALLOWED_STATUSES: &[&str] = &["pending", "proven", "failed"];
+    if !ALLOWED_STATUSES.contains(&request.status.as_str()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!(
+                "Invalid status '{}'. Allowed values: {}",
+                request.status,
+                ALLOWED_STATUSES.join(", ")
+            ),
+        ));
+    }
+
+    // Validate merkle_root requirements based on status
+    let validated_merkle_root = if request.status == "proven" {
+        // For "proven" status, merkle_root is required
+        match &request.merkle_root {
+            Some(merkle_root_hex) => {
+                // Decode hex string to bytes
+                let merkle_root =
+                    hex::decode(merkle_root_hex.trim_start_matches("0x")).map_err(|e| {
+                        (
+                            StatusCode::BAD_REQUEST,
+                            format!("Invalid merkle root hex: {}", e),
+                        )
+                    })?;
+
+                // Validate that merkle_root is exactly 32 bytes
+                if merkle_root.len() != 32 {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        format!(
+                            "Merkle root must be exactly 32 bytes, got {} bytes",
+                            merkle_root.len()
+                        ),
+                    ));
+                }
+
+                Some(merkle_root)
+            }
+            None => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    "Merkle root is required when status is 'proven'".to_string(),
+                ));
+            }
+        }
+    } else {
+        // For other statuses, merkle_root is not required (but allowed)
+        if let Some(merkle_root_hex) = &request.merkle_root {
+            // If provided, still validate the format
+            let merkle_root =
+                hex::decode(merkle_root_hex.trim_start_matches("0x")).map_err(|e| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        format!("Invalid merkle root hex: {}", e),
+                    )
+                })?;
+
+            // Validate that merkle_root is exactly 32 bytes
+            if merkle_root.len() != 32 {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    format!(
+                        "Merkle root must be exactly 32 bytes, got {} bytes",
+                        merkle_root.len()
+                    ),
+                ));
+            }
+
+            Some(merkle_root)
+        } else {
+            None
+        }
+    };
+
     // Update batch with proof
     match update_batch_proof(
         &state.pool,
@@ -559,27 +641,14 @@ async fn update_batch_proof_endpoint(
     .await
     {
         Ok(()) => {
-            // Store Merkle root if provided and status is "proven"
-            if request.status == "proven" {
-                if let Some(merkle_root_hex) = &request.merkle_root {
-                    // Decode hex string to bytes
-                    let merkle_root = hex::decode(merkle_root_hex.trim_start_matches("0x"))
-                        .map_err(|e| {
-                            (
-                                StatusCode::BAD_REQUEST,
-                                format!("Invalid merkle root hex: {}", e),
-                            )
-                        })?;
-
-                    if let Err(e) =
-                        store_ads_state_commit(&state.pool, batch_id, &merkle_root).await
-                    {
-                        error!("Failed to store ADS state commit: {}", e);
-                        return Err((
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            format!("Failed to store ADS state commit: {}", e),
-                        ));
-                    }
+            // Store Merkle root if validated and provided
+            if let Some(merkle_root) = validated_merkle_root {
+                if let Err(e) = store_ads_state_commit(&state.pool, batch_id, &merkle_root).await {
+                    error!("Failed to store ADS state commit: {}", e);
+                    return Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Failed to store ADS state commit: {}", e),
+                    ));
                 }
             }
 

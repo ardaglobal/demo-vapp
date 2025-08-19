@@ -415,7 +415,7 @@ async fn get_batch(client: &BatchApiClient, batch_id: i32) -> Result<()> {
             }
 
             println!();
-            if batch.proof_status == "completed" {
+            if batch.proof_status == "proven" {
                 println!(
                     "💡 Proof is ready! Download using: cli download-proof --batch-id {}",
                     batch_id
@@ -447,7 +447,7 @@ async fn download_proof(
     // First check if the batch exists and has a proof
     match client.get_batch(batch_id).await {
         Ok(Some(batch)) => {
-            if batch.proof_status != "completed" {
+            if batch.proof_status != "proven" {
                 println!(
                     "❌ Batch {} proof is not ready yet (status: {})",
                     batch_id, batch.proof_status
@@ -474,7 +474,7 @@ async fn download_proof(
                 "proof_id": proof_id,
                 "initial_balance": batch.previous_counter_value,
                 "final_balance": batch.final_counter_value,
-                "status": "completed",
+                "status": "proven",
                 "proof_data": "0x...", // Would be actual proof data from Sindri
                 "public_values": "0x...", // Would be actual public values
                 "verifying_key": "0x...", // Would be actual verifying key

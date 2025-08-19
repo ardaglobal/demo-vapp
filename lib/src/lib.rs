@@ -17,7 +17,7 @@ sol! {
 /// Compute the result of the arithmetic operation (wrapping around on overflows), using normal Rust code.
 #[must_use]
 pub const fn addition(a: i32, b: i32) -> i32 {
-    a + b
+    a.wrapping_add(b)
 }
 
 /// Process a series of addition transactions starting from an initial balance.
