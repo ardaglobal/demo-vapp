@@ -378,13 +378,24 @@ contract Arithmetic is EventHelpers {
     }
 
     /// @notice Get a stored proof by proof ID.
-    /// @param proof The proof to get.
+    /// @param proofId The proof identifier (hash).
     /// @return The stored proof bytes.
     function getStoredProof(
+        bytes32 proofId
+    ) external view returns (bytes memory) {
+        if (storedProofs[proofId].length == 0) revert ProofNotFound();
+        return storedProofs[proofId];
+    }
+
+    /// @notice Get a stored proof by providing the raw proof bytes.
+    /// @param proof The raw proof bytes.
+    /// @return The stored proof bytes.
+    function getStoredProofByProof(
         bytes calldata proof
     ) external view returns (bytes memory) {
-        if (storedProofs[keccak256(proof)].length == 0) revert ProofNotFound();
-        return storedProofs[keccak256(proof)];
+        bytes32 proofId = keccak256(proof);
+        if (storedProofs[proofId].length == 0) revert ProofNotFound();
+        return storedProofs[proofId];
     }
 
     /// @notice Get stored verification result by proof ID.

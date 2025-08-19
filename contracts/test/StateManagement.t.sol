@@ -157,9 +157,7 @@ contract StateManagementTest is Test {
 
         // Verify proof was stored
         bytes32 proofId = keccak256(groth16Fixture.proof);
-        bytes memory storedProof = arithmetic.getStoredProof(
-            groth16Fixture.proof
-        );
+        bytes memory storedProof = arithmetic.getStoredProof(proofId);
         assertEq(
             storedProof,
             groth16Fixture.proof,
@@ -221,9 +219,7 @@ contract StateManagementTest is Test {
 
         // Test reading the proof
         bytes32 proofId = keccak256(groth16Fixture.proof);
-        bytes memory storedProof = arithmetic.getStoredProof(
-            groth16Fixture.proof
-        );
+        bytes memory storedProof = arithmetic.getStoredProof(proofId);
         assertEq(
             storedProof,
             groth16Fixture.proof,
@@ -658,7 +654,8 @@ contract StateManagementTest is Test {
 
         // Now test reading the proof
         gasBefore = gasleft();
-        arithmetic.getStoredProof(groth16Fixture.proof);
+        bytes32 proofId = keccak256(groth16Fixture.proof);
+        arithmetic.getStoredProof(proofId);
         uint256 readGas = gasBefore - gasleft();
 
         console.log("Gas used for proof reading:", readGas);

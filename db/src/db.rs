@@ -573,17 +573,21 @@ pub async fn mark_batch_posted_to_contract(
 ) -> Result<(), sqlx::Error> {
     debug!("Marking batch {batch_id} as posted to contract");
 
-    sqlx::query!(
+    let result = sqlx::query!(
         r"
         UPDATE proof_batches
         SET posted_to_contract = TRUE,
             posted_to_contract_at = NOW()
-        WHERE id = $1
+        WHERE id = $1 AND posted_to_contract = FALSE
         ",
         batch_id
     )
     .execute(pool)
     .await?;
+
+    if result.rows_affected() != 1 {
+        return Err(sqlx::Error::RowNotFound);
+    }
 
     debug!("Successfully marked batch {batch_id} as posted to contract");
     Ok(())

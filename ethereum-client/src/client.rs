@@ -8,7 +8,7 @@ use crate::{
     },
 };
 use alloy_network::EthereumWallet;
-use alloy_primitives::{Address, Bytes, FixedBytes, U256};
+use alloy_primitives::{keccak256, Address, Bytes, FixedBytes, U256};
 use alloy_provider::{
     fillers::{
         BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller, WalletFiller,
@@ -876,20 +876,39 @@ impl EthereumClient {
 
     pub async fn verify_zk_proof(
         &self,
-        _proof: Bytes,
+        proof: Bytes,
         public_values: Bytes,
     ) -> Result<ProofVerificationResult> {
-        // TODO: Implement ZK proof verification with public values
         let current_block = self.http_provider.get_block_number().await?;
 
-        Ok(ProofVerificationResult {
-            proof_id: FixedBytes::ZERO,
-            verified: true,
-            result: Some(public_values),
-            block_number: current_block,
-            gas_used: U256::ZERO,
-            error_message: None,
-        })
+        // Call the on-chain verifier
+        match self
+            .verify_proof(public_values.clone(), proof.clone())
+            .await
+        {
+            Ok(_result) => {
+                // Proof verification succeeded
+                Ok(ProofVerificationResult {
+                    proof_id: FixedBytes::from_slice(&keccak256(&proof).0),
+                    verified: true,
+                    result: Some(public_values),
+                    block_number: current_block,
+                    gas_used: U256::ZERO, // TODO: Get actual gas usage from transaction receipt
+                    error_message: None,
+                })
+            }
+            Err(e) => {
+                // Proof verification failed
+                Ok(ProofVerificationResult {
+                    proof_id: FixedBytes::from_slice(&keccak256(&proof).0),
+                    verified: false,
+                    result: None,
+                    block_number: current_block,
+                    gas_used: U256::ZERO,
+                    error_message: Some(format!("Proof verification failed: {e}")),
+                })
+            }
+        }
     }
 
     pub async fn get_verifier_key(&self) -> Result<Bytes> {
