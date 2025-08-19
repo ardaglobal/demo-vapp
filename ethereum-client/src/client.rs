@@ -232,7 +232,7 @@ impl EthereumClient {
 
         let tx_result = call_builder.call().await.map_err(|e| {
             error!("Failed to send verify proof transaction: {e}");
-            EthereumError::Transaction(format!("Transaction failed: {e}"))
+            EthereumError::from_contract_error(&format!("Transaction failed: {e}"))
         })?;
 
         Ok(tx_result)
@@ -260,7 +260,7 @@ impl EthereumClient {
             .await
             .map_err(|e| {
                 error!("Failed to send state update transaction: {e}");
-                EthereumError::Transaction(format!("Transaction failed: {e}"))
+                EthereumError::from_contract_error(&format!("Transaction failed: {e}"))
             })?;
 
         info!("State update transaction sent: {}", tx_result.tx_hash());
@@ -302,7 +302,7 @@ impl EthereumClient {
         let call_builder = contract.isAuthorized(account).from(self.signer.address());
         let tx_result = call_builder.call().await.map_err(|e| {
             error!("Failed to send is authorized transaction: {e}");
-            EthereumError::Transaction(format!("Transaction failed: {e}"))
+            EthereumError::from_contract_error(&format!("Transaction failed: {e}"))
         })?;
 
         Ok(tx_result)
@@ -313,7 +313,7 @@ impl EthereumClient {
         let call_builder = contract.proofExists(proof).from(self.signer.address());
         let tx_result = call_builder.call().await.map_err(|e| {
             error!("Failed to send check proof exists transaction: {e}");
-            EthereumError::Transaction(format!("Transaction failed: {e}"))
+            EthereumError::from_contract_error(&format!("Transaction failed: {e}"))
         })?;
         Ok(tx_result)
     }
@@ -355,7 +355,7 @@ impl EthereumClient {
             .await
             .map_err(|e| {
                 error!("Failed to send batch update transaction: {e}");
-                EthereumError::Transaction(format!("Batch transaction failed: {e}"))
+                EthereumError::from_contract_error(&format!("Batch transaction failed: {e}"))
             })?;
 
         info!("Batch update transaction sent: {}", tx_result.tx_hash());
@@ -407,7 +407,7 @@ impl EthereumClient {
             .await
             .map_err(|e| {
                 warn!("Failed to get current state: {e}");
-                EthereumError::Contract(format!("State query failed: {e}"))
+                EthereumError::from_contract_error(&format!("State query failed: {e}"))
             })?;
 
         let current_block = self.http_provider.get_block_number().await?;
@@ -695,9 +695,9 @@ impl EthereumClient {
         // Check state ID filter
         if let Some(state_ids) = &filter.state_ids {
             let event_state_id = match event {
-                ArithmeticEvent::StateUpdated { state_id, .. } => Some(*state_id),
-                ArithmeticEvent::ProofStored { state_id, .. } => Some(*state_id),
-                ArithmeticEvent::StateReadRequested { state_id, .. } => Some(*state_id),
+                ArithmeticEvent::StateUpdated { state_id, .. }
+                | ArithmeticEvent::ProofStored { state_id, .. }
+                | ArithmeticEvent::StateReadRequested { state_id, .. } => Some(*state_id),
                 _ => None,
             };
             if let Some(state_id) = event_state_id {
@@ -757,13 +757,11 @@ impl EthereumClient {
         Ok(())
     }
 
-    /// Legacy monitor_events method for backwards compatibility
     pub async fn monitor_events(&self) -> Result<()> {
         warn!("Using deprecated monitor_events. Use start_event_monitoring instead.");
         self.start_event_monitoring().await
     }
 
-    /// Legacy method - use process_new_events instead
     pub async fn check_for_new_events(
         &self,
         last_block: u64,
@@ -909,7 +907,7 @@ impl EthereumClient {
 
         let vkey = contract.arithmeticProgramVKey().call().await.map_err(|e| {
             warn!("Failed to get verifier key: {}", e);
-            EthereumError::Contract(format!("Verifier key query failed: {e}"))
+            EthereumError::from_contract_error(&format!("Verifier key query failed: {e}"))
         })?;
 
         // Convert FixedBytes<32> to Bytes
@@ -925,7 +923,7 @@ impl EthereumClient {
             .await
             .map_err(|e| {
                 warn!("Failed to get proof result: {}", e);
-                EthereumError::Contract(format!("Proof result query failed: {e}"))
+                EthereumError::from_contract_error(&format!("Proof result query failed: {e}"))
             })?;
 
         if result.is_empty() {
@@ -1013,7 +1011,7 @@ impl EthereumClient {
             .await
             .map_err(|e| {
                 warn!("Failed to get proof data: {}", e);
-                EthereumError::Contract(format!("Proof data query failed: {e}"))
+                EthereumError::from_contract_error(&format!("Proof data query failed: {e}"))
             })?;
 
         if proof_data.is_empty() {
@@ -1032,7 +1030,7 @@ impl EthereumClient {
             .await
             .map_err(|e| {
                 warn!("Failed to get state root: {}", e);
-                EthereumError::Contract(format!("State root query failed: {e}"))
+                EthereumError::from_contract_error(&format!("State root query failed: {e}"))
             })?;
 
         Ok(state_root)
@@ -1051,7 +1049,7 @@ impl EthereumClient {
 
         let version = verifier_contract.VERSION().call().await.map_err(|e| {
             warn!("Failed to get verifier version: {}", e);
-            EthereumError::Contract(format!("Verifier version query failed: {e}"))
+            EthereumError::from_contract_error(&format!("Verifier version query failed: {e}"))
         })?;
 
         Ok(version)
@@ -1075,7 +1073,7 @@ mod tests {
             updater: Address::from([4u8; 20]),
             timestamp: U256::from(1234567890u64),
         };
-        
+
         // Since the method is part of the EthereumClient impl, we can't call it statically
         // But we can verify it exists by checking the signature compiles
         // The method just logs info, so this test verifies the event struct is correctly defined
@@ -1094,11 +1092,11 @@ mod tests {
             submitter: Address::from([3u8; 20]),
             timestamp: U256::from(1234567890u64),
         };
-        
+
         // This test mainly checks that handle_proof_stored_event doesn't panic
         // and verifies the event struct is correctly defined
         EthereumClient::handle_proof_stored_event(&event);
-        
+
         // Verify event fields
         assert_eq!(event.proofId, B256::from([1u8; 32]));
         assert_eq!(event.stateId, B256::from([2u8; 32]));
@@ -1114,22 +1112,25 @@ mod tests {
             result: alloy_primitives::Bytes::from(vec![4u8, 5u8, 6u8]),
             timestamp: U256::from(1234567890u64),
         };
-        
+
         // This test mainly checks that handle_proof_verified_event doesn't panic
         // and verifies the event struct is correctly defined
         EthereumClient::handle_proof_verified_event(&event);
-        
+
         // Verify event fields
         assert_eq!(event.proofId, B256::from([1u8; 32]));
         assert_eq!(event.success, true);
-        assert_eq!(event.result, alloy_primitives::Bytes::from(vec![4u8, 5u8, 6u8]));
+        assert_eq!(
+            event.result,
+            alloy_primitives::Bytes::from(vec![4u8, 5u8, 6u8])
+        );
     }
 
     #[test]
     fn test_event_listener_methods_are_public() {
         // This test verifies that the event listener methods exist and are public.
         // We test this by verifying the method signatures compile and are accessible.
-        
+
         // Test proof stored event handling
         let proof_stored = IArithmetic::ProofStored {
             proofId: B256::from([1u8; 32]),
@@ -1137,21 +1138,21 @@ mod tests {
             submitter: Address::from([3u8; 20]),
             timestamp: U256::from(1234567890u64),
         };
-        
+
         // Verify static method is public and callable
         EthereumClient::handle_proof_stored_event(&proof_stored);
-        
-        // Test proof verified event handling  
+
+        // Test proof verified event handling
         let proof_verified = IArithmetic::ProofVerified {
             proofId: B256::from([4u8; 32]),
             success: true,
             result: alloy_primitives::Bytes::from(vec![1u8, 2u8, 3u8]),
             timestamp: U256::from(1234567890u64),
         };
-        
+
         // Verify static method is public and callable
         EthereumClient::handle_proof_verified_event(&proof_verified);
-        
+
         // The main assertion is that these methods are accessible
         // The fact that this test compiles proves the methods are public
         assert!(true, "Event listener methods are public and accessible");
@@ -1161,22 +1162,213 @@ mod tests {
     fn test_event_method_signatures() {
         // This test verifies that the method signatures are correct and public
         // by creating function pointers to the methods
-        
+
         // Test that we can create function pointers to the public methods
-        let _handle_proof_stored: fn(&IArithmetic::ProofStored) = EthereumClient::handle_proof_stored_event;
-        let _handle_proof_verified: fn(&IArithmetic::ProofVerified) = EthereumClient::handle_proof_verified_event;
-        
+        let _handle_proof_stored: fn(&IArithmetic::ProofStored) =
+            EthereumClient::handle_proof_stored_event;
+        let _handle_proof_verified: fn(&IArithmetic::ProofVerified) =
+            EthereumClient::handle_proof_verified_event;
+
         // Test that instance methods exist (can't easily test without a client instance)
         // but we can verify their signatures by attempting to reference them
         type StateUpdatedHandler = fn(&EthereumClient, &IArithmetic::StateUpdated);
         type EventProcessor = fn(&EthereumClient, &alloy_rpc_types_eth::Log);
         type EventDecoder = fn(&EthereumClient, &alloy_primitives::Log, &alloy_rpc_types_eth::Log);
-        
+
         let _handle_state_updated: StateUpdatedHandler = EthereumClient::handle_state_updated_event;
         let _process_event: EventProcessor = EthereumClient::process_event_log;
         let _decode_event: EventDecoder = EthereumClient::decode_and_log_event;
-        
+
         // The key test is that this compiles, proving all methods are public
         assert!(true, "All event method signatures are public and correct");
+    }
+
+    #[test]
+    fn test_custom_error_integration() {
+        // Test that the EthereumError::from_contract_error method works correctly
+        // This ensures the integration between client.rs and error.rs is working
+
+        // Test UnauthorizedAccess error parsing
+        let error_msg = "Transaction failed: 0x344fd586";
+        let parsed_error = EthereumError::from_contract_error(error_msg);
+        match parsed_error {
+            EthereumError::UnauthorizedAccess => {}
+            _ => panic!("Expected UnauthorizedAccess error, got: {:?}", parsed_error),
+        }
+
+        // Test ProofAlreadyExists error parsing
+        let error_msg = "Transaction failed: 0xb8cdb9bd";
+        let parsed_error = EthereumError::from_contract_error(error_msg);
+        match parsed_error {
+            EthereumError::ProofAlreadyExists => {}
+            _ => panic!("Expected ProofAlreadyExists error, got: {:?}", parsed_error),
+        }
+
+        // Test InvalidArrayLength error parsing
+        let error_msg = "Batch transaction failed: 0x9d89020a";
+        let parsed_error = EthereumError::from_contract_error(error_msg);
+        match parsed_error {
+            EthereumError::InvalidArrayLength => {}
+            _ => panic!("Expected InvalidArrayLength error, got: {:?}", parsed_error),
+        }
+
+        // Test fallback to generic Contract error for unknown signatures
+        let error_msg = "Transaction failed: 0x12345678";
+        let parsed_error = EthereumError::from_contract_error(error_msg);
+        match parsed_error {
+            EthereumError::Contract(msg) => {
+                assert_eq!(msg, "Transaction failed: 0x12345678");
+            }
+            _ => panic!(
+                "Expected Contract error for unknown signature, got: {:?}",
+                parsed_error
+            ),
+        }
+    }
+
+    #[test]
+    fn test_error_message_formatting() {
+        // Test that error messages are formatted correctly for different contract methods
+
+        // Test verify proof error formatting
+        let verify_error = EthereumError::from_contract_error("Transaction failed: 0x344fd586");
+        assert_eq!(
+            verify_error.to_string(),
+            "Unauthorized access: The caller is not authorized to perform this operation"
+        );
+
+        // Test batch update error formatting
+        let batch_error =
+            EthereumError::from_contract_error("Batch transaction failed: 0x9d89020a");
+        assert_eq!(
+            batch_error.to_string(),
+            "Invalid array length: Input arrays have mismatched lengths"
+        );
+
+        // Test state query error formatting
+        let state_error = EthereumError::from_contract_error("State query failed: 0xfa8d84c7");
+        assert_eq!(
+            state_error.to_string(),
+            "State not found: The requested state does not exist"
+        );
+
+        // Test proof query error formatting
+        let proof_error = EthereumError::from_contract_error("Proof data query failed: 0x36131e57");
+        assert_eq!(
+            proof_error.to_string(),
+            "Proof not found: The requested proof does not exist"
+        );
+    }
+
+    #[test]
+    fn test_contract_method_error_patterns() {
+        // Test the specific error message patterns that would come from different contract methods
+
+        // Pattern from update_state method
+        let update_state_pattern = "Transaction failed: execution reverted 0x344fd586";
+        let error = EthereumError::from_contract_error(update_state_pattern);
+        match error {
+            EthereumError::UnauthorizedAccess => {}
+            _ => panic!("Expected UnauthorizedAccess for update_state pattern"),
+        }
+
+        // Pattern from batch_update_states method
+        let batch_update_pattern = "Batch transaction failed: 0x9d89020a InvalidArrayLength()";
+        let error = EthereumError::from_contract_error(batch_update_pattern);
+        match error {
+            EthereumError::InvalidArrayLength => {}
+            _ => panic!("Expected InvalidArrayLength for batch_update pattern"),
+        }
+
+        // Pattern from get_current_state method
+        let get_state_pattern = "State query failed: revert 0xfa8d84c7";
+        let error = EthereumError::from_contract_error(get_state_pattern);
+        match error {
+            EthereumError::ContractStateNotFound => {}
+            _ => panic!("Expected ContractStateNotFound for get_state pattern"),
+        }
+
+        // Pattern from get_proof_data method
+        let get_proof_pattern = "Proof data query failed: 0x36131e57";
+        let error = EthereumError::from_contract_error(get_proof_pattern);
+        match error {
+            EthereumError::ContractProofNotFound => {}
+            _ => panic!("Expected ContractProofNotFound for get_proof pattern"),
+        }
+
+        // Pattern from verifier version query
+        let verifier_pattern = "Verifier version query failed: 0xe55fb509";
+        let error = EthereumError::from_contract_error(verifier_pattern);
+        match error {
+            EthereumError::InvalidLimit => {}
+            _ => panic!("Expected InvalidLimit for verifier pattern"),
+        }
+    }
+
+    #[test]
+    fn test_all_error_signatures_unique() {
+        // Ensure all error signatures are unique and properly mapped
+        let signatures = vec![
+            ("0x344fd586", "UnauthorizedAccess"),
+            ("0x9d89020a", "InvalidArrayLength"),
+            ("0xfa8d84c7", "ContractStateNotFound"),
+            ("0x36131e57", "ContractProofNotFound"),
+            ("0xe55fb509", "InvalidLimit"),
+            ("0x63df8171", "InvalidIndex"),
+            ("0xb8cdb9bd", "ProofAlreadyExists"),
+        ];
+
+        for (sig, expected_error) in signatures {
+            let error_msg = format!("Test error: {}", sig);
+            let parsed_error = EthereumError::from_contract_error(&error_msg);
+
+            let error_name = match parsed_error {
+                EthereumError::UnauthorizedAccess => "UnauthorizedAccess",
+                EthereumError::InvalidArrayLength => "InvalidArrayLength",
+                EthereumError::ContractStateNotFound => "ContractStateNotFound",
+                EthereumError::ContractProofNotFound => "ContractProofNotFound",
+                EthereumError::InvalidLimit => "InvalidLimit",
+                EthereumError::InvalidIndex => "InvalidIndex",
+                EthereumError::ProofAlreadyExists => "ProofAlreadyExists",
+                _ => "Unknown",
+            };
+
+            assert_eq!(
+                error_name, expected_error,
+                "Signature {} should map to {} but got {}",
+                sig, expected_error, error_name
+            );
+        }
+    }
+
+    #[test]
+    fn test_real_world_error_scenarios() {
+        // Test error patterns that might actually occur in real usage
+
+        // Scenario: User tries to update state without authorization
+        let unauthorized_msg =
+            "Contract call reverted: execution reverted with custom error 0x344fd586";
+        let error = EthereumError::from_contract_error(unauthorized_msg);
+        assert!(matches!(error, EthereumError::UnauthorizedAccess));
+
+        // Scenario: Batch operation with mismatched array lengths
+        let batch_length_msg = "Batch update failed: arrays length mismatch 0x9d89020a";
+        let error = EthereumError::from_contract_error(batch_length_msg);
+        assert!(matches!(error, EthereumError::InvalidArrayLength));
+
+        // Scenario: Trying to submit duplicate proof
+        let duplicate_proof_msg = "Proof submission failed: 0xb8cdb9bd ProofAlreadyExists";
+        let error = EthereumError::from_contract_error(duplicate_proof_msg);
+        assert!(matches!(error, EthereumError::ProofAlreadyExists));
+
+        // Scenario: Querying non-existent state
+        let missing_state_msg = "State retrieval failed: 0xfa8d84c7 state not found";
+        let error = EthereumError::from_contract_error(missing_state_msg);
+        assert!(matches!(error, EthereumError::ContractStateNotFound));
+
+        // Scenario: Array index out of bounds
+        let index_error_msg = "Array access error: index out of bounds 0x63df8171";
+        let error = EthereumError::from_contract_error(index_error_msg);
+        assert!(matches!(error, EthereumError::InvalidIndex));
     }
 }
