@@ -51,18 +51,18 @@ pub use db::{
     get_all_batches,
     get_batch_by_id,
     get_contract_submission_data,
-    get_proven_unposted_batches,
-    mark_batch_posted_to_contract,
     // State functions
     get_current_counter_value,
     get_current_state,
 
     get_pending_transactions,
 
+    get_proven_unposted_batches,
     // Database connection
     init_db,
     init_db_with_url,
 
+    mark_batch_posted_to_contract,
     // ADS/Merkle functions
     store_ads_state_commit,
     // Transaction functions

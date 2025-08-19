@@ -3,6 +3,8 @@
 //! This CLI interacts with the new batch processing API server.
 //! It supports submitting individual transactions, viewing pending transactions,
 //! triggering batch creation, and verifying proofs locally.
+
+#![allow(clippy::uninlined_format_args)]
 //!
 //! Usage examples:
 //! ```shell
@@ -84,7 +86,7 @@ enum Commands {
         /// Batch ID with associated proof
         #[arg(long)]
         batch_id: i32,
-        /// Output file path (optional, defaults to proof_batch_<id>.json)
+        /// Output file path (optional, defaults to `proof_batch_<id>.json`)
         #[arg(long)]
         output: Option<String>,
     },
@@ -548,6 +550,7 @@ async fn health_check(client: &BatchApiClient) -> Result<()> {
 }
 
 /// Verify proof locally without requiring network access
+#[allow(clippy::too_many_lines)]
 fn verify_proof_local(
     proof_file: Option<String>,
     proof_data: Option<String>,
@@ -586,18 +589,24 @@ fn verify_proof_local(
                 .ok_or_else(|| eyre::eyre!("Verifying key not found in file"))?
                 .to_string();
 
-            let batch_id = download_response
-                .get("batch_id")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0) as i32;
-            let initial_balance = download_response
-                .get("initial_balance")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0) as i32;
-            let final_balance = download_response
-                .get("final_balance")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0) as i32;
+            let batch_id = i32::try_from(
+                download_response
+                    .get("batch_id")
+                    .and_then(serde_json::Value::as_i64)
+                    .unwrap_or(0)
+            ).unwrap_or(0);
+            let initial_balance = i32::try_from(
+                download_response
+                    .get("initial_balance")
+                    .and_then(serde_json::Value::as_i64)
+                    .unwrap_or(0)
+            ).unwrap_or(0);
+            let final_balance = i32::try_from(
+                download_response
+                    .get("final_balance")
+                    .and_then(serde_json::Value::as_i64)
+                    .unwrap_or(0)
+            ).unwrap_or(0);
 
             (
                 proof_data,
@@ -695,4 +704,3 @@ fn verify_proof_local(
 
     Ok(())
 }
-

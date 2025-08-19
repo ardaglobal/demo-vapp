@@ -19,6 +19,7 @@ use tracing::info;
 /// This is built by build.rs from the program/ directory.
 pub const ARITHMETIC_ELF: &[u8] = include_elf!("program");
 
+#[allow(clippy::cognitive_complexity)]
 fn main() -> Result<()> {
     // Setup logging
     tracing_subscriber::fmt().with_env_filter("info").init();
@@ -64,7 +65,7 @@ fn main() -> Result<()> {
 
     // Check the public outputs
     let public_values = proof.public_values;
-    let output = PublicValuesStruct::abi_decode(&public_values.as_slice())
+    let output = PublicValuesStruct::abi_decode(public_values.as_slice())
         .expect("Failed to decode public values");
 
     info!("📤 Public output:");

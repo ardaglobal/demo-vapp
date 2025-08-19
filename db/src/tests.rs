@@ -1,6 +1,4 @@
-use crate::db::{
-    get_pending_transactions, init_db, submit_transaction,
-};
+use crate::db::{get_pending_transactions, init_db, submit_transaction};
 use crate::test_utils::TestDatabase;
 use std::env;
 
@@ -56,7 +54,11 @@ mod db_tests {
 
         // Verify that created_at is recent (within last minute)
         let now = chrono::Utc::now();
-        assert!(now.signed_duration_since(pending_transactions[0].created_at).num_seconds() < 60);
+        assert!(
+            now.signed_duration_since(pending_transactions[0].created_at)
+                .num_seconds()
+                < 60
+        );
     }
 
     #[tokio::test]
@@ -90,6 +92,12 @@ mod db_tests {
         let mut expected_amounts = amounts;
         expected_amounts.sort_unstable();
         assert_eq!(found_amounts, expected_amounts);
+
+        // Verify all submitted IDs are present in the retrieved transactions
+        let mut found_ids: Vec<i32> = pending_transactions.iter().map(|t| t.id).collect();
+        found_ids.sort_unstable();
+        submitted_ids.sort_unstable();
+        assert_eq!(found_ids, submitted_ids);
 
         // Verify all are pending (not batched)
         for transaction in pending_transactions {
@@ -159,7 +167,7 @@ mod db_tests {
             .expect("Failed to retrieve pending transactions");
 
         assert_eq!(pending_transactions.len(), 5);
-        
+
         // Verify all expected amounts are present
         let mut found_amounts: Vec<i32> = pending_transactions.iter().map(|t| t.amount).collect();
         found_amounts.sort_unstable();
@@ -251,7 +259,7 @@ mod db_tests {
             .expect("Failed to retrieve transactions in concurrent test");
 
         assert_eq!(pending_transactions.len(), 10);
-        
+
         // Verify all expected amounts are present
         let mut found_amounts: Vec<i32> = pending_transactions.iter().map(|t| t.amount).collect();
         found_amounts.sort_unstable();
@@ -291,21 +299,20 @@ mod performance_tests {
             .expect("Failed to retrieve bulk transactions");
 
         assert_eq!(pending_transactions.len(), 1000);
-        
+
         // Verify first 100 amounts to avoid too much verification overhead
         let expected_amounts: Vec<i32> = (0..100).map(|i| i * 2 + 1).collect();
-        let mut found_amounts: Vec<i32> = pending_transactions
+        let found_amounts: Vec<i32> = pending_transactions
             .iter()
             .take(100)
             .map(|t| t.amount)
             .collect();
-        found_amounts.sort_unstable();
-        
-        // Check that all expected amounts are present (may not be in order)
-        for expected in expected_amounts {
+
+        // Check that all expected amounts are present in the found amounts
+        for expected in &expected_amounts {
             assert!(
-                pending_transactions.iter().any(|t| t.amount == expected),
-                "Expected amount {} not found in pending transactions",
+                found_amounts.contains(expected),
+                "Expected amount {} not found in first 100 transactions",
                 expected
             );
         }
@@ -355,13 +362,7 @@ mod edge_case_tests {
             .expect("Failed to create test database");
 
         // Test edge cases for i32 amounts
-        let test_amounts = vec![
-            i32::MIN,
-            i32::MAX,
-            i32::MIN + 1,
-            i32::MAX - 1,
-            0,
-        ];
+        let test_amounts = vec![i32::MIN, i32::MAX, i32::MIN + 1, i32::MAX - 1, 0];
 
         for amount in test_amounts {
             let transaction = submit_transaction(&test_db.pool, amount)
@@ -378,7 +379,7 @@ mod edge_case_tests {
             .expect("Failed to retrieve boundary value transactions");
 
         assert_eq!(pending_transactions.len(), 5);
-        
+
         // Verify all amounts are present
         let expected_amounts = vec![i32::MIN, i32::MIN + 1, 0, i32::MAX - 1, i32::MAX];
         for expected in expected_amounts {
@@ -441,7 +442,7 @@ mod edge_case_tests {
             .expect("Failed to retrieve negative number transactions");
 
         assert_eq!(pending_transactions.len(), 4);
-        
+
         // Verify all negative amounts are present
         let expected_amounts = vec![-300, -8, -5, -5];
         let mut found_amounts: Vec<i32> = pending_transactions.iter().map(|t| t.amount).collect();
@@ -476,7 +477,7 @@ mod edge_case_tests {
             .expect("Failed to retrieve transactions");
 
         assert_eq!(pending_transactions.len(), 3);
-        
+
         // Verify that what we submitted is what we get back
         let expected_amounts = vec![0, 9, 16];
         let mut found_amounts: Vec<i32> = pending_transactions.iter().map(|t| t.amount).collect();
@@ -512,7 +513,7 @@ mod edge_case_tests {
             .collect();
 
         assert_eq!(our_transactions.len(), 100);
-        
+
         // Verify all have unique IDs
         let mut ids: Vec<i32> = our_transactions.iter().map(|t| t.id).collect();
         ids.sort_unstable();
@@ -557,11 +558,13 @@ mod integration_tests {
             .expect("Failed to retrieve integration test transactions");
 
         assert_eq!(pending_transactions.len(), 5);
-        
+
         // Verify all computed amounts are present
         for expected_amount in submitted_amounts {
             assert!(
-                pending_transactions.iter().any(|t| t.amount == expected_amount),
+                pending_transactions
+                    .iter()
+                    .any(|t| t.amount == expected_amount),
                 "Integration test transaction not found with amount: {}",
                 expected_amount
             );
@@ -640,19 +643,24 @@ mod integration_tests {
             .expect("Failed to get pending transactions for workflow verification");
 
         assert_eq!(pending_transactions.len(), 3);
-        
+
         // Verify all computed amounts are present and ready for batching
         for expected_amount in expected_amounts {
             assert!(
-                pending_transactions.iter().any(|t| t.amount == expected_amount),
+                pending_transactions
+                    .iter()
+                    .any(|t| t.amount == expected_amount),
                 "Workflow verification failed: amount {} not found in pending transactions",
                 expected_amount
             );
         }
-        
+
         // Verify all transactions are pending (not yet batched)
         for transaction in &pending_transactions {
-            assert!(transaction.included_in_batch_id.is_none(), "Transaction should not be batched yet");
+            assert!(
+                transaction.included_in_batch_id.is_none(),
+                "Transaction should not be batched yet"
+            );
         }
     }
 }

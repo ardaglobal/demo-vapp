@@ -60,6 +60,7 @@ pub struct EventManager {
 
 impl EventManager {
     /// Create new event manager with Ethereum client
+    #[must_use]
     pub fn new(ethereum_client: Arc<EthereumClient>) -> Self {
         Self {
             global_event_receiver: Some(ethereum_client.get_event_stream()),
@@ -221,7 +222,7 @@ impl EventManager {
         };
 
         let callback = Arc::new(move |event: ArithmeticEvent| {
-            EventManager::dispatch_event_to_handler(&*handler, event);
+            Self::dispatch_event_to_handler(&*handler, event);
         });
 
         self.ethereum_client
@@ -230,6 +231,7 @@ impl EventManager {
     }
 
     /// Start processing global event stream
+    #[allow(clippy::cognitive_complexity)]
     pub async fn start_processing_events(&mut self) -> Result<()> {
         if let Some(mut receiver) = self.global_event_receiver.take() {
             info!("Starting global event processing loop");
@@ -246,7 +248,6 @@ impl EventManager {
                     }
                     Err(broadcast::error::RecvError::Lagged(count)) => {
                         warn!("Event stream lagged by {} events", count);
-                        continue;
                     }
                     Err(broadcast::error::RecvError::Closed) => {
                         error!("Event stream closed");
@@ -323,7 +324,8 @@ impl EventManager {
     }
 
     /// Get reference to underlying Ethereum client
-    pub fn ethereum_client(&self) -> &Arc<EthereumClient> {
+    #[must_use]
+    pub const fn ethereum_client(&self) -> &Arc<EthereumClient> {
         &self.ethereum_client
     }
 }
@@ -334,33 +336,39 @@ pub struct EventFilterBuilder {
 }
 
 impl EventFilterBuilder {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             filter: EventFilter::default(),
         }
     }
 
+    #[must_use]
     pub fn with_event_types(mut self, event_types: Vec<String>) -> Self {
         self.filter.event_types = Some(event_types);
         self
     }
 
+    #[must_use]
     pub fn with_state_ids(mut self, state_ids: Vec<FixedBytes<32>>) -> Self {
         self.filter.state_ids = Some(state_ids);
         self
     }
 
+    #[must_use]
     pub fn with_addresses(mut self, addresses: Vec<Address>) -> Self {
         self.filter.addresses = Some(addresses);
         self
     }
 
-    pub fn with_block_range(mut self, from_block: u64, to_block: u64) -> Self {
+    #[must_use]
+    pub const fn with_block_range(mut self, from_block: u64, to_block: u64) -> Self {
         self.filter.from_block = Some(from_block);
         self.filter.to_block = Some(to_block);
         self
     }
 
+    #[must_use]
     pub fn build(self) -> EventFilter {
         self.filter
     }
@@ -372,13 +380,14 @@ impl Default for EventFilterBuilder {
     }
 }
 
-/// Example implementation of EventHandler for vApp servers
+/// Example implementation of `EventHandler` for vApp servers
 pub struct VAppEventHandler {
     server_name: String,
 }
 
 impl VAppEventHandler {
-    pub fn new(server_name: String) -> Self {
+    #[must_use]
+    pub const fn new(server_name: String) -> Self {
         Self { server_name }
     }
 }

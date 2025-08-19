@@ -21,7 +21,7 @@ sqlx = { workspace = true, features = [
     "chrono",
     "json",
     "postgres",
-    "runtime-tokio-rustls", 
+    "runtime-tokio-rustls",
     "uuid",
 ] }
 thiserror = "1.0"
@@ -37,11 +37,11 @@ sp1-sdk         = { workspace = true }
 
 # Utility dependencies (kept for non-API uses)
 async-trait = "0.1"
-hex = "0.4"
-serde_json = "1.0"
-rand = "0.8"
-sha2 = "0.10"
-url = "2.5"
+hex         = "0.4"
+rand        = "0.8"
+serde_json  = "1.0"
+sha2        = "0.10"
+url         = "2.5"
 
 [dev-dependencies]
 arithmetic-lib     = { path = "../lib", package = "lib" }

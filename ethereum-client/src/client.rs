@@ -100,25 +100,13 @@ pub enum ArithmeticEvent {
 pub type EventCallback = Arc<dyn Fn(ArithmeticEvent) + Send + Sync>;
 
 /// Event filter configuration
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct EventFilter {
     pub event_types: Option<Vec<String>>,
     pub state_ids: Option<Vec<FixedBytes<32>>>,
     pub addresses: Option<Vec<Address>>,
     pub from_block: Option<u64>,
     pub to_block: Option<u64>,
-}
-
-impl Default for EventFilter {
-    fn default() -> Self {
-        Self {
-            event_types: None,
-            state_ids: None,
-            addresses: None,
-            from_block: None,
-            to_block: None,
-        }
-    }
 }
 
 /// Event subscription handle
@@ -444,8 +432,10 @@ impl EthereumClient {
                 .as_millis()
         ));
 
-        let mut callbacks = self.event_callbacks.write().await;
-        callbacks.insert(subscription_id.clone(), (filter, callback));
+        self.event_callbacks
+            .write()
+            .await
+            .insert(subscription_id.clone(), (filter, callback));
 
         info!("Created event subscription: {:?}", subscription_id);
         Ok(subscription_id)
@@ -453,8 +443,12 @@ impl EthereumClient {
 
     /// Unsubscribe from events
     pub async fn unsubscribe(&self, subscription_id: &SubscriptionId) -> Result<bool> {
-        let mut callbacks = self.event_callbacks.write().await;
-        let removed = callbacks.remove(subscription_id).is_some();
+        let removed = self
+            .event_callbacks
+            .write()
+            .await
+            .remove(subscription_id)
+            .is_some();
 
         if removed {
             info!("Removed event subscription: {:?}", subscription_id);
@@ -464,11 +458,13 @@ impl EthereumClient {
     }
 
     /// Get global event stream
+    #[must_use]
     pub fn get_event_stream(&self) -> broadcast::Receiver<ArithmeticEvent> {
         self.event_broadcaster.subscribe()
     }
 
     /// Start comprehensive event monitoring with enhanced capabilities
+    #[allow(clippy::cognitive_complexity)]
     pub async fn start_event_monitoring(&self) -> Result<()> {
         info!(
             "Starting enhanced event monitoring for contract: {}",
@@ -561,7 +557,7 @@ impl EthereumClient {
 
         let mut events = Vec::new();
         for log in logs {
-            if let Some(event) = self.convert_log_to_event(&log).await {
+            if let Some(event) = Self::convert_log_to_event(&log) {
                 events.push(event);
             }
         }
@@ -569,11 +565,8 @@ impl EthereumClient {
         Ok(events)
     }
 
-    /// Convert RPC log to ArithmeticEvent
-    async fn convert_log_to_event(
-        &self,
-        log: &alloy_rpc_types_eth::Log,
-    ) -> Option<ArithmeticEvent> {
+    /// Convert RPC log to `ArithmeticEvent`
+    fn convert_log_to_event(log: &alloy_rpc_types_eth::Log) -> Option<ArithmeticEvent> {
         let primitive_log = Self::convert_rpc_log_to_primitive(log);
         let block_number = log.block_number.unwrap_or(0);
         let tx_hash = log.transaction_hash.unwrap_or_default();
@@ -581,9 +574,9 @@ impl EthereumClient {
         // Decode different event types
         if let Ok(event) = IArithmetic::StateUpdated::decode_log(&primitive_log) {
             return Some(ArithmeticEvent::StateUpdated {
-                state_id: event.stateId.clone(),
-                new_state: event.newState.clone(),
-                proof_id: event.proofId.clone(),
+                state_id: event.stateId,
+                new_state: event.newState,
+                proof_id: event.proofId,
                 updater: event.updater,
                 timestamp: event.timestamp.try_into().unwrap_or(0),
                 block_number,
@@ -649,6 +642,7 @@ impl EthereumClient {
     }
 
     /// Process event and dispatch to subscribers
+    #[allow(clippy::cognitive_complexity)]
     async fn process_and_dispatch_event(&self, event: ArithmeticEvent) {
         // Broadcast to global stream
         if let Err(e) = self.event_broadcaster.send(event.clone()) {
@@ -656,9 +650,8 @@ impl EthereumClient {
         }
 
         // Check subscribers and call matching callbacks
-        let callbacks = self.event_callbacks.read().await;
-        for (sub_id, (filter, callback)) in callbacks.iter() {
-            if self.event_matches_filter(&event, filter) {
+        for (sub_id, (filter, callback)) in self.event_callbacks.read().await.iter() {
+            if Self::event_matches_filter(&event, filter) {
                 debug!("Dispatching event to subscription: {:?}", sub_id);
                 callback(event.clone());
             }
@@ -668,15 +661,13 @@ impl EthereumClient {
         #[cfg(feature = "database")]
         if self.listener_config.enable_persistence {
             if let Some(cache) = &self.cache {
-                if let Err(e) = self.persist_event(&event, cache).await {
-                    warn!("Failed to persist event: {}", e);
-                }
+                Self::persist_event(&event, cache);
             }
         }
     }
 
     /// Check if event matches filter criteria
-    fn event_matches_filter(&self, event: &ArithmeticEvent, filter: &EventFilter) -> bool {
+    fn event_matches_filter(event: &ArithmeticEvent, filter: &EventFilter) -> bool {
         // Check event type filter
         if let Some(event_types) = &filter.event_types {
             let event_type = match event {
@@ -710,12 +701,12 @@ impl EthereumClient {
         // Check address filter
         if let Some(addresses) = &filter.addresses {
             let event_address = match event {
-                ArithmeticEvent::StateUpdated { updater, .. } => Some(*updater),
-                ArithmeticEvent::BatchStateUpdated { updater, .. } => Some(*updater),
+                ArithmeticEvent::StateUpdated { updater, .. }
+                | ArithmeticEvent::BatchStateUpdated { updater, .. } => Some(*updater),
                 ArithmeticEvent::ProofStored { submitter, .. } => Some(*submitter),
-                ArithmeticEvent::StateReadRequested { reader, .. } => Some(*reader),
-                ArithmeticEvent::ProofReadRequested { reader, .. } => Some(*reader),
-                _ => None,
+                ArithmeticEvent::StateReadRequested { reader, .. }
+                | ArithmeticEvent::ProofReadRequested { reader, .. } => Some(*reader),
+                ArithmeticEvent::ProofVerified { .. } => None,
             };
             if let Some(address) = event_address {
                 if !addresses.contains(&address) {
@@ -726,12 +717,12 @@ impl EthereumClient {
 
         // Check block range filter
         let event_block = match event {
-            ArithmeticEvent::StateUpdated { block_number, .. } => *block_number,
-            ArithmeticEvent::BatchStateUpdated { block_number, .. } => *block_number,
-            ArithmeticEvent::ProofStored { block_number, .. } => *block_number,
-            ArithmeticEvent::ProofVerified { block_number, .. } => *block_number,
-            ArithmeticEvent::StateReadRequested { block_number, .. } => *block_number,
-            ArithmeticEvent::ProofReadRequested { block_number, .. } => *block_number,
+            ArithmeticEvent::StateUpdated { block_number, .. }
+            | ArithmeticEvent::BatchStateUpdated { block_number, .. }
+            | ArithmeticEvent::ProofStored { block_number, .. }
+            | ArithmeticEvent::ProofVerified { block_number, .. }
+            | ArithmeticEvent::StateReadRequested { block_number, .. }
+            | ArithmeticEvent::ProofReadRequested { block_number, .. } => *block_number,
         };
 
         if let Some(from_block) = filter.from_block {
@@ -751,10 +742,9 @@ impl EthereumClient {
 
     /// Persist event to database cache
     #[cfg(feature = "database")]
-    async fn persist_event(&self, event: &ArithmeticEvent, _cache: &EthereumCache) -> Result<()> {
+    fn persist_event(event: &ArithmeticEvent, _cache: &EthereumCache) {
         // TODO: Implement event persistence to database
         debug!("Persisting event: {:?}", event);
-        Ok(())
     }
 
     pub async fn monitor_events(&self) -> Result<()> {
@@ -1063,6 +1053,11 @@ mod tests {
     use super::*;
     use alloy_primitives::{Address, B256, U256};
 
+    // Type aliases for function signature testing
+    type StateUpdatedHandler = fn(&EthereumClient, &IArithmetic::StateUpdated);
+    type EventProcessor = fn(&EthereumClient, &alloy_rpc_types_eth::Log);
+    type EventDecoder = fn(&EthereumClient, &alloy_primitives::Log, &alloy_rpc_types_eth::Log);
+
     #[test]
     fn test_handle_state_updated_event_is_public() {
         // Test that handle_state_updated_event method is public and accessible
@@ -1071,7 +1066,7 @@ mod tests {
             newState: B256::from([2u8; 32]),
             proofId: B256::from([3u8; 32]),
             updater: Address::from([4u8; 20]),
-            timestamp: U256::from(1234567890u64),
+            timestamp: U256::from(1_234_567_890_u64),
         };
 
         // Since the method is part of the EthereumClient impl, we can't call it statically
@@ -1090,7 +1085,7 @@ mod tests {
             proofId: B256::from([1u8; 32]),
             stateId: B256::from([2u8; 32]),
             submitter: Address::from([3u8; 20]),
-            timestamp: U256::from(1234567890u64),
+            timestamp: U256::from(1_234_567_890_u64),
         };
 
         // This test mainly checks that handle_proof_stored_event doesn't panic
@@ -1110,7 +1105,7 @@ mod tests {
             proofId: B256::from([1u8; 32]),
             success: true,
             result: alloy_primitives::Bytes::from(vec![4u8, 5u8, 6u8]),
-            timestamp: U256::from(1234567890u64),
+            timestamp: U256::from(1_234_567_890_u64),
         };
 
         // This test mainly checks that handle_proof_verified_event doesn't panic
@@ -1119,7 +1114,7 @@ mod tests {
 
         // Verify event fields
         assert_eq!(event.proofId, B256::from([1u8; 32]));
-        assert_eq!(event.success, true);
+        assert!(event.success);
         assert_eq!(
             event.result,
             alloy_primitives::Bytes::from(vec![4u8, 5u8, 6u8])
@@ -1136,7 +1131,7 @@ mod tests {
             proofId: B256::from([1u8; 32]),
             stateId: B256::from([2u8; 32]),
             submitter: Address::from([3u8; 20]),
-            timestamp: U256::from(1234567890u64),
+            timestamp: U256::from(1_234_567_890_u64),
         };
 
         // Verify static method is public and callable
@@ -1147,7 +1142,7 @@ mod tests {
             proofId: B256::from([4u8; 32]),
             success: true,
             result: alloy_primitives::Bytes::from(vec![1u8, 2u8, 3u8]),
-            timestamp: U256::from(1234567890u64),
+            timestamp: U256::from(1_234_567_890_u64),
         };
 
         // Verify static method is public and callable
@@ -1155,7 +1150,6 @@ mod tests {
 
         // The main assertion is that these methods are accessible
         // The fact that this test compiles proves the methods are public
-        assert!(true, "Event listener methods are public and accessible");
     }
 
     #[test]
@@ -1164,23 +1158,27 @@ mod tests {
         // by creating function pointers to the methods
 
         // Test that we can create function pointers to the public methods
-        let _handle_proof_stored: fn(&IArithmetic::ProofStored) =
+        let handle_proof_stored: fn(&IArithmetic::ProofStored) =
             EthereumClient::handle_proof_stored_event;
-        let _handle_proof_verified: fn(&IArithmetic::ProofVerified) =
+        let handle_proof_verified: fn(&IArithmetic::ProofVerified) =
             EthereumClient::handle_proof_verified_event;
 
         // Test that instance methods exist (can't easily test without a client instance)
         // but we can verify their signatures by attempting to reference them
-        type StateUpdatedHandler = fn(&EthereumClient, &IArithmetic::StateUpdated);
-        type EventProcessor = fn(&EthereumClient, &alloy_rpc_types_eth::Log);
-        type EventDecoder = fn(&EthereumClient, &alloy_primitives::Log, &alloy_rpc_types_eth::Log);
+        let handle_state_updated: StateUpdatedHandler = EthereumClient::handle_state_updated_event;
+        let process_event: EventProcessor = EthereumClient::process_event_log;
+        let decode_event: EventDecoder = EthereumClient::decode_and_log_event;
 
-        let _handle_state_updated: StateUpdatedHandler = EthereumClient::handle_state_updated_event;
-        let _process_event: EventProcessor = EthereumClient::process_event_log;
-        let _decode_event: EventDecoder = EthereumClient::decode_and_log_event;
+        // Use the function pointers to avoid unused variable warnings
+        std::hint::black_box((
+            handle_proof_stored,
+            handle_proof_verified,
+            handle_state_updated,
+            process_event,
+            decode_event,
+        ));
 
         // The key test is that this compiles, proving all methods are public
-        assert!(true, "All event method signatures are public and correct");
     }
 
     #[test]
@@ -1193,7 +1191,7 @@ mod tests {
         let parsed_error = EthereumError::from_contract_error(error_msg);
         match parsed_error {
             EthereumError::UnauthorizedAccess => {}
-            _ => panic!("Expected UnauthorizedAccess error, got: {:?}", parsed_error),
+            _ => panic!("Expected UnauthorizedAccess error, got: {parsed_error:?}"),
         }
 
         // Test ProofAlreadyExists error parsing
@@ -1201,7 +1199,7 @@ mod tests {
         let parsed_error = EthereumError::from_contract_error(error_msg);
         match parsed_error {
             EthereumError::ProofAlreadyExists => {}
-            _ => panic!("Expected ProofAlreadyExists error, got: {:?}", parsed_error),
+            _ => panic!("Expected ProofAlreadyExists error, got: {parsed_error:?}"),
         }
 
         // Test InvalidArrayLength error parsing
@@ -1209,7 +1207,7 @@ mod tests {
         let parsed_error = EthereumError::from_contract_error(error_msg);
         match parsed_error {
             EthereumError::InvalidArrayLength => {}
-            _ => panic!("Expected InvalidArrayLength error, got: {:?}", parsed_error),
+            _ => panic!("Expected InvalidArrayLength error, got: {parsed_error:?}"),
         }
 
         // Test fallback to generic Contract error for unknown signatures
@@ -1219,10 +1217,7 @@ mod tests {
             EthereumError::Contract(msg) => {
                 assert_eq!(msg, "Transaction failed: 0x12345678");
             }
-            _ => panic!(
-                "Expected Contract error for unknown signature, got: {:?}",
-                parsed_error
-            ),
+            _ => panic!("Expected Contract error for unknown signature, got: {parsed_error:?}"),
         }
     }
 
@@ -1319,7 +1314,7 @@ mod tests {
         ];
 
         for (sig, expected_error) in signatures {
-            let error_msg = format!("Test error: {}", sig);
+            let error_msg = format!("Test error: {sig}");
             let parsed_error = EthereumError::from_contract_error(&error_msg);
 
             let error_name = match parsed_error {
@@ -1335,8 +1330,7 @@ mod tests {
 
             assert_eq!(
                 error_name, expected_error,
-                "Signature {} should map to {} but got {}",
-                sig, expected_error, error_name
+                "Signature {sig} should map to {expected_error} but got {error_name}"
             );
         }
     }

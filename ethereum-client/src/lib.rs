@@ -13,7 +13,7 @@ pub mod error;
 pub mod event_manager;
 pub mod types;
 
-pub use client::{ArithmeticEvent, EventCallback, EventFilter, EthereumClient, SubscriptionId};
+pub use client::{ArithmeticEvent, EthereumClient, EventCallback, EventFilter, SubscriptionId};
 pub use config::{Config, NetworkConfig};
 pub use error::{EthereumError, Result};
 pub use event_manager::{EventFilterBuilder, EventHandler, EventManager, VAppEventHandler};
