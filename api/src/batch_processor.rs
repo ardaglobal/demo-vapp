@@ -16,7 +16,7 @@ use tracing::{debug, error, info, instrument};
 
 use crate::rest::ApiConfig;
 use arithmetic_db::{create_batch, get_pending_transactions, get_batch_by_id, update_batch_proof};
-use arithmetic_lib::proof::{generate_sindri_proof, ProofGenerationRequest, ProofSystem};
+use arithmetic_lib::proof::{generate_batch_proof, BatchProofGenerationRequest, ProofSystem};
 
 // ============================================================================
 // BATCH PROCESSOR CONFIGURATION
@@ -415,41 +415,63 @@ impl BackgroundBatchProcessor {
             .await
             .map_err(|e| format!("Failed to get batch {}: {}", batch_id, e))?;
 
-        // For the arithmetic circuit, we need to prove the counter transition
-        // The circuit takes: initial_value + sum_of_transactions = final_value
-        // We'll use: a = initial_value, b = sum_of_transactions, result = final_value
-        let initial_value = batch.previous_counter_value as i32;
-        let final_value = batch.final_counter_value as i32;
-        let sum_of_transactions = final_value - initial_value;
+        // Get individual transaction amounts for the batch
+        let transaction_amounts: Vec<i32> = sqlx::query!(
+            "SELECT amount FROM incoming_transactions WHERE id = ANY($1) ORDER BY id",
+            &batch.transaction_ids
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("Failed to get transaction amounts: {}", e))?
+        .into_iter()
+        .map(|row| row.amount)
+        .collect();
+
+        let initial_balance = batch.previous_counter_value as i32;
+        let expected_final = initial_balance + transaction_amounts.iter().sum::<i32>();
+        let actual_final = batch.final_counter_value as i32;
+
+        // Sanity check
+        if expected_final != actual_final {
+            return Err(format!(
+                "Batch {} transaction sum mismatch: expected {}, got {}",
+                batch_id, expected_final, actual_final
+            ));
+        }
 
         info!(
-            "📊 Batch {} proof parameters: {} + {} = {}",
-            batch_id, initial_value, sum_of_transactions, final_value
+            "📊 Batch {} proof parameters: initial={}, transactions={:?}, final={}",
+            batch_id, initial_balance, transaction_amounts, actual_final
         );
 
-        // Create proof generation request
-        let proof_request = ProofGenerationRequest {
-            a: initial_value,
-            b: sum_of_transactions,
-            result: final_value,
+        // Create batch proof generation request
+        let proof_request = BatchProofGenerationRequest {
+            initial_balance,
+            transactions: transaction_amounts,
             proof_system: ProofSystem::default(), // Use Groth16 by default
             generate_fixtures: false, // Don't generate fixtures in production
         };
 
         // Generate proof via Sindri
-        match generate_sindri_proof(proof_request).await {
+        match generate_batch_proof(proof_request).await {
             Ok(proof_response) => {
                 info!(
                     "✅ Proof submitted to Sindri for batch {}: proof_id={}",
                     batch_id, proof_response.proof_id
                 );
 
-                // Update batch with Sindri proof ID
+                // Update batch with Sindri proof ID and appropriate status
+                let status = match proof_response.status.as_str() {
+                    "Ready" => "proven",
+                    "Failed" => "failed", 
+                    _ => "pending", // Default for "Pending" or other statuses
+                };
+
                 if let Err(e) = update_batch_proof(
                     pool,
                     batch_id,
                     &proof_response.proof_id,
-                    "pending", // Sindri will update this to "proven" when ready
+                    status,
                 )
                 .await
                 {
@@ -458,19 +480,25 @@ impl BackgroundBatchProcessor {
                 }
 
                 info!(
-                    "📝 Updated batch {} with Sindri proof ID: {}",
-                    batch_id, proof_response.proof_id
+                    "📝 Updated batch {} with Sindri proof ID: {} (status: {})",
+                    batch_id, proof_response.proof_id, status
                 );
-                Ok(())
+                
+                if status == "failed" {
+                    Err(format!("Sindri proof generation failed for batch {}", batch_id))
+                } else {
+                    Ok(())
+                }
             }
             Err(e) => {
-                error!("Failed to generate proof for batch {}: {}", batch_id, e);
+                error!("Failed to submit proof request to Sindri for batch {}: {}", batch_id, e);
 
-                // Update batch status to failed
+                // Only update status to failed, don't create a fake proof ID
+                // This handles cases where we couldn't even submit the request to Sindri
                 if let Err(update_err) = update_batch_proof(
                     pool,
                     batch_id,
-                    &format!("failed_{}", batch_id),
+                    &format!("error_{}", batch_id), // Temporary ID to indicate submission error
                     "failed",
                 )
                 .await
@@ -481,7 +509,7 @@ impl BackgroundBatchProcessor {
                     );
                 }
 
-                Err(format!("Proof generation failed: {}", e))
+                Err(format!("Failed to submit proof request: {}", e))
             }
         }
     }

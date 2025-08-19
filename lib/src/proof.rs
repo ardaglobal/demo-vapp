@@ -49,6 +49,15 @@ pub struct ProofGenerationRequest {
     pub generate_fixtures: bool,
 }
 
+/// Request for batch proof generation (new format for batch processing)
+#[derive(Debug, Clone)]
+pub struct BatchProofGenerationRequest {
+    pub initial_balance: i32,
+    pub transactions: Vec<i32>,
+    pub proof_system: ProofSystem,
+    pub generate_fixtures: bool,
+}
+
 /// Response from proof generation
 #[derive(Debug, Clone)]
 pub struct ProofGenerationResponse {
@@ -123,6 +132,98 @@ pub struct SP1ArithmeticProofFixture {
     pub vkey: String,
     pub public_values: String,
     pub proof: String,
+}
+
+/// A fixture for batch processing that can be used to test SP1 zkVM proofs inside Solidity.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SP1BatchProofFixture {
+    pub initial_balance: i32,
+    pub transactions: Vec<i32>,
+    pub final_balance: i32,
+    pub vkey: String,
+    pub public_values: String,
+    pub proof: String,
+}
+
+/// Generate a batch proof via Sindri with full feature support
+pub async fn generate_batch_proof(
+    request: BatchProofGenerationRequest,
+) -> Result<ProofGenerationResponse, ProofError> {
+    let final_balance = request.initial_balance + request.transactions.iter().sum::<i32>();
+    
+    info!(
+        "🔐 Generating {} batch proof: {} + {:?} = {} via Sindri",
+        request.proof_system.to_sindri_scheme().to_uppercase(),
+        request.initial_balance,
+        request.transactions,
+        final_balance
+    );
+
+    // Create SP1 inputs for batch processing and serialize for Sindri
+    let mut stdin = SP1Stdin::new();
+    stdin.write(&request.initial_balance);
+    stdin.write(&request.transactions);
+
+    let stdin_json =
+        serde_json::to_string(&stdin).map_err(|e| ProofError::SerializationError(e.to_string()))?;
+    let proof_input = ProofInput::from(stdin_json);
+
+    // Get circuit name with configurable tag from environment
+    let circuit_tag = std::env::var("SINDRI_CIRCUIT_TAG").unwrap_or_else(|_| "latest".to_string());
+    let circuit_name = format!("demo-vapp:{}", circuit_tag);
+
+    info!("📋 Using circuit: {} (tag: {})", circuit_name, circuit_tag);
+
+    let client = SindriClient::default();
+
+    let proof_info = client
+        .prove_circuit(&circuit_name, proof_input, None, None, None)
+        .await
+        .map_err(|e| ProofError::SindriError(e.to_string()))?;
+
+    let status = match proof_info.status {
+        JobStatus::Ready => "Ready".to_string(),
+        JobStatus::Failed => "Failed".to_string(),
+        _ => "Pending".to_string(),
+    };
+
+    let verification_command = format!(
+        "cargo run --release -- --verify --proof-id {} --initial-balance {} --transactions {:?}",
+        proof_info.proof_id, request.initial_balance, request.transactions
+    );
+
+    info!(
+        "✅ {} batch proof submitted successfully - ID: {}",
+        request.proof_system.to_sindri_scheme().to_uppercase(),
+        proof_info.proof_id
+    );
+
+    let response = ProofGenerationResponse {
+        proof_id: proof_info.proof_id.clone(),
+        status,
+        circuit_name,
+        circuit_tag,
+        verification_command,
+        proof_info,
+    };
+
+    // Generate EVM fixture if requested
+    if request.generate_fixtures {
+        if let Err(e) = create_batch_evm_fixture(
+            &response.proof_info,
+            request.initial_balance,
+            &request.transactions,
+            final_balance,
+            request.proof_system,
+        )
+        .await
+        {
+            warn!("⚠️  Failed to generate EVM fixture: {}", e);
+        }
+    }
+
+    Ok(response)
 }
 
 /// Generate a proof via Sindri with full feature support
@@ -421,6 +522,106 @@ pub async fn get_sindri_proof_info(proof_id: &str) -> Result<ProofInfoResponse, 
 pub async fn is_proof_ready(proof_id: &str) -> Result<bool, ProofError> {
     let proof_info = get_sindri_proof_info(proof_id).await?;
     Ok(proof_info.status == JobStatus::Ready)
+}
+
+/// Create EVM-compatible fixture from Sindri proof for batch processing
+async fn create_batch_evm_fixture(
+    proof_info: &ProofInfoResponse,
+    initial_balance: i32,
+    transactions: &[i32],
+    final_balance: i32,
+    system: ProofSystem,
+) -> Result<(), ProofError> {
+    info!(
+        "🔧 Generating batch EVM fixture for {} proof...",
+        system.to_sindri_scheme().to_uppercase()
+    );
+
+    // Wait for proof to be ready if it's still processing
+    let client = SindriClient::default();
+    let mut current_proof = proof_info.clone();
+
+    // Poll until proof is ready (with timeout)
+    let mut attempts = 0;
+    const MAX_ATTEMPTS: u32 = 60; // 5 minutes with 5-second intervals
+
+    while current_proof.status != JobStatus::Ready && attempts < MAX_ATTEMPTS {
+        if current_proof.status == JobStatus::Failed {
+            return Err(ProofError::FixtureGenerationError(format!(
+                "Sindri proof generation failed: {:?}",
+                current_proof.error
+            )));
+        }
+
+        info!(
+            "⏳ Waiting for proof to be ready... (attempt {}/{})",
+            attempts + 1,
+            MAX_ATTEMPTS
+        );
+        tokio::time::sleep(Duration::from_secs(5)).await;
+
+        current_proof = client
+            .get_proof(&proof_info.proof_id, None, None, Some(true))
+            .await
+            .map_err(|e| ProofError::SindriError(e.to_string()))?;
+        attempts += 1;
+    }
+
+    if current_proof.status != JobStatus::Ready {
+        return Err(ProofError::FixtureGenerationError(
+            "Timeout waiting for Sindri proof to be ready".to_string(),
+        ));
+    }
+
+    info!("✅ Sindri proof is ready, extracting EVM-compatible data...");
+
+    // Extract SP1 proof data from Sindri response
+    let sp1_proof = current_proof
+        .to_sp1_proof_with_public()
+        .map_err(|e| ProofError::FixtureGenerationError(e.to_string()))?;
+    let verification_key = current_proof
+        .get_sp1_verifying_key()
+        .map_err(|e| ProofError::FixtureGenerationError(e.to_string()))?;
+
+    // Create the batch fixture
+    let fixture = SP1BatchProofFixture {
+        initial_balance,
+        transactions: transactions.to_vec(),
+        final_balance,
+        vkey: verification_key.bytes32(),
+        public_values: format!("0x{}", hex::encode(sp1_proof.public_values.as_slice())),
+        proof: format!("0x{}", hex::encode(sp1_proof.bytes())),
+    };
+
+    // Create fixtures directory and save the fixture
+    let fixture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .ok_or_else(|| {
+            ProofError::FixtureGenerationError("Failed to get parent directory".to_string())
+        })?
+        .join("contracts/src/fixtures");
+
+    std::fs::create_dir_all(&fixture_path).map_err(|e| {
+        ProofError::FixtureGenerationError(format!("Failed to create fixtures directory: {}", e))
+    })?;
+
+    let filename = format!("batch-{}-fixture.json", system.to_sindri_scheme());
+    let fixture_file = fixture_path.join(&filename);
+
+    std::fs::write(&fixture_file, serde_json::to_string_pretty(&fixture)?).map_err(|e| {
+        ProofError::FixtureGenerationError(format!("Failed to write fixture file: {}", e))
+    })?;
+
+    info!("✅ Batch EVM fixture saved to: {}", fixture_file.display());
+    info!("🔑 Verification Key: {}", fixture.vkey);
+    info!("📊 Public Values: {}", fixture.public_values);
+    info!(
+        "🔒 Proof Bytes: {}...{}",
+        &fixture.proof[..42],
+        &fixture.proof[fixture.proof.len() - 6..]
+    );
+
+    Ok(())
 }
 
 /// Wait for a proof to be ready with timeout
