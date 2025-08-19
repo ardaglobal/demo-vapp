@@ -1,6 +1,7 @@
 [package]
 edition = "2021"
-name    = "examples"
+license = "MIT"
+name    = "utils"
 version = "0.1.0"
 
 [[bin]]
