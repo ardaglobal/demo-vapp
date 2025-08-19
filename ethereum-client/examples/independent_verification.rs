@@ -122,7 +122,7 @@ async fn main() -> Result<()> {
     println!("📋 Step 5: Complete Independent Verification Process");
     println!("---------------------------------------------------");
 
-    match client.verify_proof_independently(mock_proof_id).await {
+    match client.verify_proof_independently(mock_proof_id) {
         Ok(result) => {
             println!("✅ Independent Verification Completed!");
             println!("   SP1 Verification: {}", result.verified);

@@ -18,6 +18,7 @@ use alloy_provider::{
 use alloy_rpc_types_eth::{Filter, TransactionReceipt};
 use alloy_signer_local::PrivateKeySigner;
 use alloy_sol_types::SolEvent;
+use hex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
@@ -944,24 +945,17 @@ impl EthereumClient {
 
     pub const fn get_verification_data(&self, _proof_id: FixedBytes<32>) -> Result<Option<Bytes>> {
         // TODO: Implement verification data retrieval from contract
-        Ok(Some(Bytes::new()))
+        Ok(None)
     }
 
-    pub async fn verify_proof_independently(
+    pub fn verify_proof_independently(
         &self,
-        _proof_id: FixedBytes<32>,
+        proof_id: FixedBytes<32>,
     ) -> Result<ProofVerificationResult> {
-        // TODO: Implement independent proof verification
-        let current_block = self.http_provider.get_block_number().await?;
-
-        Ok(ProofVerificationResult {
-            proof_id: FixedBytes::ZERO,
-            verified: true,
-            result: Some(Bytes::new()),
-            block_number: current_block,
-            gas_used: U256::ZERO,
-            error_message: None,
-        })
+        Err(EthereumError::General(eyre::eyre!(
+            "verify_proof_independently: not implemented (proof_id: 0x{})",
+            hex::encode(proof_id)
+        )))
     }
 
     pub fn get_historical_states(

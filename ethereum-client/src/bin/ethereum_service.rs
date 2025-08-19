@@ -444,7 +444,7 @@ async fn main() -> Result<()> {
             );
             println!("🔍 Starting independent verification process...");
 
-            let result = client.verify_proof_independently(proof_id).await?;
+            let result = client.verify_proof_independently(proof_id).unwrap();
 
             println!("\n📋 Independent Verification Report:");
             println!("  Proof ID: 0x{}", hex::encode(result.proof_id));
@@ -538,7 +538,7 @@ async fn main() -> Result<()> {
 
             // Step 5: Independent verification
             println!("\n📋 Step 5: Performing independent verification...");
-            let verification_result = client.verify_proof_independently(proof_id).await?;
+            let verification_result = client.verify_proof_independently(proof_id).unwrap();
 
             let trustless_summary = ethereum_client::types::TrustlessVerificationSummary {
                 proof_id,
