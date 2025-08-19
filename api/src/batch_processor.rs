@@ -15,7 +15,8 @@ use tokio::time::{interval, Instant};
 use tracing::{debug, error, info, instrument};
 
 use crate::rest::ApiConfig;
-use arithmetic_db::{create_batch, get_pending_transactions};
+use arithmetic_db::{create_batch, get_pending_transactions, get_batch_by_id, update_batch_proof};
+use arithmetic_lib::proof::{generate_sindri_proof, ProofGenerationRequest, ProofSystem};
 
 // ============================================================================
 // BATCH PROCESSOR CONFIGURATION
@@ -348,6 +349,9 @@ impl BackgroundBatchProcessor {
                 // Update statistics
                 self.update_stats(batch.id, transaction_count).await;
 
+                // Trigger proof generation asynchronously
+                self.trigger_proof_generation(batch.id).await;
+
                 Ok(Some(batch.id))
             }
             Ok(None) => {
@@ -388,6 +392,98 @@ impl BackgroundBatchProcessor {
 
     async fn increment_errors(&self) {
         self.stats.write().await.errors += 1;
+    }
+
+    /// Trigger proof generation for a batch asynchronously
+    async fn trigger_proof_generation(&self, batch_id: i32) {
+        let pool = self.pool.clone();
+        
+        // Spawn proof generation in background to avoid blocking batch creation
+        tokio::spawn(async move {
+            if let Err(e) = Self::generate_proof_for_batch(&pool, batch_id).await {
+                error!("Failed to generate proof for batch {}: {}", batch_id, e);
+            }
+        });
+    }
+
+    /// Generate a ZK proof for a specific batch
+    async fn generate_proof_for_batch(pool: &PgPool, batch_id: i32) -> Result<(), String> {
+        info!("🔐 Starting proof generation for batch: {}", batch_id);
+
+        // Get batch details
+        let batch = get_batch_by_id(pool, batch_id)
+            .await
+            .map_err(|e| format!("Failed to get batch {}: {}", batch_id, e))?;
+
+        // For the arithmetic circuit, we need to prove the counter transition
+        // The circuit takes: initial_value + sum_of_transactions = final_value
+        // We'll use: a = initial_value, b = sum_of_transactions, result = final_value
+        let initial_value = batch.previous_counter_value as i32;
+        let final_value = batch.final_counter_value as i32;
+        let sum_of_transactions = final_value - initial_value;
+
+        info!(
+            "📊 Batch {} proof parameters: {} + {} = {}",
+            batch_id, initial_value, sum_of_transactions, final_value
+        );
+
+        // Create proof generation request
+        let proof_request = ProofGenerationRequest {
+            a: initial_value,
+            b: sum_of_transactions,
+            result: final_value,
+            proof_system: ProofSystem::default(), // Use Groth16 by default
+            generate_fixtures: false, // Don't generate fixtures in production
+        };
+
+        // Generate proof via Sindri
+        match generate_sindri_proof(proof_request).await {
+            Ok(proof_response) => {
+                info!(
+                    "✅ Proof submitted to Sindri for batch {}: proof_id={}",
+                    batch_id, proof_response.proof_id
+                );
+
+                // Update batch with Sindri proof ID
+                if let Err(e) = update_batch_proof(
+                    pool,
+                    batch_id,
+                    &proof_response.proof_id,
+                    "pending", // Sindri will update this to "proven" when ready
+                )
+                .await
+                {
+                    error!("Failed to update batch {} with proof ID: {}", batch_id, e);
+                    return Err(format!("Failed to update batch with proof ID: {}", e));
+                }
+
+                info!(
+                    "📝 Updated batch {} with Sindri proof ID: {}",
+                    batch_id, proof_response.proof_id
+                );
+                Ok(())
+            }
+            Err(e) => {
+                error!("Failed to generate proof for batch {}: {}", batch_id, e);
+
+                // Update batch status to failed
+                if let Err(update_err) = update_batch_proof(
+                    pool,
+                    batch_id,
+                    &format!("failed_{}", batch_id),
+                    "failed",
+                )
+                .await
+                {
+                    error!(
+                        "Failed to update batch {} status to failed: {}",
+                        batch_id, update_err
+                    );
+                }
+
+                Err(format!("Proof generation failed: {}", e))
+            }
+        }
     }
 }
 
