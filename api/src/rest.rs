@@ -12,18 +12,16 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, instrument, warn};
 
-use crate::ads_service::{AuthenticatedDataStructure, IndexedMerkleTreeADS};
-use crate::db::{
+use arithmetic_db::ads_service::{AuthenticatedDataStructure, IndexedMerkleTreeADS};
+use arithmetic_db::db::{
     get_current_global_state, get_sindri_proof_by_result, get_state_history, get_transaction_count,
     get_value_by_result, store_transaction_with_state_update, validate_state_integrity,
 };
-use crate::vapp_integration::VAppAdsIntegration;
-use alloy_sol_types::SolType;
-use arithmetic_lib::{addition, PublicValuesStruct};
+use arithmetic_db::vapp_integration::VAppAdsIntegration;
+use arithmetic_lib::addition;
 use sindri::integrations::sp1_v5::SP1ProofInfo;
-use sindri::ProofInput;
 use sindri::{client::SindriClient, JobStatus};
-use sp1_sdk::SP1Stdin;
+use sp1_sdk::HashableKey;
 
 // ============================================================================
 // API STATE AND CONFIGURATION
@@ -422,42 +420,7 @@ pub struct ProofCircuitInfo {
     pub proof_system: String,
 }
 
-/// Request for proof verification
-#[derive(Debug, Serialize, Deserialize)]
-pub struct VerifyProofRequest {
-    pub proof_id: String,
-    pub expected_result: i32,
-}
 
-/// Response for proof verification
-#[derive(Debug, Serialize, Deserialize)]
-pub struct VerifyProofResponse {
-    pub valid: bool,
-    pub proof_id: String,
-    pub actual_result: Option<i32>,
-    pub expected_result: i32,
-    pub verification_details: VerificationDetails,
-    pub zero_knowledge_properties: ZkProperties,
-}
-
-/// Detailed verification information
-#[derive(Debug, Serialize, Deserialize)]
-pub struct VerificationDetails {
-    pub sindri_status: String,
-    pub cryptographic_proof_valid: bool,
-    pub result_matches_expected: bool,
-    pub verification_time_ms: u64,
-}
-
-/// Zero-knowledge proof properties
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ZkProperties {
-    pub privacy_preserved: bool,
-    pub inputs_hidden: bool,
-    pub soundness: bool,
-    pub completeness: bool,
-    pub description: String,
-}
 
 // ============================================================================
 // ROUTER SETUP
@@ -472,9 +435,8 @@ pub fn create_router(state: ApiState) -> Router {
         // Transaction operations (vApp-specific)
         .route("/api/v1/transactions", post(submit_transaction))
         .route("/api/v1/results/{result}", get(get_transaction_by_result))
-        .route("/api/v1/results/{result}/verify", post(verify_result_proof))
         .route("/api/v1/proofs/{proof_id}", get(get_proof_info))
-        .route("/api/v1/verify", post(verify_proof))
+        .route("/api/v1/proofs/{proof_id}/download", get(download_proof_data))
         // State management operations
         .route("/api/v1/state", get(get_current_state))
         .route("/api/v1/state/history", get(get_state_history_endpoint))
@@ -1294,7 +1256,7 @@ async fn submit_transaction(
                 proof_status = Some(status);
 
                 // Store proof metadata in database
-                if let Err(e) = crate::db::upsert_sindri_proof(
+                if let Err(e) = arithmetic_db::db::upsert_sindri_proof(
                     &pool,
                     result,
                     &id,
@@ -1315,8 +1277,8 @@ async fn submit_transaction(
 
     let verification_command = proof_id.as_ref().map(|pid| {
         format!(
-            "cargo run --release -- --verify --proof-id {} --result {}",
-            pid, result
+            "cargo run --bin cli -- download-proof --proof-id {} && cargo run --bin cli -- verify-proof --proof-file proof_{}.json --expected-result {}",
+            pid, pid, result
         )
     });
 
@@ -1438,69 +1400,11 @@ async fn get_proof_info(
 
     match client.get_proof(&proof_id, None, None, None).await {
         Ok(proof_info) => {
-            let verification_data = if proof_info.status == JobStatus::Ready {
-                // Perform local verification
-                if let Ok(sp1_proof) = proof_info.to_sp1_proof_with_public() {
-                    if let Ok(vk) = proof_info.get_sp1_verifying_key() {
-                        match proof_info.verify_sp1_proof_locally(&vk) {
-                            Ok(()) => {
-                                // Proof verification succeeded, extract public values
-                                match PublicValuesStruct::abi_decode(
-                                    sp1_proof.public_values.as_slice(),
-                                ) {
-                                    Ok(decoded) => Some(ProofVerificationData {
-                                        is_verified: true,
-                                        public_result: decoded.result,
-                                        verification_message: "Proof cryptographically verified"
-                                            .to_string(),
-                                        cryptographic_proof_valid: true,
-                                    }),
-                                    Err(decode_err) => Some(ProofVerificationData {
-                                        is_verified: false,
-                                        public_result: 0,
-                                        verification_message: format!(
-                                            "Failed to decode public values: {}",
-                                            decode_err
-                                        ),
-                                        cryptographic_proof_valid: true, // Crypto verification passed, decode failed
-                                    }),
-                                }
-                            }
-                            Err(verify_err) => Some(ProofVerificationData {
-                                is_verified: false,
-                                public_result: 0,
-                                verification_message: format!(
-                                    "Cryptographic proof verification failed: {}",
-                                    verify_err
-                                ),
-                                cryptographic_proof_valid: false,
-                            }),
-                        }
-                    } else {
-                        Some(ProofVerificationData {
-                            is_verified: false,
-                            public_result: 0,
-                            verification_message: "Failed to get verifying key".to_string(),
-                            cryptographic_proof_valid: false,
-                        })
-                    }
-                } else {
-                    Some(ProofVerificationData {
-                        is_verified: false,
-                        public_result: 0,
-                        verification_message: "Failed to convert to SP1 proof".to_string(),
-                        cryptographic_proof_valid: false,
-                    })
-                }
-            } else {
-                None
-            };
-
             let response = ProofResponse {
                 proof_id: proof_id.clone(),
                 status: format!("{:?}", proof_info.status),
-                result: verification_data.as_ref().map(|v| v.public_result),
-                verification_data,
+                result: None, // Result extraction moved to local verification
+                verification_data: None, // Verification moved to local CLI
                 circuit_info: ProofCircuitInfo {
                     circuit_id: proof_info.circuit_id,
                     circuit_name: "demo-vapp".to_string(),
@@ -1514,134 +1418,94 @@ async fn get_proof_info(
     }
 }
 
-/// Verify proof for a specific result
-#[instrument(skip(state), level = "info")]
-async fn verify_result_proof(
-    State(state): State<ApiState>,
-    Path(result): Path<i32>,
-) -> Result<Json<VerifyProofResponse>, (StatusCode, String)> {
-    info!("🔐 API: Verifying proof for result = {}", result);
-
-    let pool = state.vapp_integration.read().await.pool.clone();
-
-    match get_sindri_proof_by_result(&pool, result).await {
-        Ok(Some(stored_proof)) => verify_proof_internal(&stored_proof.proof_id, result).await,
-        Ok(None) => Err((
-            StatusCode::NOT_FOUND,
-            format!("No proof found for result = {}", result),
-        )),
-        Err(e) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Database error: {}", e),
-        )),
-    }
-}
-
-/// Verify proof by proof ID
-#[instrument(skip(_state, request), level = "info")]
-async fn verify_proof(
+/// Download raw proof data for local verification
+#[instrument(skip(_state), level = "info")]
+async fn download_proof_data(
     State(_state): State<ApiState>,
-    Json(request): Json<VerifyProofRequest>,
-) -> Result<Json<VerifyProofResponse>, (StatusCode, String)> {
-    info!("🔐 API: Verifying proof ID: {}", request.proof_id);
+    Path(proof_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    info!("📥 API: Downloading proof data for ID: {}", proof_id);
 
-    verify_proof_internal(&request.proof_id, request.expected_result).await
+    let client = SindriClient::default();
+
+    match client.get_proof(&proof_id, None, None, None).await {
+        Ok(proof_info) => {
+            if proof_info.status != JobStatus::Ready {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    format!("Proof not ready. Status: {:?}", proof_info.status),
+                ));
+            }
+
+            // Extract raw proof data for local verification
+            match proof_info.to_sp1_proof_with_public() {
+                Ok(sp1_proof) => {
+                    match proof_info.get_sp1_verifying_key() {
+                        Ok(verifying_key) => {
+                            let response = serde_json::json!({
+                                "proof_id": proof_id,
+                                "status": "ready",
+                                "proof_data": {
+                                    "proof": hex::encode(sp1_proof.bytes()),
+                                    "public_values": hex::encode(sp1_proof.public_values.as_slice()),
+                                    "verifying_key": verifying_key.bytes32(),
+                                },
+                                "verification_info": {
+                                    "instructions": "Use the local verification tool with this data",
+                                    "command": format!("cargo run --bin cli -- verify-proof --proof-file proof_{}.json --expected-result <result>", proof_id),
+                                    "note": "All verification is done locally without network dependencies"
+                                },
+                                "circuit_info": {
+                                    "circuit_id": proof_info.circuit_id,
+                                    "circuit_name": "demo-vapp",
+                                    "proof_system": "SP1"
+                                }
+                            });
+
+                            info!("✅ API: Proof data ready for download");
+                            Ok(Json(response))
+                        }
+                        Err(e) => Err((
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("Failed to extract verifying key: {}", e),
+                        )),
+                    }
+                }
+                Err(e) => Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to extract SP1 proof: {}", e),
+                )),
+            }
+        }
+        Err(e) => Err((StatusCode::NOT_FOUND, format!("Proof not found: {}", e))),
+    }
 }
 
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 
-/// Generate a proof via Sindri
-async fn generate_sindri_proof(a: i32, b: i32, _result: i32) -> Result<(String, String), String> {
-    let mut stdin = SP1Stdin::new();
-    stdin.write(&a);
-    stdin.write(&b);
-
-    let stdin_json = serde_json::to_string(&stdin)
-        .map_err(|e| format!("Failed to serialize SP1Stdin: {}", e))?;
-    let proof_input = ProofInput::from(stdin_json);
-
-    let client = SindriClient::default();
-    let proof_info = client
-        .prove_circuit("demo-vapp", proof_input, None, None, None)
-        .await
-        .map_err(|e| format!("Failed to submit proof: {}", e))?;
-
-    let status = match proof_info.status {
-        JobStatus::Ready => "Ready".to_string(),
-        JobStatus::Failed => "Failed".to_string(),
-        _ => "Pending".to_string(),
+/// Generate a proof via Sindri using the shared proof module
+async fn generate_sindri_proof(a: i32, b: i32, result: i32) -> Result<(String, String), String> {
+    use arithmetic_lib::proof::{
+        generate_sindri_proof as shared_generate, ProofGenerationRequest, ProofSystem,
     };
 
-    Ok((proof_info.proof_id, status))
-}
+    let request = ProofGenerationRequest {
+        a,
+        b,
+        result,
+        proof_system: ProofSystem::Groth16, // Default for API
+        generate_fixtures: false,           // Don't generate fixtures in API by default
+    };
 
-/// Internal proof verification logic
-async fn verify_proof_internal(
-    proof_id: &str,
-    expected_result: i32,
-) -> Result<Json<VerifyProofResponse>, (StatusCode, String)> {
-    let start_time = std::time::Instant::now();
-    let client = SindriClient::default();
-
-    match client.get_proof(proof_id, None, None, None).await {
-        Ok(proof_info) => {
-            let sindri_status = format!("{:?}", proof_info.status);
-            let mut actual_result = None;
-            let mut cryptographic_proof_valid = false;
-
-            if proof_info.status == JobStatus::Ready {
-                // Perform local verification
-                if let Ok(sp1_proof) = proof_info.to_sp1_proof_with_public() {
-                    if let Ok(vk) = proof_info.get_sp1_verifying_key() {
-                        if matches!(proof_info.verify_sp1_proof_locally(&vk), Ok(())) {
-                            cryptographic_proof_valid = true;
-
-                            // Extract result from public values
-                            if let Ok(decoded) =
-                                PublicValuesStruct::abi_decode(sp1_proof.public_values.as_slice())
-                            {
-                                actual_result = Some(decoded.result);
-                            }
-                        } else {
-                            cryptographic_proof_valid = false;
-                        }
-                    }
-                }
-            }
-
-            let result_matches = actual_result.map(|r| r == expected_result).unwrap_or(false);
-            let verification_time = start_time.elapsed();
-
-            let response = VerifyProofResponse {
-                valid: cryptographic_proof_valid && result_matches,
-                proof_id: proof_id.to_string(),
-                actual_result,
-                expected_result,
-                verification_details: VerificationDetails {
-                    sindri_status,
-                    cryptographic_proof_valid,
-                    result_matches_expected: result_matches,
-                    verification_time_ms: verification_time.as_millis() as u64,
-                },
-                zero_knowledge_properties: ZkProperties {
-                    privacy_preserved: true,
-                    inputs_hidden: true,
-                    soundness: cryptographic_proof_valid,
-                    completeness: result_matches,
-                    description: "SP1 zero-knowledge proof preserves input privacy while proving computation correctness".to_string(),
-                },
-            };
-
-            Ok(Json(response))
-        }
-        Err(e) => Err((
-            StatusCode::NOT_FOUND,
-            format!("Proof verification failed: {}", e),
-        )),
+    match shared_generate(request).await {
+        Ok(response) => Ok((response.proof_id, response.status)),
+        Err(e) => Err(e.to_string()),
     }
 }
+
+// Verification logic removed - use local verification tool instead
 
 // ============================================================================
 // STATE MANAGEMENT HANDLERS

@@ -43,4 +43,4 @@ jobs:
 
       - name: Execute SP1 program
         run: |
-          cargo run --release -- --execute
+          cargo run --release

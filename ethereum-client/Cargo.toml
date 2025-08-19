@@ -60,8 +60,8 @@ sqlx = { version = "0.8", features = [
 uuid = { version = "1.0", features = [ "serde", "v4" ], optional = true }
 
 # Local dependencies
-arithmetic-db  = { path = "../db" }
-arithmetic-lib = { path = "../lib" }
+arithmetic-db  = { path = "../db", package = "db" }
+arithmetic-lib = { path = "../lib", package = "lib" }
 
 # Sindri integration
 sindri = "0.3.1"

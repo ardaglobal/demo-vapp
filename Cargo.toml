@@ -1,5 +1,5 @@
 [workspace]
-members  = [ "db", "ethereum-client", "lib", "program", "script" ]
+members  = [ "api", "cli", "db", "ethereum-client", "lib", "program", "script" ]
 resolver = "2"
 
 [workspace.dependencies]

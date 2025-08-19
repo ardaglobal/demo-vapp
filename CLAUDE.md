@@ -2,36 +2,72 @@
 
 ## Project Overview
 
-SP1 zero-knowledge proof project demonstrating arithmetic addition with indexed Merkle trees and comprehensive state management. Seven main components:
+SP1 zero-knowledge proof project demonstrating arithmetic addition with indexed Merkle trees and comprehensive state management. Clean architectural separation:
+
+### 🏗️ **New Architecture (Post-Refactor)**
 
 1. **RISC-V Program** (`program/`): Arithmetic addition in SP1 zkVM
-2. **Script** (`script/`): Proof generation using SP1 SDK and Sindri integration
-3. **Smart Contracts** (`contracts/`): Solidity proof verification with state management
-4. **Database Module** (`db/`): PostgreSQL with indexed Merkle tree operations
-5. **API Layer** (`db/src/api/`): REST and GraphQL APIs for tree operations
-6. **Background Processor** (`db/src/background_processor.rs`): Asynchronous indexed Merkle tree construction
-7. **State Management System** (`contracts/src/interfaces/`): Complete state lifecycle management with ZK proof verification
+2. **Local SP1 Testing** (`script/`): Fast unit testing with Core proofs (`cargo run -p demo-vapp`)
+3. **Unified CLI** (`cli/`): HTTP client + local verification tool (no database dependencies)
+4. **API Server** (`api/`): Proof generation and data distribution (verification removed)
+5. **Database Module** (`db/`): PostgreSQL with indexed Merkle tree operations
+6. **Smart Contracts** (`contracts/`): Solidity proof verification with state management
+7. **Shared Library** (`lib/`): Pure computation logic (zkVM compatible)
+
+### 🎯 **Clear Separation of Concerns**
+- **`cargo run -p demo-vapp`** → Local SP1 development (3.5s Core proofs)
+- **CLI** → API client + local verification (unified tool, no server dependencies for verification)
+- **API Server** → Proof generation and data distribution (Sindri integration, no verification)
 
 ## Essential Commands
 
-### Build & Setup
+### Quick Start (Zero to Running Server)
 ```bash
-# First-time setup
+# 1. Install all dependencies (Rust, SP1, Foundry, Docker, Node.js, Sindri CLI, etc.)
+./install-dependencies.sh
+
+# 2. Set environment variables
+cp .env.example .env
+# Edit .env and add: SINDRI_API_KEY=your_sindri_api_key_here
+
+# 3. Deploy circuit to Sindri (required for proof generation)
+export SINDRI_API_KEY=your_sindri_api_key_here
+./deploy-circuit.sh                    # Uses 'latest' tag
+# ./deploy-circuit.sh "custom-tag"     # Or use specific tag
+
+# 4. Start full stack (database + server) - uses pre-built image
+docker-compose up -d
+
+# For local development (builds locally):
+# docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+
+# 5. Test the API
+curl http://localhost:8080/api/v1/health
+```
+
+### Development Commands
+```bash
+# 🚀 Local SP1 unit testing (fast development)
+cargo run -p demo-vapp --bin demo-vapp --release
+
+# 🖥️ Unified CLI (API client + local verification)
+cargo run --bin cli -- health-check
+cargo run --bin cli -- store-transaction --a 5 --b 10 --generate-proof
+cargo run --bin cli -- get-transaction --result 15
+cargo run --bin cli -- download-proof --proof-id <proof_id>
+cargo run --bin cli -- verify-proof --proof-file proof_<id>.json --expected-result 15
+
+# 🌐 Local API server development (alternative to Docker)
+docker-compose up postgres -d
+cargo run -p api --bin server --release
+
+# Manual program compilation (done automatically in Docker)
 cd program && cargo prove build --output-directory ../build
-
-# Interactive execution (hot path: stores in PostgreSQL)
-cd script && cargo run --release -- --execute
-
-# Background processing (integrated with execute mode)
-cd script && cargo run --release -- --execute --bg-interval 60 --bg-batch-size 50
-
-# REST API Server
-# Prerequisites: DATABASE_URL environment variable must be set
-# Note: Database migrations are applied automatically on startup
-cd db && cargo run --bin server --release -- --host 0.0.0.0 --port 8080 --cors --graphql --playground
 ```
 
 ### Zero-Knowledge Proofs
+
+#### Proof Generation
 ```bash
 # Generate EVM-compatible proof and submit to smart contract (Groth16 default)
 cd script && cargo run --release -- --prove --a 5 --b 10
@@ -50,9 +86,40 @@ cd script && cargo run --release -- --prove --a 5 --b 10 --skip-contract-submiss
 
 # Verify with proof ID (external)
 cd script && cargo run --release -- --verify --proof-id <PROOF_ID> --result 15
+# Prerequisites: Circuit must be deployed to Sindri first (see Quick Start)
 
-# Get verification key
-cd script && cargo run --release -- --vkey
+# 🌐 Generate proof via API server (Groth16 default)
+curl -X POST http://localhost:8080/api/v1/transactions \
+  -H 'Content-Type: application/json' \
+  -d '{"a": 5, "b": 10, "generate_proof": true}'
+
+# 🖥️ Generate proof via CLI client
+cargo run --bin cli -- store-transaction --a 5 --b 10 --generate-proof
+```
+
+#### Local Verification Workflow
+```bash
+# 1. Download proof data from API server
+cargo run --bin cli -- download-proof --proof-id <PROOF_ID>
+
+# 2. Verify proof locally (no server/database dependencies)
+cargo run --bin cli -- verify-proof \
+  --proof-file proof_<PROOF_ID>.json \
+  --expected-result 15
+
+# Alternative: Direct hex data verification (advanced)
+cargo run --bin cli -- verify-proof \
+  --proof-data <hex_proof> \
+  --public-values <hex_values> \
+  --verifying-key <hex_vkey> \
+  --expected-result 15
+```
+
+#### Circuit Management
+```bash
+sindri lint                           # Validate circuit
+sindri list                           # Show deployed circuits
+sindri deploy --tag "v1.0.0"         # Deploy with version tag
 ```
 
 ### Testing
@@ -70,37 +137,71 @@ cd db && cargo test
 cargo test
 ```
 
-### Database Setup
+### Docker Compose Setup
 ```bash
-# Start PostgreSQL (Docker recommended)
-docker-compose up -d
+# Full stack (recommended) - uses pre-built image from GitHub Container Registry
+docker-compose up -d                  # Start database + server
+docker-compose ps                     # Verify services
+docker-compose logs server -f         # View server logs
+docker-compose down                   # Stop services
+docker-compose down -v                # Stop + remove data
 
-# Set environment variables
+# Local development (builds image locally for faster iteration)
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+
+# Database only (for local development)
+docker-compose up postgres -d         # Start only PostgreSQL
+
+# Service URLs
+# - Database: localhost:5432
+# - REST API: http://localhost:8080
+# - GraphQL: http://localhost:8080/graphql
+# - Health: http://localhost:8080/api/v1/health
+```
+
+### Environment Configuration
+```bash
+# Copy and configure environment file
 cp .env.example .env
-# Set SINDRI_API_KEY for proof generation
+
+# Required variables:
+# DATABASE_URL=postgresql://postgres:password@localhost:5432/arithmetic_db
+# SINDRI_API_KEY=your_sindri_api_key_here        # For proof generation
+# SINDRI_CIRCUIT_TAG=latest                      # Circuit version (default: latest)
+# RUST_LOG=info                                  # Logging level
+# SERVER_PORT=8080                               # API server port
 ```
 
 ## Architecture
 
-### Hot and Cold Path Design
+### 🏗️ **Clean Separation Architecture**
 
-**Hot Path (CLI Performance):**
-- User input via `cargo run --release -- --execute` → immediate storage in PostgreSQL
-- Zero database-to-tree dependencies during user interaction
-- Fast, responsive CLI experience without Merkle tree overhead
+**🚀 Local Development Path (`script/`):**
+- `cargo run -p demo-vapp` → Fast SP1 unit testing (~3.5s Core proofs)
+- Zero dependencies on database, Sindri, or production workflows
+- Perfect for SP1 program development and quick verification
 
-**Cold Path (Background Processing):**
-- Asynchronous background processor (integrated with `--execute` mode)
-- Periodically reads new arithmetic transactions from database
-- Converts transactions to nullifiers and builds indexed Merkle tree
-- Configurable polling intervals and batch processing
-- No impact on user CLI performance
+**🖥️ Unified CLI Path (`cli/`):**
+- HTTP client for API server interaction + local verification tool
+- API commands: health-check, store-transaction, get-transaction, download-proof
+- Local verification: verify-proof (no server dependencies)
+- No interactive modes, no direct database access
+- Environment variable configuration: `ARITHMETIC_API_URL`
+
+**🌐 Production API Path (`api/` + `db/`):**
+- Proof generation and data distribution server
+- Sindri integration for proof generation
+- Database operations and indexed Merkle trees
+- Background processing and state management
+- GraphQL and REST endpoints (verification removed)
 
 ### Core Components
-- **arithmetic-lib** (`lib/`): Shared arithmetic computation logic
-- **arithmetic-program** (`program/`): RISC-V program for zkVM (private inputs → public result)
-- **arithmetic-script** (`script/`): Single unified binary (`main.rs`) with EVM-compatible proving via Sindri
-- **background-processor** (`db/src/background_processor.rs`): Asynchronous Merkle tree construction
+- **lib** (`lib/`): Shared arithmetic computation logic (zkVM compatible)
+- **program** (`program/`): RISC-V program for zkVM (private inputs → public result)
+- **demo-vapp** (`script/`): Local SP1 unit testing with fast Core proofs
+- **cli** (`cli/`): Unified HTTP client + local verification tool
+- **api** (`api/`): Proof generation server with Sindri integration
+- **db** (`db/`): PostgreSQL with indexed Merkle tree operations
 - **state-management-system** (`contracts/src/interfaces/`): Complete state lifecycle management with proof verification
 
 ### Zero-Knowledge Properties
@@ -145,7 +246,8 @@ When you do the "setup" for a circuit (trusted or transparent), the compiler:
 - *Verification* = anyone with VK + proof + public inputs can check correctness — no need for the PK or the private data
 
 ### Key Features
-- **Database-Free Verification**: External users verify with proof ID + expected result
+- **Local Verification**: Trustless proof verification without server dependencies
+- **Unified CLI Tool**: Single binary for API interaction and local verification
 - **Sindri Integration**: Cloud proof generation with SP1 v5
 - **32-Level Merkle Trees**: 8x fewer constraints than traditional 256-level trees
 - **REST/GraphQL APIs**: Production-ready endpoints for tree operations
@@ -153,16 +255,25 @@ When you do the "setup" for a circuit (trusted or transparent), the compiler:
 - **Batch Operations**: Gas-optimized batch state updates and reads
 
 ### Key Files
-- `program/src/main.rs:25-28`: ZK public values (result only)
-- `script/src/bin/main.rs`: Main CLI with Sindri integration
+- `program/src/main.rs`: SP1 zkVM program (ZK public values: result only)
+- `script/src/bin/main.rs`: Local SP1 unit testing (fast Core proofs)
+- `cli/src/bin/cli.rs`: Unified CLI for API interaction and local verification
+- `api/src/bin/server.rs`: Production API server with Sindri integration
+- `api/src/client/mod.rs`: HTTP client library for API interaction
 - `db/src/merkle_tree.rs`: 32-level indexed Merkle tree
-- `db/src/api/`: REST and GraphQL APIs
+- `lib/src/lib.rs`: Shared computation logic (zkVM compatible)
 - `contracts/src/Arithmetic.sol`: On-chain verification with state management
 - `contracts/src/interfaces/IStateManager.sol`: State management interface
 - `contracts/test/StateManagement.t.sol`: Comprehensive state management tests
+- `install-dependencies.sh`: Automated dependency installation for all platforms
+- `deploy-circuit.sh`: Sindri circuit deployment with configurable tags
+- `docker-compose.yml`: Full-stack container orchestration
+- `Dockerfile`: Multi-stage build with SP1 program compilation
+- `.env.example`: Environment variable template with all required settings
 
 ## Environment
 
+**Key Environment Variables:**
 ```bash
 # Start PostgreSQL
 docker-compose up -d
@@ -176,7 +287,15 @@ export ETHEREUM_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/your_api_key_here
 export ETHEREUM_CONTRACT_ADDRESS=0x1234567890123456789012345678901234567890
 export ETHEREUM_WALLET_PRIVATE_KEY=your_private_key_without_0x_prefix
 export ETHEREUM_DEPLOYER_ADDRESS=0x1234567890123456789012345678901234567890
+# Required in .env file:
+DATABASE_URL=postgresql://postgres:password@localhost:5432/arithmetic_db
+SINDRI_API_KEY=your_sindri_api_key_here
+SINDRI_CIRCUIT_TAG=latest
+RUST_LOG=info
+SERVER_PORT=8080
 ```
+
+*Complete setup flow: See "Quick Start" section above.*
 
 ## Database Architecture
 
@@ -197,7 +316,7 @@ export ETHEREUM_DEPLOYER_ADDRESS=0x1234567890123456789012345678901234567890
 **Test Coverage**:
 - Smart contracts (Foundry with proof fixtures)
 - State management system (comprehensive test suite)
-- Database operations (unit, integration, performance)  
+- Database operations (unit, integration, performance)
 - Merkle tree operations (7-step insertion algorithm)
 - API endpoints (REST/GraphQL)
 - Gas optimization and batch operations
@@ -215,16 +334,15 @@ export ETHEREUM_DEPLOYER_ADDRESS=0x1234567890123456789012345678901234567890
 
 ## REST API Server
 
-**Server Binary** (`db/src/bin/server.rs`):
+**Server Binary** (`api/src/bin/server.rs`):
 
-The project includes a comprehensive REST API server that provides HTTP endpoints for external actors to interact with the vApp. The server integrates with the existing database, Merkle tree infrastructure, and Sindri proof generation.
+The project includes a comprehensive REST API server located in the `api/` directory that provides HTTP endpoints for external actors to interact with the vApp. The server integrates with the existing database, Merkle tree infrastructure, and Sindri proof generation.
 
 ### API Endpoints
 
 **Transaction Operations**:
 - `POST /api/v1/transactions` - Submit new transactions (a + b), optionally generate ZK proofs
 - `GET /api/v1/results/{result}` - Query transaction inputs (a,b) by result value
-- `POST /api/v1/results/{result}/verify` - Verify stored proof for a specific result
 
 **State Operations**:
 - `GET /api/v1/state` - Get current global state counter
@@ -232,8 +350,8 @@ The project includes a comprehensive REST API server that provides HTTP endpoint
 - `GET /api/v1/state/validate` - State integrity validation across all transactions
 
 **Proof Operations**:
-- `GET /api/v1/proofs/{proof_id}` - Retrieve proof information by Sindri proof ID
-- `POST /api/v1/verify` - Verify proof independently with proof ID and expected result
+- `GET /api/v1/proofs/{proof_id}` - Retrieve basic proof information by Sindri proof ID
+- `GET /api/v1/proofs/{proof_id}/download` - Download raw proof data for local verification
 
 **System Operations**:
 - `GET /api/v1/health` - Health check and service status
@@ -247,8 +365,8 @@ The project includes a comprehensive REST API server that provides HTTP endpoint
 ### Usage Examples
 
 ```bash
-# Start the server
-cd db && cargo run --bin server --release
+# Start the API server
+cargo run -p api --bin server --release
 
 # Submit a transaction with proof generation (continuous state)
 curl -X POST http://localhost:8080/api/v1/transactions \
@@ -267,11 +385,11 @@ curl http://localhost:8080/api/v1/state/validate
 # Query transaction by result
 curl http://localhost:8080/api/v1/results/15
 
-# Verify proof for result
-curl -X POST http://localhost:8080/api/v1/results/15/verify
-
 # Get proof information
 curl http://localhost:8080/api/v1/proofs/proof_abc123
+
+# Download proof data for local verification
+curl http://localhost:8080/api/v1/proofs/proof_abc123/download
 
 # Health check
 curl http://localhost:8080/api/v1/health
@@ -287,30 +405,77 @@ The server supports various configuration options via command line arguments:
 - `--playground`: Enable GraphQL playground (default: true)
 - `--log-level`: Log level (trace, debug, info, warn, error)
 
-### External Verification
+### Local Verification Workflow
 
-External actors can verify proofs without access to the database:
+External actors can verify proofs without server dependencies:
 1. Submit transaction with `generate_proof: true`
 2. Receive proof ID in response
-3. Share proof ID with external verifiers
-4. External verifiers use proof verification endpoints or CLI tools
+3. Download proof data: `GET /api/v1/proofs/{proof_id}/download`
+4. Verify locally using CLI: `cargo run --bin cli -- verify-proof --proof-file <file> --expected-result <result>`
 
-This enables trustless verification where external parties can cryptographically verify computation results without seeing private inputs or requiring database access.
+This enables trustless verification where external parties can cryptographically verify computation results without seeing private inputs, requiring database access, or trusting the API server for verification.
 
-**Note**: Proof generation requires a valid `SINDRI_API_KEY` environment variable. Without it, transactions will be stored successfully but proof generation will fail with a 401 Unauthorized error. The REST API endpoints remain fully functional for transaction storage and retrieval.
+**Note**: Proof generation requires a valid `SINDRI_API_KEY` environment variable and deployed circuit. Without the API key, transactions will be stored successfully but proof generation will fail with a 401 Unauthorized error. Without circuit deployment, proof generation will fail with circuit not found errors. The REST API endpoints remain fully functional for transaction storage and retrieval.
+
+## Deployment & Development Workflow
+
+### Fresh Environment Setup
+
+*See "Quick Start" section at the top for complete setup instructions.*
+
+### Development Workflow
+```bash
+# Update circuit and deploy new version
+./deploy-circuit.sh "dev-$(date +%s)"
+
+# Update environment to use new circuit version
+echo "SINDRI_CIRCUIT_TAG=dev-1234567890" >> .env
+
+# Restart services to pick up new configuration
+docker-compose restart server
+
+# Test with new circuit version
+curl -X POST http://localhost:8080/api/v1/transactions \
+  -H 'Content-Type: application/json' \
+  -d '{"a": 5, "b": 10, "generate_proof": true}'
+```
+
+### Troubleshooting
+```bash
+# Check Sindri circuit deployment
+sindri list                            # Show deployed circuits
+sindri lint                            # Validate circuit configuration
+
+# Check Docker services
+docker-compose ps                      # Service status
+docker-compose logs server -f          # Server logs
+docker-compose logs postgres -f        # Database logs
+
+# Check environment configuration
+cat .env                               # Show environment variables
+echo $SINDRI_API_KEY                   # Verify API key
+
+# Database connectivity
+pg_isready -h localhost -p 5432 -U postgres
+sqlx migrate info                      # Check migration status
+```
 
 ## Background Processing
 
-**Configuration Options** (integrated with `--execute` mode):
+**⚠️ Background processing is now integrated into the API server:**
+
 ```bash
-# Run execute mode with custom background processing settings
-cd script && cargo run --release -- --execute --bg-interval 60 --bg-batch-size 50
+# Start API server with background processing enabled
+cargo run -p api --bin server --release
 
-# One-shot processing (exit after processing current batch)
-cd script && cargo run --release -- --execute --bg-one-shot
+# Background processing is automatically enabled when the API server starts
+# Configuration is handled via environment variables in .env file
+```
 
-# Default background processing with execute mode
-cd script && cargo run --release -- --execute
+**Legacy Commands** (moved to API server):
+```bash
+# Old: cd script && cargo run --release -- --execute --bg-interval 60 --bg-batch-size 50
+# New: Background processing is integrated into the API server
 ```
 
 **Database Tables:**
@@ -329,14 +494,28 @@ cd script && cargo run --release -- --execute
 
 ## Key Features
 
-- **Hot/Cold Path Separation**: CLI performance isolated from Merkle tree operations
+### 🏗️ **Clean Architecture**
+- **Separation of Concerns**: Local development, unified CLI, and proof generation server as separate packages
+- **Fast Local Testing**: SP1 Core proofs in ~3.5s for development workflows
+- **Unified CLI Tool**: HTTP client + local verification in a single binary
+- **Focused API Server**: Proof generation and data distribution (verification moved to CLI)
+
+### 🚀 **Development Experience**
+- **Automated Setup**: One-command dependency installation for all platforms (`./install-dependencies.sh`)
+- **Docker Integration**: Full-stack deployment with automatic program compilation
+- **Multiple Interaction Methods**: `cargo run`, CLI client, HTTP API, Docker deployment
+- **Cross-Platform Support**: Works on macOS (Intel/Apple Silicon) and Linux (Ubuntu/Debian)
+
+### 🔒 **Zero-Knowledge Features**
 - **Zero-Knowledge Proofs**: Private inputs (`a`, `b`) → public result only
-- **External Verification**: Database-free proof verification with shareable proof IDs  
-- **Sindri Integration**: Cloud proof generation with SP1 v5 support
+- **Local Verification**: Trustless proof verification without server dependencies
+- **Sindri Integration**: Cloud proof generation with SP1 v5 and configurable circuit versions
+- **Circuit Management**: Configurable Sindri circuit deployment with version tagging
+
+### 🌐 **Production Ready**
 - **32-Level Merkle Trees**: 8x constraint reduction vs traditional implementations
 - **Background Processing**: Asynchronous indexed Merkle tree construction with resume capability
 - **Production APIs**: REST/GraphQL with rate limiting and authentication
-- **Comprehensive Testing**: End-to-end CI with automated ZK validation
 - **State Management**: Complete state lifecycle management with proof verification and batch operations
 - **Continuous Ledger State**: Global state counter with atomic transitions and audit trail
 - **RESTful API Server**: HTTP API server for external transaction submission and proof verification
@@ -362,7 +541,7 @@ The project now includes seamless integration between Sindri proof generation an
 # Generate proof and submit to smart contract (default behavior)
 cargo run --release -- --prove --a 5 --b 10
 
-# Generate proof with result lookup and submit to contract  
+# Generate proof with result lookup and submit to contract
 cargo run --release -- --prove --result 15
 
 # Generate proof, create EVM fixture, and submit to contract
@@ -384,7 +563,7 @@ For smart contract integration to work, the following environment variables must
 
 ### Integration Flow
 
-1. **Proof Generation**: `prove_via_sindri_core()` generates `ProofInfoResponse` 
+1. **Proof Generation**: `prove_via_sindri_core()` generates `ProofInfoResponse`
 2. **Data Extraction**: Extract SP1 proof and verification key using `.to_sp1_proof_with_public()` and `.get_sp1_verifying_key()`
 3. **Client Initialization**: Create ethereum client from environment configuration
 4. **State Generation**: Generate deterministic state IDs and state roots based on arithmetic result
@@ -394,9 +573,35 @@ For smart contract integration to work, the following environment variables must
 ### Error Handling
 
 - **Graceful Fallback**: Proof generation continues even if contract submission fails
-- **Environment Validation**: Checks for required environment variables before attempting submission  
+- **Environment Validation**: Checks for required environment variables before attempting submission
 - **Signer Validation**: Ensures ethereum client has signing capability for transactions
 - **Detailed Error Messages**: Provides specific error messages for troubleshooting
+- **Comprehensive Testing**: End-to-end CI with automated ZK validation
+- **Development Tools**: Automated circuit linting, deployment, and management via Sindri CLI
+
+### 🔐 **Local Verification Benefits**
+
+The new local verification approach provides several key advantages:
+
+**🛡️ Trustless Verification:**
+- No need to trust the API server for proof verification
+- Cryptographic verification happens entirely in your local environment
+- External parties can verify proofs without any server dependencies
+
+**🚀 Performance & Scalability:**
+- API server no longer performs expensive cryptographic operations
+- Verification can be done offline once proof data is downloaded
+- Reduces server load and improves response times
+
+**🔒 Security & Privacy:**
+- All verification happens locally where you control the environment
+- No sensitive verification data sent over the network
+- Proof verification can be done in air-gapped environments
+
+**🧹 Clean Architecture:**
+- Clear separation: API server handles generation, CLI handles verification
+- Unified CLI tool provides single entry point for all operations
+- Simplified API server focused on core responsibilities
 
 ## State Management System
 
@@ -417,7 +622,7 @@ The state management system provides both on-chain (smart contracts) and off-cha
 ```
 Initial state: 0
 Transaction 1: 0 + 15 = 15 (inputs: 7 + 8)
-Transaction 2: 15 + 25 = 40 (inputs: 12 + 13)  
+Transaction 2: 15 + 25 = 40 (inputs: 12 + 13)
 Transaction 3: 40 + 10 = 50 (inputs: 3 + 7)
 ```
 
@@ -555,7 +760,7 @@ The system provides comprehensive error handling:
 ### Security Considerations
 
 - **Access Control**: Multi-layered authorization system
-- **Proof Validation**: Comprehensive proof verification before state updates  
+- **Proof Validation**: Comprehensive proof verification before state updates
 - **Parameter Validation**: Input sanitization and bounds checking
 - **Reentrancy Protection**: Safe external call patterns
 - **State Consistency**: Validation of state transitions

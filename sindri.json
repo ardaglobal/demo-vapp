@@ -4,5 +4,5 @@
     "circuitType": "sp1",
     "provingScheme": "groth16",
     "sp1Version": "5.0.0",
-    "elfPath": "build/arithmetic-program"
+    "elfPath": "build/program"
 }

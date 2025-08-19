@@ -20,10 +20,10 @@ use tower_http::{
 };
 use tracing::{info, instrument};
 
-use crate::ads_service::IndexedMerkleTreeADS;
-use crate::api::graphql::create_schema;
-use crate::api::rest::{ApiConfig, ApiState};
-use crate::vapp_integration::VAppAdsIntegration;
+use crate::graphql::create_schema;
+use crate::rest::{ApiConfig, ApiState};
+use arithmetic_db::ads_service::IndexedMerkleTreeADS;
+use arithmetic_db::vapp_integration::VAppAdsIntegration;
 
 // ============================================================================
 // API SERVER CONFIGURATION

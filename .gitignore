@@ -26,4 +26,9 @@ ADS/
 
 # Backup files
 *.bak
-arithmetic-groth16.bin
+
+# Generated proof
+*.bin
+
+# Downloaded proofs
+proof_*.json

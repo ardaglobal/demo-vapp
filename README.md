@@ -1,90 +1,161 @@
 # Arda Demo vApp
 
-A simple counter demo demonstrating the [vApp Archtiecture](https://arxiv.org/pdf/2504.14809)
+A simple arithmetic demo demonstrating the [vApp Architecture](https://arxiv.org/pdf/2504.14809)
 
 Based off the template for creating an end-to-end [SP1](https://github.com/succinctlabs/sp1) project
 that can generate a proof of any RISC-V program.
+
+## Architecture Overview
+
+This project features a clean separation of concerns:
+
+- **`script/`** - Local SP1 unit testing (`cargo run` for fast development)
+- **`cli/`** - Simple HTTP client for API server interaction
+- **`api/`** - Production web server with complex logic and Sindri integration
+- **`db/`** - Database layer with PostgreSQL and indexed Merkle trees
+- **`lib/`** - Pure computation logic (zkVM compatible)
+- **`program/`** - RISC-V program source for SP1 zkVM
 
 ## Requirements
 
 - [Rust](https://rustup.rs/)
 - [SP1](https://docs.succinct.xyz/docs/sp1/getting-started/install)
+- [Foundry](https://book.getfoundry.sh/getting-started/installation) (for smart contracts)
+- [Docker](https://docs.docker.com/get-docker/) (for database)
+- [Node.js](https://nodejs.org/) (for Sindri CLI)
 
-## You will need to install the following dependencies:
+## Quick Start (Zero to Running Server)
 
+**💡 Pro Tip**: Use the included `Makefile` for even simpler commands:
+```sh
+make setup    # Install dependencies + copy .env
+# Update .env file with needed env vars
+make deploy   # Deploy circuit to Sindri
+make up       # Start services
+```
+
+### 1. Install Dependencies
 ```sh
 ./install-dependencies.sh
 ```
 
-## Running the Project
-
-There are 3 main ways to run this project: execute a program, generate a core proof, and
-generate an EVM-compatible proof.
-
-### Environment Setup
-
-**Required**: Copy the environment file and configure your database connection:
-
+### 2. Set Environment Variables
 ```sh
 cp .env.example .env
+# Edit .env and add your Sindri API key for proof generation and circuit deployment:
+# Get your API key from https://sindri.app
+# SINDRI_API_KEY=your_sindri_api_key_here
 ```
 
-The `.env` file contains database credentials and SP1 configuration. For development and testing, the default PostgreSQL credentials are already configured for use with Docker Compose (see Database Setup section below).
-
-### Database Setup
-
-This project requires a PostgreSQL database for storing arithmetic transactions. The easiest way to set this up is using Docker Compose:
-
+### 3. Deploy Circuit to Sindri (Required for Proof Generation)
 ```sh
-# Start PostgreSQL container in the background
+# Deploy the circuit (uses 'latest' tag by default)
+./deploy-circuit.sh
+
+# Or deploy with a specific tag
+./deploy-circuit.sh "dev-v1.0"
+
+# Or set SINDRI_CIRCUIT_TAG in your .env
+# SINDRI_CIRCUIT_TAG=dev-v1.0
+
+# Or deploy manually:
+# sindri lint
+# sindri deploy                    # Uses 'latest' tag
+# sindri deploy --tag "custom-tag" # Uses specific tag
+```
+
+**Note**: This step is required for proof generation. Without deploying the circuit, you can still run the server and submit transactions, but proof generation will fail.
+
+### 4. Start the Full Stack
+```sh
+# Start database + API server (uses pre-built image from GitHub Container Registry)
 docker-compose up -d
 
-# Verify the database is running
+# Verify services are running
 docker-compose ps
+
+# Check server health
+curl http://localhost:8080/api/v1/health
 ```
 
-The database will be automatically initialized with the required schema when you first run the execute command.
+**For Local Development**: If you're actively developing and want to build the Docker image locally for faster iteration:
+```sh
+# Option 1: Use the development compose file
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
-To stop the database:
+# Option 2: Run API server locally (requires PostgreSQL running)
+docker-compose up postgres -d
+cargo run --bin server --release
+```
+
+### 5. Test the API
+
+**Option A: Direct HTTP API**
+```sh
+# Submit a transaction
+curl -X POST http://localhost:8080/api/v1/transactions \
+  -H 'Content-Type: application/json' \
+  -d '{"a": 7, "b": 13, "generate_proof": false}'
+
+# Generate a proof via Sindri (requires SINDRI_API_KEY in .env)
+curl -X POST http://localhost:8080/api/v1/transactions \
+  -H 'Content-Type: application/json' \
+  -d '{"a": 5, "b": 10, "generate_proof": true}'
+```
+
+**Option B: CLI Client (Recommended)**
+
+> **💡 Note**: Since binary names are unique across packages, you can use `cargo run --bin <binary>` from the workspace root. Only use `-p <package>` if you encounter naming conflicts or want to be explicit.
 
 ```sh
-# Stop the container
-docker-compose down
+# Check API server health
+cargo run --bin cli -- health-check
 
-# Stop and remove all data (clean slate)
-docker-compose down -v
+# Store a transaction via CLI
+cargo run --bin cli -- store-transaction --a 5 --b 10
+
+# Query a transaction by result
+cargo run --bin cli -- get-transaction --result 15
+
+# Download proof data for local verification
+cargo run --bin cli -- download-proof --proof-id <proof_id>
+
+# Verify proof locally using the downloaded JSON file
+cargo run --bin cli -- verify-proof \
+  --proof-file proof_<proof_id>.json \
+  --expected-result 15
 ```
 
-### Upon first run
+### 6. Local SP1 Development
 
-Before we can run the program inside the zkVM, it must be compiled to a RISC-V executable using the succinct Rust toolchain. This is called an ELF (Executable and Linkable Format).
-To compile the program to the ELF, you can run the following command:
-
+For fast local SP1 unit testing during development:
 ```sh
-cd program && cargo prove build --output-directory ../build
+# Quick SP1 unit test (generates Core proof in ~3.5 seconds)
+# This runs the default binary (main) from the script package
+cargo run --release
+
+# Equivalent explicit command:
+# cargo run --bin main --release
 ```
 
-### Build the Program
+This provides a fast feedback loop for SP1 development without database or Sindri dependencies.
 
-The program is automatically built through `script/build.rs` when the script is built.
+---
 
-### Execute the Program
+That's it! 🎉 You now have a running zero-knowledge arithmetic server with multiple interaction methods.
 
-To run the program interactively without generating a proof:
+---
 
-```sh
-cd script
-cargo run --release -- --execute
-```
+## Detailed Setup Instructions
 
-This will start an interactive CLI where you can:
-- Enter pairs of numbers (a and b) to compute their sum
-- See the results stored in the PostgreSQL database
-- Continue entering new calculations until you press 'q' to quit
+**Note for Linux users**:
+- After running the install script, you may need to log out and back in (or restart your terminal) for Docker group membership to take effect. You can verify Docker is working by running `docker --version` and `docker compose version`.
+- The script installs OpenSSL development libraries (`libssl-dev`) required for Rust crates compilation.
+- If you encounter OpenSSL-related compilation errors, ensure you have the latest packages: `sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config`
 
-Each calculation is verified and stored in the database for later retrieval.
+**Installed Tools**: The script installs all necessary development tools including Rust toolchain, SP1, Foundry, Docker, Node.js, PostgreSQL client tools, sqlx-cli for database migrations, and other utilities.
 
-### Verify Stored Results
+## Proofs
 
 To verify that results are stored in the database:
 
@@ -301,6 +372,12 @@ This project integrates with [Sindri](https://sindri.app) for serverless zero-kn
    ```bash
    export SINDRI_API_KEY=your_api_key_here
    ```
+The proof generation process:
+1. Creates SP1 inputs and serializes them for Sindri
+2. Generates EVM-compatible proofs (Groth16 by default)
+3. Submits proof request to Sindri using the `demo-vapp` circuit
+4. Stores proof metadata in PostgreSQL
+5. Returns proof ID for external verification
 
 3. **For Smart Contract Integration (Optional):**
    ```bash
@@ -377,33 +454,25 @@ When you do the "setup" for a circuit (trusted or transparent), the compiler:
 
 ## REST API Server
 
-The project includes a comprehensive REST API server for external actors to interact with the vApp. The server provides HTTP endpoints for transaction submission, proof verification, and system monitoring.
-
-### Starting the Server
-
-```sh
-cd db
-cargo run --bin server --release
-```
-
-The server will start on `http://localhost:8080` by default.
+The API server will start on `http://localhost:8080` by default.
 
 ### API Endpoints
 
 **Transaction Operations:**
 - `POST /api/v1/transactions` - Submit new transactions (a + b), optionally generate ZK proofs
 - `GET /api/v1/results/{result}` - Query transaction inputs by result value
-- `GET /api/v1/results/{result}/verify` - Verify stored proof for a specific result
 
 **Proof Operations:**
 - `GET /api/v1/proofs/{proof_id}` - Retrieve proof information by Sindri proof ID
-- `POST /api/v1/verify` - Verify proof independently with proof ID and expected result
+- `GET /api/v1/proofs/{proof_id}/download` - Download raw proof data for local verification
 
 **System Operations:**
 - `GET /api/v1/health` - Health check and service status
 - `GET /api/v1/info` - API information and capabilities
 
 ### Usage Examples
+
+**Note**: `curl` is installed by the dependency script and ready for API testing.
 
 ```sh
 # Submit a transaction with proof generation
@@ -421,12 +490,50 @@ curl http://localhost:8080/api/v1/results/15/verify
 curl http://localhost:8080/api/v1/health
 ```
 
-### External Actor Workflow
+### Local Verification Workflow
 
-1. **Submit Transaction:** External actors POST to `/api/v1/transactions`
-2. **Get Proof ID:** Response includes proof ID and verification command
-3. **Share Proof:** Proof ID can be shared for trustless verification
-4. **Verify Independently:** Others can verify using proof ID without database access
-5. **Read from Smart Contract:** Can also read verified proofs from on-chain storage
+The system provides a clean separation between proof generation (via the API server) and proof verification (done locally):
 
-This enables trustless verification where external parties can cryptographically verify computation results without seeing private inputs or requiring database access.
+#### 1. Generate Proof via API
+```sh
+# Submit transaction with proof generation
+curl -X POST http://localhost:8080/api/v1/transactions \
+  -H 'Content-Type: application/json' \
+  -d '{"a": 5, "b": 10, "generate_proof": true}'
+
+# Response includes proof_id for later verification
+```
+
+#### 2. Download Proof Data
+```sh
+# Get raw proof data for local verification
+curl http://localhost:8080/api/v1/proofs/{proof_id}/download
+
+# Response includes:
+# - proof_data: hex-encoded SP1 proof
+# - public_values: hex-encoded public values
+# - verifying_key: hex-encoded verification key
+```
+
+#### 3. Verify Locally (No Network Dependencies)
+```sh
+# Run local verification tool with downloaded JSON file
+cargo run --bin cli -- verify-proof \
+  --proof-file proof_<proof_id>.json \
+  --expected-result 15
+
+# Output:
+# ✅ Cryptographic proof verification PASSED
+# ✅ Computation result verification PASSED
+# 🎉 Zero-knowledge proof successfully verified!
+```
+
+### Benefits of Local Verification
+
+- **No Docker Dependencies:** Verification runs on any machine with Rust
+- **Trustless:** No need to trust the API server for verification
+- **Privacy:** All verification happens locally
+- **Offline:** Works without network access once proof data is downloaded
+- **Portable:** Verification can be done on any machine or integrated into other systems
+
+This enables trustless verification where external parties can cryptographically verify computation results without seeing private inputs, requiring database access, or trusting external services.

@@ -1,7 +1,9 @@
-//! An end-to-end example of using the SP1 SDK to generate a proof of a program that can be executed
-//! or have a core proof generated.
+//! Local SP1 Unit Testing
 //!
-//! You can run this script using the following command:
+//! This program provides a simple way to test the SP1 arithmetic program locally.
+//! It generates fast Core proofs for development and testing purposes.
+//!
+//! Usage:
 //! ```shell
 //! RUST_LOG=info cargo run --release -- --execute
 //! ```
@@ -22,11 +24,6 @@
 
 use alloy_primitives::{Address, Bytes, FixedBytes};
 use alloy_sol_types::SolType;
-use arithmetic_db::db::{
-    get_sindri_proof_by_result, get_value_by_result, init_db, store_arithmetic_transaction,
-    upsert_sindri_proof,
-};
-use arithmetic_db::ProcessorBuilder;
 use arithmetic_lib::PublicValuesStruct;
 use clap::{Parser, ValueEnum};
 use ethereum_client::{Config as EthereumConfig, EthereumClient};
@@ -43,14 +40,12 @@ use tokio::task::JoinHandle;
 use tracing::info;
 
 /// The ELF (executable and linkable format) file for the Succinct RISC-V zkVM.
-pub const ARITHMETIC_ELF: &[u8] = include_elf!("arithmetic-program");
+/// This is built by build.rs from the program/ directory.
+pub const ARITHMETIC_ELF: &[u8] = include_elf!("program");
 
-/// Enum representing the available EVM-compatible proof systems
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
-enum ProofSystem {
-    Plonk,
-    Groth16,
-}
+fn main() -> Result<()> {
+    // Setup logging
+    tracing_subscriber::fmt().with_env_filter("info").init();
 
 impl ProofSystem {
     /// Convert to the proving scheme string expected by Sindri
@@ -62,17 +57,8 @@ impl ProofSystem {
     }
 }
 
-/// A fixture that can be used to test the verification of SP1 zkVM proofs inside Solidity.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SP1ArithmeticProofFixture {
-    a: i32,
-    b: i32,
-    result: i32,
-    vkey: String,
-    public_values: String,
-    proof: String,
-}
+    // Create a prover client for local testing
+    let client = ProverClient::from_env();
 
 /// The arguments for the command.
 #[derive(Parser, Debug)]
@@ -91,13 +77,6 @@ struct Args {
     #[arg(long)]
     vkey: bool, // Print the vkey for the program
 
-    // Arithmetic inputs
-    #[arg(long, default_value = "1")]
-    a: i32,
-    #[arg(long, default_value = "1")]
-    b: i32,
-    #[arg(long, default_value = "20")]
-    result: i32,
 
     // EVM-compatible proof system selection
     #[arg(
@@ -614,39 +593,20 @@ async fn prove_via_sindri_core(
     stdin.write(&a);
     stdin.write(&b);
 
-    let stdin_json = match serde_json::to_string(&stdin) {
-        Ok(s) => s,
-        Err(e) => {
-            println!("✗ Failed to serialize SP1Stdin: {e}");
-            return None;
-        }
-    };
-    let proof_input = ProofInput::from(stdin_json);
+    info!("🔄 Generating Core proof (fast, for development)...");
 
-    let client = SindriClient::default();
-    println!("Submitting proof request to Sindri...");
-    let proof_info = client
-        .prove_circuit(
-            "demo-vapp", // Circuit name as defined in sindri.json manifest
-            proof_input,
-            None,
-            None,
-            None,
-        )
-        .await;
+    // Generate a Core proof (fast for local development)
+    let (pk, vk) = client.setup(ARITHMETIC_ELF);
+    let proof = client
+        .prove(&pk, &stdin)
+        .core() // Use Core proof mode for speed
+        .run()
+        .expect("Failed to generate proof");
 
-    let proof_info = match proof_info {
-        Ok(info) => info,
-        Err(e) => {
-            println!("✗ Failed to submit proof request: {e}");
-            return None;
-        }
-    };
+    info!("✅ Core proof generated successfully!");
 
-    if proof_info.status == JobStatus::Failed {
-        println!("✗ Proof generation failed: {:?}", proof_info.error);
-        return None;
-    }
+    // Verify the proof
+    info!("🔍 Verifying proof...");
 
     println!(
         "✓ {} proof job submitted. Status: {:?}",
@@ -732,7 +692,6 @@ async fn run_prove_via_sindri(
             result, proof_info.proof_id
         );
     }
-}
 
 async fn run_prove_via_sindri_no_db(
     arg_a: i32,
