@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use sindri::integrations::sp1_v5::SP1ProofInfo;
 use sindri::{client::SindriClient, JobStatus, ProofInfoResponse, ProofInput};
 use sp1_sdk::{HashableKey, SP1Stdin};
+use std::convert::TryInto;
 use std::path::PathBuf;
 use std::time::Duration;
 use thiserror::Error;
@@ -151,7 +152,7 @@ pub async fn generate_batch_proof(
     request: BatchProofGenerationRequest,
 ) -> Result<ProofGenerationResponse, ProofError> {
     let final_balance = request.initial_balance + request.transactions.iter().sum::<i32>();
-    
+
     info!(
         "🔐 Generating {} batch proof: {} + {:?} = {} via Sindri",
         request.proof_system.to_sindri_scheme().to_uppercase(),
@@ -161,21 +162,25 @@ pub async fn generate_batch_proof(
     );
 
     // Create SP1 inputs for batch processing and serialize for Sindri
-    info!("📝 Creating SP1 stdin with initial_balance={} and transactions={:?}", 
-          request.initial_balance, request.transactions);
+    info!(
+        "📝 Creating SP1 stdin with initial_balance={} and transactions={:?}",
+        request.initial_balance, request.transactions
+    );
     let mut stdin = SP1Stdin::new();
     stdin.write(&request.initial_balance);
     stdin.write(&request.transactions);
     info!("✅ SP1 stdin created successfully");
 
     info!("📝 Serializing SP1 stdin to JSON for Sindri");
-    let stdin_json =
-        serde_json::to_string(&stdin).map_err(|e| {
-            error!("❌ Failed to serialize SP1 stdin: {}", e);
-            ProofError::SerializationError(e.to_string())
-        })?;
-    info!("✅ SP1 stdin serialized, JSON length: {} chars", stdin_json.len());
-    
+    let stdin_json = serde_json::to_string(&stdin).map_err(|e| {
+        error!("❌ Failed to serialize SP1 stdin: {}", e);
+        ProofError::SerializationError(e.to_string())
+    })?;
+    info!(
+        "✅ SP1 stdin serialized, JSON length: {} chars",
+        stdin_json.len()
+    );
+
     let proof_input = ProofInput::from(stdin_json.clone());
     info!("✅ ProofInput created from JSON");
 
@@ -185,12 +190,14 @@ pub async fn generate_batch_proof(
 
     info!("📋 Using circuit: {} (tag: {})", circuit_name, circuit_tag);
     info!("🔑 Checking SINDRI_API_KEY availability...");
-    
+
     match std::env::var("SINDRI_API_KEY") {
         Ok(key) => info!("✅ SINDRI_API_KEY is set (length: {} chars)", key.len()),
         Err(_) => {
             error!("❌ SINDRI_API_KEY is not set in environment!");
-            return Err(ProofError::ConfigError("SINDRI_API_KEY not set".to_string()));
+            return Err(ProofError::ConfigError(
+                "SINDRI_API_KEY not set".to_string(),
+            ));
         }
     }
 
@@ -198,9 +205,15 @@ pub async fn generate_batch_proof(
     let client = SindriClient::default();
     info!("✅ Sindri client created");
 
-    info!("🚀 Submitting proof request to Sindri circuit: {}", circuit_name);
-    info!("📊 Request details: stdin_json preview: {}...", &stdin_json[..std::cmp::min(100, stdin_json.len())]);
-    
+    info!(
+        "🚀 Submitting proof request to Sindri circuit: {}",
+        circuit_name
+    );
+    info!(
+        "📊 Request details: stdin_json preview: {}...",
+        &stdin_json[..std::cmp::min(100, stdin_json.len())]
+    );
+
     let proof_info = client
         .prove_circuit(&circuit_name, proof_input, None, None, None)
         .await
@@ -208,9 +221,11 @@ pub async fn generate_batch_proof(
             error!("❌ Sindri API call failed: {}", e);
             ProofError::SindriError(e.to_string())
         })?;
-    
-    info!("✅ Sindri API call successful! Proof ID: {}, Status: {:?}", 
-          proof_info.proof_id, proof_info.status);
+
+    info!(
+        "✅ Sindri API call successful! Proof ID: {}, Status: {:?}",
+        proof_info.proof_id, proof_info.status
+    );
 
     let status = match proof_info.status {
         JobStatus::Ready => "Ready".to_string(),
@@ -366,7 +381,7 @@ pub async fn verify_sindri_proof(
             expected_initial_balance: request.expected_initial_balance,
             expected_final_balance: request.expected_final_balance,
             verification_message: format!("Proof not ready. Status: {:?}", proof_info.status),
-            verification_time_ms: start_time.elapsed().as_millis() as u64,
+            verification_time_ms: start_time.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
         });
     }
 
@@ -394,7 +409,7 @@ pub async fn verify_sindri_proof(
             expected_initial_balance: request.expected_initial_balance,
             expected_final_balance: request.expected_final_balance,
             verification_message: "Cryptographic proof verification failed".to_string(),
-            verification_time_ms: start_time.elapsed().as_millis() as u64,
+            verification_time_ms: start_time.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
         });
     }
 
@@ -434,7 +449,7 @@ pub async fn verify_sindri_proof(
         expected_initial_balance: request.expected_initial_balance,
         expected_final_balance: request.expected_final_balance,
         verification_message,
-        verification_time_ms: start_time.elapsed().as_millis() as u64,
+        verification_time_ms: start_time.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
     })
 }
 

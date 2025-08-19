@@ -6,6 +6,7 @@ use axum::{
     Router,
 };
 use chrono::{DateTime, Utc};
+use humantime::format_duration;
 use serde::{Deserialize, Serialize};
 use sqlx::{Error as SqlxError, PgPool};
 use tracing::{error, info, instrument, warn};
@@ -826,7 +827,7 @@ async fn get_batch_processor_stats_endpoint(
             errors: stats.errors,
             last_batch_time: stats
                 .last_batch_time
-                .map(|t| format!("{:.2?} ago", t.elapsed())),
+                .map(|t| format!("{} ago", format_duration(t.elapsed()))),
         };
 
         info!("✅ API: Batch processor stats returned");

@@ -14,7 +14,7 @@ DECLARE
     new_batch_id INTEGER;
     previous_counter BIGINT;
     final_counter BIGINT;
-    transaction_total INTEGER;
+    transaction_total BIGINT;
     transaction_id_array INTEGER[];
     claimed_count INTEGER;
 BEGIN
@@ -23,19 +23,20 @@ BEGIN
     
     -- Atomically select and lock unbatched transactions
     -- Use FOR UPDATE SKIP LOCKED to prevent race conditions
-    SELECT 
-        ARRAY_AGG(id ORDER BY id),
-        SUM(amount),
-        COUNT(*)
-    INTO transaction_id_array, transaction_total, claimed_count
-    FROM (
+    WITH locked_transactions AS (
         SELECT id, amount 
         FROM incoming_transactions 
         WHERE included_in_batch_id IS NULL 
         ORDER BY id ASC 
         LIMIT batch_size
         FOR UPDATE SKIP LOCKED  -- Skip rows locked by other transactions
-    ) locked_transactions;
+    )
+    SELECT 
+        ARRAY_AGG(id ORDER BY id),
+        SUM(amount),
+        COUNT(*)
+    INTO transaction_id_array, transaction_total, claimed_count
+    FROM locked_transactions;
     
     -- Return 0 if no transactions were claimed
     IF transaction_id_array IS NULL OR claimed_count = 0 THEN

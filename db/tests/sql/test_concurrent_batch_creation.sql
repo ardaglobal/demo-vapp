@@ -23,7 +23,7 @@ SELECT create_batch(5) AS batch_id_1;
 SELECT 'Creating second batch...' AS status;  
 SELECT create_batch(5) AS batch_id_2;
 
-SELECT 'Creating third batch (should return 0 - no more transactions)...' AS status;
+SELECT 'Creating third batch (should return non-zero - third batch created)...' AS status;
 SELECT create_batch(5) AS batch_id_3;
 
 -- Verify results
@@ -62,3 +62,33 @@ SELECT
     END as result
 FROM transaction_counts
 WHERE assignment_count > 1;
+
+-- Verify all expected transactions are assigned exactly once
+SELECT 'Verification - checking all transactions assigned exactly once:' AS status;
+WITH expected_transactions AS (
+    SELECT id as transaction_id FROM incoming_transactions WHERE amount >= 9000
+),
+batch_transactions AS (
+    SELECT unnest(transaction_ids) as transaction_id
+    FROM proof_batches
+    WHERE transaction_ids && (
+        SELECT array_agg(id) FROM incoming_transactions WHERE amount >= 9000
+    )
+),
+assignment_summary AS (
+    SELECT 
+        e.transaction_id,
+        CASE WHEN b.transaction_id IS NOT NULL THEN 1 ELSE 0 END as is_assigned
+    FROM expected_transactions e
+    LEFT JOIN batch_transactions b ON e.transaction_id = b.transaction_id
+)
+SELECT 
+    CASE 
+        WHEN SUM(is_assigned) = 15 AND COUNT(*) = 15 THEN 
+            'SUCCESS: All 15 transactions assigned exactly once'
+        WHEN SUM(is_assigned) < 15 THEN 
+            'ERROR: Only ' || SUM(is_assigned) || ' of 15 expected transactions assigned'
+        ELSE 
+            'ERROR: Unexpected assignment count - ' || SUM(is_assigned) || ' assigned, ' || COUNT(*) || ' expected'
+    END as result
+FROM assignment_summary;

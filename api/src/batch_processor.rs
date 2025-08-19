@@ -15,7 +15,7 @@ use tokio::time::{interval, Instant};
 use tracing::{debug, error, info, instrument};
 
 use crate::rest::ApiConfig;
-use arithmetic_db::{create_batch, get_pending_transactions, get_batch_by_id, update_batch_proof};
+use arithmetic_db::{create_batch, get_batch_by_id, get_pending_transactions, update_batch_proof};
 use arithmetic_lib::proof::{generate_batch_proof, BatchProofGenerationRequest, ProofSystem};
 
 // ============================================================================
@@ -403,13 +403,13 @@ impl BackgroundBatchProcessor {
     /// Continuous batch monitoring service that runs independently
     async fn run_batch_monitor_service(pool: PgPool) {
         info!("🔄 Starting continuous batch monitoring service...");
-        
+
         let mut interval = tokio::time::interval(Duration::from_secs(30)); // Check every 30 seconds
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {
             interval.tick().await;
-            
+
             // Phase 1: Submit proofs for batches missing Sindri proof IDs
             if let Err(e) = Self::submit_missing_proofs(&pool).await {
                 error!("❌ Failed to submit missing proofs: {}", e);
@@ -444,11 +444,14 @@ impl BackgroundBatchProcessor {
             return Ok(()); // No work to do
         }
 
-        info!("🔍 Found {} batches missing valid proof IDs, submitting...", batches_missing_proofs.len());
+        info!(
+            "🔍 Found {} batches missing valid proof IDs, submitting...",
+            batches_missing_proofs.len()
+        );
 
         for batch_record in batches_missing_proofs {
             let batch_id = batch_record.id;
-            
+
             // Submit proof asynchronously and immediately store the proof ID
             tokio::spawn({
                 let pool = pool.clone();
@@ -486,7 +489,10 @@ impl BackgroundBatchProcessor {
             return Ok(()); // No pending proofs to check
         }
 
-        info!("🔍 Checking status for {} pending proofs...", pending_batches.len());
+        info!(
+            "🔍 Checking status for {} pending proofs...",
+            pending_batches.len()
+        );
 
         for batch_record in pending_batches {
             let batch_id = batch_record.id;
@@ -501,8 +507,13 @@ impl BackgroundBatchProcessor {
                 let pool = pool.clone();
                 let proof_id = proof_id.clone();
                 async move {
-                    if let Err(e) = Self::check_and_update_proof_status(&pool, batch_id, &proof_id).await {
-                        error!("❌ Failed to check status for batch {} (proof {}): {}", batch_id, proof_id, e);
+                    if let Err(e) =
+                        Self::check_and_update_proof_status(&pool, batch_id, &proof_id).await
+                    {
+                        error!(
+                            "❌ Failed to check status for batch {} (proof {}): {}",
+                            batch_id, proof_id, e
+                        );
                     }
                 }
             });
@@ -547,7 +558,10 @@ impl BackgroundBatchProcessor {
         // Submit to Sindri and immediately store the proof ID
         match generate_batch_proof(proof_request).await {
             Ok(proof_response) => {
-                info!("✅ Got Sindri proof ID for batch {}: {}", batch_id, proof_response.proof_id);
+                info!(
+                    "✅ Got Sindri proof ID for batch {}: {}",
+                    batch_id, proof_response.proof_id
+                );
 
                 // Immediately store the proof ID in database
                 let status = match proof_response.status.as_str() {
@@ -556,36 +570,44 @@ impl BackgroundBatchProcessor {
                     _ => "pending",
                 };
 
-                if let Err(e) = update_batch_proof(
-                    pool,
-                    batch_id,
-                    &proof_response.proof_id,
-                    status,
-                ).await {
+                if let Err(e) =
+                    update_batch_proof(pool, batch_id, &proof_response.proof_id, status).await
+                {
                     error!("❌ Failed to store proof ID for batch {}: {}", batch_id, e);
                     return Err(format!("Failed to store proof ID: {}", e));
                 }
 
-                info!("📝 Stored proof ID {} for batch {} with status {}", 
-                      proof_response.proof_id, batch_id, status);
+                info!(
+                    "📝 Stored proof ID {} for batch {} with status {}",
+                    proof_response.proof_id, batch_id, status
+                );
                 Ok(())
             }
             Err(e) => {
                 error!("❌ Sindri submission failed for batch {}: {}", batch_id, e);
-                
+
                 // Store error state
                 let error_id = format!("error_{}", batch_id);
-                if let Err(update_err) = update_batch_proof(pool, batch_id, &error_id, "failed").await {
-                    error!("❌ Failed to store error state for batch {}: {}", batch_id, update_err);
+                if let Err(update_err) =
+                    update_batch_proof(pool, batch_id, &error_id, "failed").await
+                {
+                    error!(
+                        "❌ Failed to store error state for batch {}: {}",
+                        batch_id, update_err
+                    );
                 }
-                
+
                 Err(format!("Sindri submission failed: {}", e))
             }
         }
     }
 
     /// Check proof status on Sindri and update database
-    async fn check_and_update_proof_status(pool: &PgPool, batch_id: i32, proof_id: &str) -> Result<(), String> {
+    async fn check_and_update_proof_status(
+        pool: &PgPool,
+        batch_id: i32,
+        proof_id: &str,
+    ) -> Result<(), String> {
         use arithmetic_lib::proof::get_sindri_proof_info;
 
         match get_sindri_proof_info(proof_id).await {
@@ -617,7 +639,10 @@ impl BackgroundBatchProcessor {
     async fn trigger_proof_generation(&self, batch_id: i32) {
         // The continuous monitoring service will pick up this batch automatically
         // No need to do anything here - just log that the batch was created
-        info!("📦 Batch {} created - monitoring service will handle proof generation", batch_id);
+        info!(
+            "📦 Batch {} created - monitoring service will handle proof generation",
+            batch_id
+        );
     }
 
     /// Generate a ZK proof for a specific batch
@@ -626,13 +651,14 @@ impl BackgroundBatchProcessor {
 
         // Get batch details
         info!("📋 Fetching batch details for batch {}", batch_id);
-        let batch = get_batch_by_id(pool, batch_id)
-            .await
-            .map_err(|e| {
-                error!("❌ Failed to get batch {}: {}", batch_id, e);
-                format!("Failed to get batch {}: {}", batch_id, e)
-            })?;
-        info!("✅ Retrieved batch details: transaction_ids={:?}", batch.transaction_ids);
+        let batch = get_batch_by_id(pool, batch_id).await.map_err(|e| {
+            error!("❌ Failed to get batch {}: {}", batch_id, e);
+            format!("Failed to get batch {}: {}", batch_id, e)
+        })?;
+        info!(
+            "✅ Retrieved batch details: transaction_ids={:?}",
+            batch.transaction_ids
+        );
 
         // Get individual transaction amounts for the batch
         info!("📋 Fetching transaction amounts for batch {}", batch_id);
@@ -643,13 +669,19 @@ impl BackgroundBatchProcessor {
         .fetch_all(pool)
         .await
         .map_err(|e| {
-            error!("❌ Failed to get transaction amounts for batch {}: {}", batch_id, e);
+            error!(
+                "❌ Failed to get transaction amounts for batch {}: {}",
+                batch_id, e
+            );
             format!("Failed to get transaction amounts: {}", e)
         })?
         .into_iter()
         .map(|row| row.amount)
         .collect();
-        info!("✅ Retrieved transaction amounts: {:?}", transaction_amounts);
+        info!(
+            "✅ Retrieved transaction amounts: {:?}",
+            transaction_amounts
+        );
 
         let initial_balance = batch.previous_counter_value as i32;
         let expected_final = initial_balance + transaction_amounts.iter().sum::<i32>();
@@ -657,12 +689,19 @@ impl BackgroundBatchProcessor {
 
         info!(
             "🧮 Batch {} calculation check: initial={}, sum={}, expected_final={}, actual_final={}",
-            batch_id, initial_balance, transaction_amounts.iter().sum::<i32>(), expected_final, actual_final
+            batch_id,
+            initial_balance,
+            transaction_amounts.iter().sum::<i32>(),
+            expected_final,
+            actual_final
         );
 
         // Sanity check
         if expected_final != actual_final {
-            error!("❌ Batch {} transaction sum mismatch: expected {}, got {}", batch_id, expected_final, actual_final);
+            error!(
+                "❌ Batch {} transaction sum mismatch: expected {}, got {}",
+                batch_id, expected_final, actual_final
+            );
             return Err(format!(
                 "Batch {} transaction sum mismatch: expected {}, got {}",
                 batch_id, expected_final, actual_final
@@ -675,18 +714,26 @@ impl BackgroundBatchProcessor {
         );
 
         // Create batch proof generation request
-        info!("📝 Creating batch proof generation request for batch {}", batch_id);
+        info!(
+            "📝 Creating batch proof generation request for batch {}",
+            batch_id
+        );
         let proof_request = BatchProofGenerationRequest {
             initial_balance,
             transactions: transaction_amounts.clone(),
             proof_system: ProofSystem::default(), // Use Groth16 by default
-            generate_fixtures: false, // Don't generate fixtures in production
+            generate_fixtures: false,             // Don't generate fixtures in production
         };
-        info!("✅ Created proof request: initial={}, transactions={:?}, proof_system={:?}", 
-              proof_request.initial_balance, proof_request.transactions, proof_request.proof_system);
+        info!(
+            "✅ Created proof request: initial={}, transactions={:?}, proof_system={:?}",
+            proof_request.initial_balance, proof_request.transactions, proof_request.proof_system
+        );
 
         // Generate proof via Sindri
-        info!("🚀 Submitting batch proof request to Sindri for batch {}", batch_id);
+        info!(
+            "🚀 Submitting batch proof request to Sindri for batch {}",
+            batch_id
+        );
         match generate_batch_proof(proof_request).await {
             Ok(proof_response) => {
                 info!(
@@ -697,17 +744,12 @@ impl BackgroundBatchProcessor {
                 // Update batch with Sindri proof ID and appropriate status
                 let status = match proof_response.status.as_str() {
                     "Ready" => "proven",
-                    "Failed" => "failed", 
+                    "Failed" => "failed",
                     _ => "pending", // Default for "Pending" or other statuses
                 };
 
-                if let Err(e) = update_batch_proof(
-                    pool,
-                    batch_id,
-                    &proof_response.proof_id,
-                    status,
-                )
-                .await
+                if let Err(e) =
+                    update_batch_proof(pool, batch_id, &proof_response.proof_id, status).await
                 {
                     error!("Failed to update batch {} with proof ID: {}", batch_id, e);
                     return Err(format!("Failed to update batch with proof ID: {}", e));
@@ -717,15 +759,21 @@ impl BackgroundBatchProcessor {
                     "📝 Updated batch {} with Sindri proof ID: {} (status: {})",
                     batch_id, proof_response.proof_id, status
                 );
-                
+
                 if status == "failed" {
-                    Err(format!("Sindri proof generation failed for batch {}", batch_id))
+                    Err(format!(
+                        "Sindri proof generation failed for batch {}",
+                        batch_id
+                    ))
                 } else {
                     Ok(())
                 }
             }
             Err(e) => {
-                error!("Failed to submit proof request to Sindri for batch {}: {}", batch_id, e);
+                error!(
+                    "Failed to submit proof request to Sindri for batch {}: {}",
+                    batch_id, e
+                );
 
                 // Only update status to failed, don't create a fake proof ID
                 // This handles cases where we couldn't even submit the request to Sindri
