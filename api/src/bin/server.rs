@@ -148,12 +148,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("   • GET    /api/v2/transactions/pending   - View pending transactions");
     println!("   • POST   /api/v2/batches                - Create batch from pending");
     println!("   • GET    /api/v2/batches                - List historical batches");
-    println!("   • GET    /api/v2/batches/:id            - Get specific batch");
-    println!("   • POST   /api/v2/batches/:id/proof      - Update batch with ZK proof");
+    println!("   • GET    /api/v2/batches/{{id}}            - Get specific batch");
+    println!("   • POST   /api/v2/batches/{{id}}/proof      - Update batch with ZK proof");
     println!("   • POST   /api/v2/batches/trigger        - Manually trigger batch processing");
     println!("   • GET    /api/v2/batches/stats          - Get batch processor statistics");
     println!("   • GET    /api/v2/state/current          - Get current counter state");
-    println!("   • GET    /api/v2/state/:id/contract     - Get contract submission data");
+    println!("   • GET    /api/v2/state/{{id}}/contract     - Get contract submission data");
     println!("   • GET    /api/v2/health                 - Health check");
     println!("   • GET    /health                        - Health check (legacy path)");
 

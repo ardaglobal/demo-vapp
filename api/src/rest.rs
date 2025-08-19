@@ -208,9 +208,9 @@ pub fn create_router(state: ApiState) -> Router {
         // Batch operations
         .route("/api/v2/batches", post(create_batch_endpoint))
         .route("/api/v2/batches", get(get_batches_endpoint))
-        .route("/api/v2/batches/:batch_id", get(get_batch_endpoint))
+        .route("/api/v2/batches/{batch_id}", get(get_batch_endpoint))
         .route(
-            "/api/v2/batches/:batch_id/proof",
+            "/api/v2/batches/{batch_id}/proof",
             post(update_batch_proof_endpoint),
         )
         .route("/api/v2/batches/trigger", post(trigger_batch_endpoint))
@@ -221,7 +221,7 @@ pub fn create_router(state: ApiState) -> Router {
         // State operations
         .route("/api/v2/state/current", get(get_current_state_endpoint))
         .route(
-            "/api/v2/state/:batch_id/contract",
+            "/api/v2/state/{batch_id}/contract",
             get(get_contract_data_endpoint),
         )
         .with_state(state)
@@ -302,12 +302,12 @@ async fn api_info(State(state): State<ApiState>) -> Json<ApiInfoResponse> {
         },
         EndpointInfo {
             method: "GET".to_string(),
-            path: "/api/v2/batches/:batch_id".to_string(),
+            path: "/api/v2/batches/{batch_id}".to_string(),
             description: "Get specific batch details".to_string(),
         },
         EndpointInfo {
             method: "POST".to_string(),
-            path: "/api/v2/batches/:batch_id/proof".to_string(),
+            path: "/api/v2/batches/{batch_id}/proof".to_string(),
             description: "Update batch with ZK proof".to_string(),
         },
         EndpointInfo {
@@ -317,7 +317,7 @@ async fn api_info(State(state): State<ApiState>) -> Json<ApiInfoResponse> {
         },
         EndpointInfo {
             method: "GET".to_string(),
-            path: "/api/v2/state/:batch_id/contract".to_string(),
+            path: "/api/v2/state/{batch_id}/contract".to_string(),
             description: "Get contract submission data (dry run)".to_string(),
         },
     ];
