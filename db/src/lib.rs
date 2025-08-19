@@ -33,15 +33,44 @@
 #![allow(clippy::struct_excessive_bools)]
 #![allow(clippy::suboptimal_flops)]
 
-pub mod ads_service;
-pub mod background_processor;
+// Core modules for batch processing functionality
+// Temporarily disabled legacy modules due to dropped database tables:
+// pub mod ads_service;
+// pub mod background_processor; 
+// pub mod merkle_tree;
+// pub mod merkle_tree_32;
+// pub mod vapp_integration;
+
 pub mod db;
 pub mod error;
-pub mod merkle_tree;
-pub mod merkle_tree_32;
-pub mod vapp_integration;
 
-// Re-export main types for convenience
+// Re-export batch processing types and functions
+pub use db::{
+    // Types
+    AdsStateCommit, ContractPrivateData, ContractPublicData, ContractSubmissionData,
+    CounterState, IncomingTransaction, ProofBatch,
+    
+    // Database connection
+    init_db, init_db_with_url,
+    
+    // Transaction functions
+    submit_transaction, get_pending_transactions,
+    
+    // Batch functions  
+    create_batch, get_all_batches, get_batch_by_id, update_batch_proof,
+    
+    // State functions
+    get_current_counter_value, get_current_state,
+    
+    // ADS/Merkle functions
+    store_ads_state_commit, get_contract_submission_data,
+};
+
+// Re-export essential error types
+pub use error::{DbError, DbResult};
+
+// Legacy modules temporarily disabled due to dropped database tables:
+/*
 pub use ads_service::{
     AdsConfig, AdsError, AdsMetrics, AdsServiceFactory, AuditEvent, AuditEventType, AuditTrail,
     AuthenticatedDataStructure, ComplianceStatus, IndexedMerkleTreeADS, MembershipProof,
@@ -49,7 +78,6 @@ pub use ads_service::{
 };
 
 pub use background_processor::{BackgroundProcessor, ProcessorBuilder, ProcessorConfig};
-pub use error::{DbError, DbResult};
 pub use merkle_tree::{
     AlgorithmInsertionResult, IndexedMerkleTree, InsertionMetrics, InsertionProof, InsertionResult,
     LowNullifier, MerkleNode, MerkleNodeDb, MerkleProof, MerkleTreeDb, Nullifier, NullifierDb,
@@ -61,6 +89,7 @@ pub use vapp_integration::{
     SettlementResult, VAppAdsIntegration, VAppBatchResponse, VAppConfig, VAppError,
     VAppInsertionResponse, VAppProofResponse, ZkProof,
 };
+*/
 
 #[cfg(test)]
 mod test_utils;
@@ -70,19 +99,6 @@ mod tests;
 
 #[cfg(test)]
 mod error_tests;
-
-// Temporarily disabled - advanced functionality not yet implemented
-// #[cfg(test)]
-// mod merkle_tree_tests;
-
-// #[cfg(test)]
-// mod indexed_merkle_tree_tests;
-
-// #[cfg(test)]
-// mod merkle_tree_32_tests;
-
-// #[cfg(test)]
-// mod ads_service_tests;
 
 #[cfg(test)]
 mod proof_verification_tests;

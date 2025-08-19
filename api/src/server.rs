@@ -1,15 +1,9 @@
-use async_graphql::http::GraphiQLSource;
-use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::{
-    extract::State,
-    http::{header, HeaderValue, Method},
     response::{Html, IntoResponse},
-    routing::{get, post},
+    routing::get,
     Router,
 };
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::RwLock;
 
 use tower_http::{
     compression::CompressionLayer,
@@ -19,17 +13,16 @@ use tower_http::{
     trace::TraceLayer,
 };
 use tracing::{info, instrument};
+use sqlx::PgPool;
 
-use crate::graphql::create_schema;
 use crate::rest::{ApiConfig, ApiState};
-use arithmetic_db::ads_service::IndexedMerkleTreeADS;
-use arithmetic_db::vapp_integration::VAppAdsIntegration;
+use arithmetic_db::init_db;
 
 // ============================================================================
 // API SERVER CONFIGURATION
 // ============================================================================
 
-/// Configuration for the combined API server
+/// Configuration for the batch processing API server
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone)]
 pub struct ApiServerConfig {
@@ -42,9 +35,7 @@ pub struct ApiServerConfig {
 
     /// Feature flags
     pub enable_rest: bool,
-    pub enable_graphql: bool,
     pub enable_playground: bool,
-    pub enable_subscriptions: bool,
 
     /// Middleware configuration
     pub enable_compression: bool,
@@ -55,7 +46,6 @@ pub struct ApiServerConfig {
     /// Security configuration
     pub cors_origins: Vec<String>,
     pub rate_limit_per_minute: u32,
-    pub api_key_required: bool,
 }
 
 impl Default for ApiServerConfig {
@@ -65,16 +55,13 @@ impl Default for ApiServerConfig {
             host: "0.0.0.0".to_string(),
             port: 8080,
             enable_rest: true,
-            enable_graphql: true,
             enable_playground: true,
-            enable_subscriptions: true,
             enable_compression: true,
             enable_cors: true,
             request_timeout_seconds: 30,
             max_request_size_bytes: 1024 * 1024, // 1MB
             cors_origins: vec!["*".to_string()],
             rate_limit_per_minute: 100,
-            api_key_required: false,
         }
     }
 }
@@ -83,29 +70,34 @@ impl Default for ApiServerConfig {
 // API SERVER IMPLEMENTATION
 // ============================================================================
 
-/// Combined REST and GraphQL API server
+/// Batch processing API server
 pub struct ApiServer {
     config: ApiServerConfig,
     state: ApiState,
 }
 
 impl ApiServer {
-    /// Create new API server with configuration
+    /// Create new API server with database connection
     ///
     /// # Errors
-    /// Returns error if server initialization fails
-    #[instrument(skip(ads, vapp_integration), level = "info")]
+    /// Returns error if database initialization fails
+    #[instrument(skip(database_url), level = "info")]
     pub async fn new(
-        ads: Arc<RwLock<IndexedMerkleTreeADS>>,
-        vapp_integration: Arc<RwLock<VAppAdsIntegration>>,
+        database_url: Option<String>,
         config: ApiServerConfig,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        info!("🚀 Initializing combined API server");
+        info!("🚀 Initializing batch processing API server");
+
+        // Initialize database connection
+        let pool = if let Some(url) = database_url {
+            arithmetic_db::init_db_with_url(&url).await?
+        } else {
+            init_db().await?
+        };
 
         // Create API state
         let state = ApiState {
-            ads,
-            vapp_integration,
+            pool,
             config: config.api_config.clone(),
         };
 
@@ -115,92 +107,82 @@ impl ApiServer {
         Ok(server)
     }
 
+    /// Create new API server with existing database pool
+    pub fn with_pool(pool: PgPool, config: ApiServerConfig) -> Self {
+        info!("🚀 Creating API server with existing database pool");
+
+        let state = ApiState {
+            pool,
+            config: config.api_config.clone(),
+        };
+
+        Self { config, state }
+    }
+
     /// Build the complete router with all endpoints
     #[instrument(skip(self), level = "info")]
-    #[allow(clippy::cognitive_complexity)]
-    pub fn create_router(&self) -> Router<ApiState> {
+    pub fn create_router(&self) -> Router {
         info!("🔧 Building API router");
 
-        let mut router = Router::new().with_state(self.state.clone());
-
-        // Add health check endpoint (always available)
-        router = router.route("/health", get(health_check));
-        router = router.route("/", get(api_info_handler));
-
-        // Add REST API routes if enabled
-        if self.config.enable_rest {
-            info!("📡 Adding REST API routes");
-            // TODO: Implement unified REST/GraphQL router
-            // For now, REST is disabled to focus on GraphQL
-        }
-
-        // Add GraphQL routes if enabled
-        if self.config.enable_graphql {
-            info!("🔄 Adding GraphQL routes");
-
-            // Main GraphQL endpoint
-            router = router.route(
-                "/graphql",
-                post(graphql_handler).get(graphql_playground_handler),
-            );
-
-            // GraphQL subscriptions if enabled
-            if self.config.enable_subscriptions {
-                router = router.route("/graphql/ws", get(graphql_subscription_handler));
-            }
-
-            // GraphQL playground if enabled
-            if self.config.enable_playground {
-                router = router.route("/playground", get(graphql_playground_handler));
-            }
-        }
+        // Use REST API routes (includes health endpoints and state)
+        let router = if self.config.enable_rest {
+            info!("📡 Adding batch processing REST API routes");
+            crate::rest::create_router(self.state.clone())
+        } else {
+            Router::new()
+                .route("/health", get(health_check))
+                .route("/", get(api_info_handler))
+                .with_state(self.state.clone())
+        };
 
         // Add middleware layers
-        router = self.add_middleware(router);
+        let router = self.add_middleware_with_state(router);
 
         info!("✅ API router built successfully");
         router
     }
 
     /// Add middleware layers to the router
-    fn add_middleware(&self, router: Router<ApiState>) -> Router<ApiState> {
+    fn add_middleware_with_state(&self, router: Router) -> Router {
         let mut router = router
             .layer(TraceLayer::new_for_http())
+            .layer(RequestBodyLimitLayer::new(self.config.max_request_size_bytes))
             .layer(TimeoutLayer::new(Duration::from_secs(
                 self.config.request_timeout_seconds,
-            )))
-            .layer(RequestBodyLimitLayer::new(
-                self.config.max_request_size_bytes,
-            ));
+            )));
 
         if self.config.enable_compression {
             router = router.layer(CompressionLayer::new());
         }
 
-        // Add CORS if enabled
         if self.config.enable_cors {
-            let cors_layer = if self.config.cors_origins.contains(&"*".to_string()) {
-                CorsLayer::new()
-                    .allow_origin(Any)
-                    .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
-                    .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
-            } else {
-                let origins: Vec<HeaderValue> = self
-                    .config
-                    .cors_origins
-                    .iter()
-                    .filter_map(|origin| origin.parse().ok())
-                    .collect();
+            let cors = CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods([
+                    axum::http::Method::GET,
+                    axum::http::Method::POST,
+                    axum::http::Method::PUT,
+                    axum::http::Method::DELETE,
+                    axum::http::Method::OPTIONS,
+                ])
+                .allow_headers(Any);
 
-                CorsLayer::new()
-                    .allow_origin(origins)
-                    .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
-                    .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
-            };
-            router = router.layer(cors_layer);
+            router = router.layer(cors);
         }
 
         router
+    }
+
+    /// Get server binding address
+    #[must_use]
+    pub fn bind_address(&self) -> String {
+        format!("{}:{}", self.config.host, self.config.port)
+    }
+
+    /// Get API state reference
+    #[must_use]
+    pub const fn state(&self) -> &ApiState {
+        &self.state
     }
 
     /// Get server configuration
@@ -208,78 +190,29 @@ impl ApiServer {
     pub const fn config(&self) -> &ApiServerConfig {
         &self.config
     }
-
-    /// Get server bind address
-    #[must_use]
-    pub fn bind_address(&self) -> String {
-        format!("{}:{}", self.config.host, self.config.port)
-    }
-
-    /// Get server state for testing purposes
-    #[must_use]
-    pub const fn state(&self) -> &ApiState {
-        &self.state
-    }
 }
 
 // ============================================================================
-// GRAPHQL HANDLERS
+// HANDLERS
 // ============================================================================
 
-/// GraphQL query/mutation handler
-#[instrument(skip(req), level = "info")]
-async fn graphql_handler(State(state): State<ApiState>, req: GraphQLRequest) -> GraphQLResponse {
-    info!("🔄 Processing GraphQL request");
-    let schema = create_schema();
-    schema.execute(req.into_inner()).await.into()
-}
-
-/// GraphQL subscription handler (WebSocket)
-#[instrument(level = "info")]
-async fn graphql_subscription_handler(
-    State(state): State<ApiState>,
-    ws: axum::extract::WebSocketUpgrade,
-) -> impl IntoResponse {
-    info!("🔄 Establishing GraphQL subscription connection");
-    ws.on_upgrade(move |_socket| async move {
-        // TODO: Fix GraphQL subscription API compatibility
-        info!("GraphQL subscriptions temporarily disabled");
-    })
-}
-
-/// GraphQL playground handler
-#[instrument(level = "info")]
-async fn graphql_playground_handler() -> impl IntoResponse {
-    info!("🎮 Serving GraphQL Playground");
-    Html(GraphiQLSource::build().endpoint("/graphql").finish())
-}
-
-// ============================================================================
-// UTILITY HANDLERS
-// ============================================================================
-
-/// Basic health check endpoint
+/// Health check endpoint
 #[instrument(level = "info")]
 async fn health_check() -> impl IntoResponse {
-    info!("❤️ Health check requested");
-    axum::Json(serde_json::json!({
-        "status": "healthy",
-        "timestamp": chrono::Utc::now(),
-        "service": "Indexed Merkle Tree API",
-        "version": "1.0.0"
-    }))
+    info!("Health check requested");
+    "OK"
 }
 
 /// API information handler
 #[instrument(level = "info")]
-async fn api_info_handler() -> impl IntoResponse {
-    info!("ℹ️ API info requested");
+async fn api_info_handler() -> Html<&'static str> {
+    info!("API info page requested");
     Html(
         r#"
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Indexed Merkle Tree API</title>
+    <title>Batch Processing API</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 40px; }
         .header { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 20px; }
@@ -290,67 +223,60 @@ async fn api_info_handler() -> impl IntoResponse {
 </head>
 <body>
     <div class="header">
-        <h1>🌳 Indexed Merkle Tree API</h1>
-        <p>High-performance zero-knowledge proof system with 32-level optimization</p>
+        <h1>🔄 Batch Processing API</h1>
+        <p>Zero-knowledge proof system for batched transaction processing</p>
     </div>
 
     <div class="specs">
-        <h3>📊 Specifications</h3>
+        <h3>📊 System Overview</h3>
         <ul>
-            <li><strong>Tree Height:</strong> 32 levels (vs traditional 256)</li>
-            <li><strong>Constraint Optimization:</strong> ~200 constraints (8x fewer than traditional)</li>
-            <li><strong>Hash Operations:</strong> 3n + 3 = 99 (for 32 levels)</li>
-            <li><strong>Range Checks:</strong> Exactly 2 per operation</li>
-            <li><strong>Proof Size:</strong> ~1KB (32 × 32 bytes)</li>
-            <li><strong>Database Backend:</strong> PostgreSQL with audit trails</li>
+            <li><strong>Architecture:</strong> Continuous balance tracking with ZK proofs</li>
+            <li><strong>Batching:</strong> FIFO transaction processing with configurable batch sizes</li>
+            <li><strong>Privacy:</strong> Individual transaction amounts remain private in ZK proofs</li>
+            <li><strong>State Transitions:</strong> Proven counter transitions (e.g., 10 → 22)</li>
+            <li><strong>Smart Contract Ready:</strong> Merkle roots and ZK proofs for on-chain verification</li>
+            <li><strong>Database:</strong> PostgreSQL with atomic batch operations</li>
         </ul>
     </div>
 
     <div class="feature">
-        <h3>🔗 REST API</h3>
-        <p>RESTful endpoints for all tree operations:</p>
+        <h3>🔗 REST API Endpoints</h3>
+        <p>Version 2.0 batch processing endpoints:</p>
         <ul>
-            <li><span class="endpoint">POST /api/v1/nullifiers</span> - Insert nullifier</li>
-            <li><span class="endpoint">POST /api/v1/nullifiers/batch</span> - Batch insert</li>
-            <li><span class="endpoint">GET /api/v1/nullifiers/{value}/membership</span> - Membership proof</li>
-            <li><span class="endpoint">GET /api/v1/nullifiers/{value}/non-membership</span> - Non-membership proof</li>
-            <li><span class="endpoint">GET /api/v1/tree/stats</span> - Tree statistics</li>
-            <li><span class="endpoint">GET /api/v1/health</span> - Health status</li>
+            <li><span class="endpoint">POST /api/v2/transactions</span> - Submit transaction</li>
+            <li><span class="endpoint">GET /api/v2/transactions/pending</span> - View pending transactions</li>
+            <li><span class="endpoint">POST /api/v2/batches</span> - Create batch from pending transactions</li>
+            <li><span class="endpoint">GET /api/v2/batches</span> - List historical batches</li>
+            <li><span class="endpoint">GET /api/v2/batches/:id</span> - Get specific batch</li>
+            <li><span class="endpoint">POST /api/v2/batches/:id/proof</span> - Update batch with ZK proof</li>
+            <li><span class="endpoint">GET /api/v2/state/current</span> - Get current counter state</li>
+            <li><span class="endpoint">GET /api/v2/state/:id/contract</span> - Get contract submission data</li>
+            <li><span class="endpoint">GET /api/v2/health</span> - Health check</li>
         </ul>
     </div>
 
     <div class="feature">
-        <h3>🔄 GraphQL API</h3>
-        <p>Flexible query language for complex operations:</p>
-        <ul>
-            <li><span class="endpoint">POST /graphql</span> - GraphQL endpoint</li>
-            <li><span class="endpoint">GET /playground</span> - Interactive GraphQL playground</li>
-            <li><span class="endpoint">WS /graphql/ws</span> - Real-time subscriptions</li>
-        </ul>
-        <p><a href="/playground">🎮 Open GraphQL Playground</a></p>
+        <h3>🚀 Workflow</h3>
+        <ol>
+            <li><strong>Submit Transactions:</strong> Users submit integer amounts to be added to counter</li>
+            <li><strong>Batch Creation:</strong> Accumulate transactions and create processing batches</li>
+            <li><strong>ZK Proof Generation:</strong> Generate proofs showing correct state transitions</li>
+            <li><strong>Merkle Tree Updates:</strong> Store authenticated data structure commits</li>
+            <li><strong>Smart Contract Submission:</strong> Prepare data for on-chain verification</li>
+        </ol>
     </div>
 
     <div class="feature">
-        <h3>🚀 Features</h3>
-        <ul>
-            <li>7-step nullifier insertion algorithm from transparency dictionaries paper</li>
-            <li>32-level tree optimization for ZK constraint reduction</li>
-            <li>Real-time audit trails and compliance monitoring</li>
-            <li>Batch processing with atomic guarantees</li>
-            <li>State commitments for settlement contracts</li>
-            <li>Comprehensive performance metrics</li>
-            <li>Thread-safe concurrent operations</li>
-        </ul>
-    </div>
-
-    <div class="feature">
-        <h3>📚 Documentation</h3>
-        <p>For detailed API documentation and examples, see:</p>
-        <ul>
-            <li>REST API: <a href="/api/v1/info">API Info Endpoint</a></li>
-            <li>GraphQL Schema: <a href="/playground">GraphQL Playground</a></li>
-            <li>Health Status: <a href="/health">System Health</a></li>
-        </ul>
+        <h3>📚 Example Usage</h3>
+        <p>Submit a transaction to add 5 to the counter:</p>
+        <pre><code>curl -X POST http://localhost:8080/api/v2/transactions \
+  -H "Content-Type: application/json" \
+  -d '{"amount": 5}'</code></pre>
+        
+        <p>Create a batch of pending transactions:</p>
+        <pre><code>curl -X POST http://localhost:8080/api/v2/batches \
+  -H "Content-Type: application/json" \
+  -d '{"batch_size": 10}'</code></pre>
     </div>
 </body>
 </html>
@@ -400,20 +326,8 @@ impl ApiServerBuilder {
     }
 
     #[must_use]
-    pub const fn enable_graphql(mut self, enabled: bool) -> Self {
-        self.config.enable_graphql = enabled;
-        self
-    }
-
-    #[must_use]
     pub const fn enable_playground(mut self, enabled: bool) -> Self {
         self.config.enable_playground = enabled;
-        self
-    }
-
-    #[must_use]
-    pub const fn enable_subscriptions(mut self, enabled: bool) -> Self {
-        self.config.enable_subscriptions = enabled;
         self
     }
 
@@ -441,10 +355,15 @@ impl ApiServerBuilder {
     /// Returns error if server initialization fails
     pub async fn build(
         self,
-        ads: Arc<RwLock<IndexedMerkleTreeADS>>,
-        vapp_integration: Arc<RwLock<VAppAdsIntegration>>,
+        database_url: Option<String>,
     ) -> Result<ApiServer, Box<dyn std::error::Error + Send + Sync>> {
-        ApiServer::new(ads, vapp_integration, self.config).await
+        ApiServer::new(database_url, self.config).await
+    }
+
+    /// Build the API server with an existing database pool
+    #[must_use]
+    pub fn build_with_pool(self, pool: PgPool) -> ApiServer {
+        ApiServer::with_pool(pool, self.config)
     }
 }
 
@@ -452,52 +371,4 @@ impl Default for ApiServerBuilder {
     fn default() -> Self {
         Self::new()
     }
-}
-
-// ============================================================================
-// EXAMPLE USAGE
-// ============================================================================
-
-/// Example function showing how to create and run the API server
-#[cfg(test)]
-pub async fn example_server_setup() -> Result<ApiServer, Box<dyn std::error::Error + Send + Sync>> {
-    use crate::ads_service::AdsServiceFactory;
-    use crate::vapp_integration::{
-        MockComplianceService, MockNotificationService, MockProofService, MockSettlementService,
-        VAppAdsIntegration, VAppConfig,
-    };
-    use sqlx::PgPool;
-
-    // This would be replaced with actual database pool
-    let pool = PgPool::connect("postgresql://localhost/test").await?;
-
-    // Create ADS service
-    let factory = AdsServiceFactory::new(pool.clone());
-    let ads = Arc::new(RwLock::new(factory.create_indexed_merkle_tree().await?));
-
-    // Create vApp integration
-    let vapp = Arc::new(RwLock::new(
-        VAppAdsIntegration::new(
-            pool,
-            VAppConfig::default(),
-            Arc::new(MockSettlementService),
-            Arc::new(MockProofService),
-            Arc::new(MockComplianceService),
-            Arc::new(MockNotificationService),
-        )
-        .await?,
-    ));
-
-    // Create API server
-    let server = ApiServerBuilder::new()
-        .host("0.0.0.0")
-        .port(8080)
-        .enable_rest(true)
-        .enable_graphql(true)
-        .enable_playground(true)
-        .cors_origins(vec!["*".to_string()])
-        .build(ads, vapp)
-        .await?;
-
-    Ok(server)
 }
