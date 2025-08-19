@@ -593,20 +593,23 @@ fn verify_proof_local(
                 download_response
                     .get("batch_id")
                     .and_then(serde_json::Value::as_i64)
-                    .unwrap_or(0)
-            ).unwrap_or(0);
+                    .unwrap_or(0),
+            )
+            .unwrap_or(0);
             let initial_balance = i32::try_from(
                 download_response
                     .get("initial_balance")
                     .and_then(serde_json::Value::as_i64)
-                    .unwrap_or(0)
-            ).unwrap_or(0);
+                    .unwrap_or(0),
+            )
+            .unwrap_or(0);
             let final_balance = i32::try_from(
                 download_response
                     .get("final_balance")
                     .and_then(serde_json::Value::as_i64)
-                    .unwrap_or(0)
-            ).unwrap_or(0);
+                    .unwrap_or(0),
+            )
+            .unwrap_or(0);
 
             (
                 proof_data,
