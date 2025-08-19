@@ -8,10 +8,12 @@ fn main() {
     utils::setup_logger();
 
     // Create an input stream and write '500' to it.
-    let n = 500u32;
+    let a = 231u32;
+    let b = 123u32;
 
     let mut stdin = SP1Stdin::new();
-    stdin.write(&n);
+    stdin.write(&a);
+    stdin.write(&b);
 
     // Set up the pk and vk.
     let client = ProverClient::from_env();
@@ -38,5 +40,5 @@ fn main() {
         .save("arithmetic-groth16.bin")
         .expect("saving proof failed");
 
-    println!("successfully generated and verified proof for the program!")
+    println!("successfully generated and verified proof for the program!");
 }

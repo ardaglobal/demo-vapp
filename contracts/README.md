@@ -59,10 +59,10 @@ Included is an example `.env.example` file that you can use to deploy the contra
 
 #### Step 1: Set the `VERIFIER` environment variable
 
-Find the address of the `verifier` to use from the [deployments](https://github.com/succinctlabs/sp1-contracts/tree/main/contracts/deployments) list for the chain you are deploying to. Set it to the `VERIFIER` environment variable, for example:
+Find the address of the `verifier` to use from the [deployments](https://docs.succinct.xyz/docs/sp1/verification/contract-addresses) list for the chain you are deploying to. Set it to the `VERIFIER` environment variable, for example:
 
 ```sh
-VERIFIER=0x3B6041173B80E77f038f3F2C0f9744f04837185e
+VERIFIER=0x397A5f7f3dBd538f23DE225B51f532c34448dA9B
 ```
 
 Note: you can use either the [SP1VerifierGateway](https://github.com/succinctlabs/sp1-contracts/blob/main/contracts/src/SP1VerifierGateway.sol) or a specific version, but it is highly recommended to use the gateway as this will allow you to use different versions of SP1.

@@ -179,6 +179,16 @@ impl EthereumClient {
         Ok(tx_result)
     }
 
+    pub async fn check_proof_exists(&self, proof: Bytes) -> Result<bool> {
+        let contract = IArithmetic::new(self.contracts.arithmetic, &self.http_provider);
+        let call_builder = contract.proofExists(proof).from(self.signer.address());
+        let tx_result = call_builder.call().await.map_err(|e| {
+            error!("Failed to send check proof exists transaction: {e}");
+            EthereumError::Transaction(format!("Transaction failed: {e}"))
+        })?;
+        Ok(tx_result)
+    }
+
     pub async fn batch_update_states(
         &self,
         updates: Vec<(FixedBytes<32>, FixedBytes<32>, Bytes, Bytes)>,

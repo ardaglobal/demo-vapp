@@ -90,6 +90,8 @@ sol! {
 
         function isAuthorized(address account) external view returns (bool);
 
+        function proofExists(bytes calldata proof) external view returns (bool);
+
         function setAuthorization(address account, bool authorized) external;
 
         function transferOwnership(address newOwner) external;
