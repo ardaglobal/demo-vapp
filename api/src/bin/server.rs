@@ -30,8 +30,8 @@ struct Args {
     cors: bool,
 
     /// Maximum batch size for transaction processing
-    #[arg(long, default_value = "50")]
-    max_batch_size: i32,
+    #[arg(long, default_value = "50", value_parser = clap::value_parser!(u32))]
+    max_batch_size: u32,
 
     /// Maximum request size in bytes
     #[arg(long, default_value = "1048576")]

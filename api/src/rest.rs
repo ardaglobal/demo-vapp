@@ -32,7 +32,7 @@ pub struct ApiState {
 pub struct ApiConfig {
     pub server_name: String,
     pub version: String,
-    pub max_batch_size: i32,
+    pub max_batch_size: u32,
     pub enable_debug_endpoints: bool,
 }
 
@@ -371,7 +371,7 @@ async fn create_batch_endpoint(
     State(state): State<ApiState>,
     Json(request): Json<CreateBatchRequest>,
 ) -> Result<Json<CreateBatchResponse>, (StatusCode, String)> {
-    let batch_size = request.batch_size.unwrap_or(state.config.max_batch_size);
+    let batch_size = request.batch_size.unwrap_or(state.config.max_batch_size as i32);
     info!("🔄 API: Creating batch with size: {}", batch_size);
     
     match create_batch(&state.pool, Some(batch_size)).await {
