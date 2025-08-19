@@ -27,12 +27,14 @@ tracing   = { workspace = true }
 uuid      = { version = "1.0", features = [ "serde", "v4" ] }
 
 # Database and arithmetic dependencies
-alloy-sol-types = { workspace = true }
-arithmetic-db   = { path = "../db", package = "db" }
-arithmetic-lib  = { path = "../lib", package = "lib", features = [ "sp1" ] }
-sindri          = { version = "0.3.1", features = [ "sp1-v5" ] }
-sp1-sdk         = "5.2.1"
-sqlx            = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-sol-types  = { workspace = true }
+arithmetic-db    = { path = "../db", package = "db" }
+arithmetic-lib   = { path = "../lib", package = "lib", features = [ "sp1" ] }
+ethereum-client  = { path = "../ethereum-client" }
+sindri           = { version = "0.3.1", features = [ "sp1-v5" ] }
+sp1-sdk          = "5.2.1"
+sqlx             = { workspace = true }
 
 # API framework dependencies
 async-graphql = { version = "7.0", features = [ "chrono" ] }

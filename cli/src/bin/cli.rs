@@ -23,13 +23,8 @@
 //! cli health-check
 //! ```
 
-use alloy_primitives::Bytes;
-use alloy_primitives::FixedBytes;
 use clap::{Parser, Subcommand};
-use ethereum_client::Config;
-use ethereum_client::EthereumClient;
 use eyre::Result;
-use sp1_sdk::SP1ProofWithPublicValues;
 use std::env;
 use std::fs;
 use std::time::Instant;
@@ -701,44 +696,3 @@ fn verify_proof_local(
     Ok(())
 }
 
-/// Submit proof to smart contract using ethereum client
-async fn submit_proof_to_contract(
-    proof: SP1ProofWithPublicValues,
-) -> Result<(), Box<dyn std::error::Error>> {
-    println!("🚀 Submitting proof to smart contract...");
-
-    // Create ethereum client configuration
-    let eth_config = Config::from_env()?;
-
-    // Initialize ethereum client
-    let eth_client = EthereumClient::new(eth_config.clone()).await?;
-
-    let is_authorized = eth_client
-        .is_authorized(eth_config.signer.unwrap().address)
-        .await?;
-
-    println!("is_authorized: {:?}", is_authorized);
-
-    let proof_bytes = Bytes::from(proof.bytes());
-    let public_values = Bytes::from(proof.public_values.as_slice().to_vec());
-
-    //#TODO: Get the actual state_id from the database
-    let state_id =
-        FixedBytes::from_slice(&alloy_primitives::keccak256(proof.public_values.as_slice())[..32]);
-
-    //#TODO: Get the actual new_state_root from the database
-    let new_state_root =
-        FixedBytes::from_slice(&alloy_primitives::keccak256(proof.public_values.as_slice())[..32]);
-
-    let result = eth_client
-        .update_state(state_id, new_state_root, proof_bytes, public_values)
-        .await?;
-
-    println!("✅ Proof submitted to smart contract successfully!");
-    println!("🔗 Transaction details:");
-    println!("  Transaction txn hash: {:?}", result.transaction_hash);
-    println!("  Transaction state id: {}", result.state_id);
-    println!("  Transaction new state root: {}", result.new_state_root);
-
-    Ok(())
-}

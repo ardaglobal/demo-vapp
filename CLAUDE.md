@@ -577,63 +577,84 @@ cargo run -p api --bin server --release
 - **State Management**: Complete state lifecycle management with proof verification and batch operations
 - **Continuous Ledger State**: Global state counter with atomic transitions and audit trail
 - **RESTful API Server**: HTTP API server for external transaction submission and proof verification
-- **Smart Contract Integration**: Automatic proof submission to Ethereum contracts with `--submit-to-contract` flag
+- **Smart Contract Integration**: Automated background posting of proven batches to Ethereum contracts
 
 ## Smart Contract Integration
 
 ### Overview
 
-The project now includes seamless integration between Sindri proof generation and Ethereum smart contract submission. After generating a zero-knowledge proof via Sindri, the system can automatically submit the proof to the on-chain Arithmetic contract for verification and state updates.
+The project features **automated smart contract posting** for proven batches. After batches are created via the CLI and proven by Sindri, a background process automatically detects proven batches and posts state roots to the Ethereum smart contract. This provides a fully automated pipeline from batch creation to on-chain state updates.
 
-### Features
+### Automated Batch Posting Flow
 
-- **Automatic Submission**: Smart contract submission is enabled by default for all `--prove` commands
-- **SP1 Proof Extraction**: Automatically extracts SP1 proof data and verification keys from Sindri responses
-- **Ethereum Client**: Integrated ethereum client for contract interaction with signing capability
-- **State Management**: Generates deterministic state IDs and state roots for proof organization
-- **Transaction Feedback**: Provides detailed transaction hashes, block numbers, and gas usage
+**🔄 Complete Automation:**
+1. **Batch Creation**: `cargo run --bin cli -- trigger-batch` creates batch with `posted_to_contract = FALSE`
+2. **Proof Generation**: Background process generates ZK proof via Sindri
+3. **Smart Contract Posting**: Background process detects proven batches and posts state roots to contract
+4. **Status Tracking**: Batches marked as `posted_to_contract = TRUE` after successful submission
+
+### Deployment Commands
+
+```bash
+# 1. Apply database migration (adds contract posting tracking)
+cd /Users/horizon/Desktop/work/demo-vapp/db
+sqlx migrate run
+
+# 2. Start API server with automated background processing
+cd /Users/horizon/Desktop/work/demo-vapp
+cargo run -p api --bin server
+```
+
+### Background Process Features
+
+- **Automatic Detection**: Scans for proven batches not yet posted to contract every 30 seconds
+- **Smart Contract Submission**: Posts state roots using ethereum-client integration
+- **Random State Roots**: Uses temporary 32-byte hashes until ADS integration is complete
+- **Error Handling**: Graceful fallback if Ethereum client is not configured
+- **Audit Trail**: Tracks posting timestamps and status in database
+- **Rate Limiting**: Controlled submission rate to avoid overwhelming the network
 
 ### Usage Examples
 
 ```bash
-# Generate proof and submit to smart contract (default behavior)
-cargo run --release -- --prove --a 5 --b 10
+# Submit transactions and trigger batch creation
+cargo run --bin cli -- submit-transaction --amount 5
+cargo run --bin cli -- submit-transaction --amount 7
+cargo run --bin cli -- trigger-batch --verbose
 
-# Generate proof with result lookup and submit to contract
-cargo run --release -- --prove --result 15
+# Background process automatically handles:
+# - ZK proof generation via Sindri
+# - Smart contract posting when proof is ready
+# - Database status updates
 
-# Generate proof, create EVM fixture, and submit to contract
-cargo run --release -- --prove --a 7 --b 8 --generate-fixture
-
-# Generate proof only (skip smart contract submission)
-cargo run --release -- --prove --a 5 --b 10 --skip-contract-submission
+# Check batch status
+cargo run --bin cli -- list-batches
+cargo run --bin cli -- get-batch --batch-id 1
 ```
 
 ### Environment Requirements
 
-For smart contract integration to work, the following environment variables must be configured:
+For smart contract posting to work, configure these environment variables:
 
 - `ETHEREUM_RPC_URL` - Ethereum RPC endpoint (e.g., Alchemy, Infura)
-- `ETHEREUM_CONTRACT_ADDRESS` - Address of deployed Arithmetic contract (handles both arithmetic and verification)
+- `ETHEREUM_CONTRACT_ADDRESS` - Address of deployed Arithmetic contract
 - `ETHEREUM_WALLET_PRIVATE_KEY` - Private key for signing transactions (without 0x prefix)
-- `ETHEREUM_DEPLOYER_ADDRESS` - Address that deployed the contract (must match private key address)
-- `SINDRI_API_KEY` - For proof generation
+- `ETHEREUM_DEPLOYER_ADDRESS` - Address that deployed the contract
+- `SINDRI_API_KEY` - For ZK proof generation
 
-### Integration Flow
+### Database Schema Updates
 
-1. **Proof Generation**: `prove_via_sindri_core()` generates `ProofInfoResponse`
-2. **Data Extraction**: Extract SP1 proof and verification key using `.to_sp1_proof_with_public()` and `.get_sp1_verifying_key()`
-3. **Client Initialization**: Create ethereum client from environment configuration
-4. **State Generation**: Generate deterministic state IDs and state roots based on arithmetic result
-5. **Contract Submission**: Submit proof to Arithmetic contract via `update_state()` method
-6. **Transaction Confirmation**: Wait for transaction confirmation and provide feedback
+New columns in `proof_batches` table:
+- `posted_to_contract BOOLEAN DEFAULT FALSE` - Tracks posting status
+- `posted_to_contract_at TIMESTAMP` - Audit trail for successful postings
 
-### Error Handling
+### Error Handling & Monitoring
 
-- **Graceful Fallback**: Proof generation continues even if contract submission fails
-- **Environment Validation**: Checks for required environment variables before attempting submission
-- **Signer Validation**: Ensures ethereum client has signing capability for transactions
-- **Detailed Error Messages**: Provides specific error messages for troubleshooting
+- **Graceful Fallback**: Background process continues if smart contract posting fails
+- **Environment Validation**: Checks for required Ethereum configuration
+- **Transaction Feedback**: Logs transaction hashes, gas usage, and confirmation details
+- **Retry Logic**: Failed batches remain unposted for retry on next cycle
+- **Status Tracking**: Complete audit trail of batch lifecycle in database
 - **Comprehensive Testing**: End-to-end CI with automated ZK validation
 - **32-Level Merkle Trees**: 8x constraint reduction vs traditional implementations
 - **Batch Processing**: Efficient transaction batching with FIFO ordering and ZK proof generation

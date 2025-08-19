@@ -215,7 +215,9 @@ You can also verify a specific result non-interactively:
 cargo run --release -- --verify --result 15
 ```
 
-### Generate Zero-Knowledge Proofs via Sindri
+### Generate Zero-Knowledge Proofs via Sindri (Local Development)
+
+**Note**: This section covers local SP1 testing in the `script/` directory. For production batch processing with automated smart contract posting, see the [Smart Contract Integration](#smart-contract-integration) section.
 
 **All proofs are now EVM-compatible by default** using Sindri's cloud infrastructure:
 
@@ -343,60 +345,82 @@ cargo run --release -- --vkey
 
 ## Smart Contract Integration
 
-The project now includes seamless integration between Sindri proof generation and Ethereum smart contract submission. After generating a zero-knowledge proof via Sindri, the system can automatically submit the proof to the on-chain Arithmetic contract for verification and state updates.
+The project features **automated smart contract posting** for proven batches. After batches are created and proven, a background process automatically detects proven batches and posts state roots to the Ethereum smart contract, providing a fully automated pipeline from batch creation to on-chain state updates.
 
-### Features
+### Automated Batch Posting Flow
 
-- **Automatic Submission**: Smart contract submission is enabled by default for all `--prove` commands
-- **SP1 Proof Extraction**: Automatically extracts SP1 proof data and verification keys from Sindri responses
-- **Ethereum Client**: Integrated ethereum client for contract interaction with signing capability
-- **State Management**: Generates deterministic state IDs and state roots for proof organization
-- **Transaction Feedback**: Provides detailed transaction hashes, block numbers, and gas usage
-- **Graceful Fallback**: Proof generation continues even if contract submission fails
+**🔄 Complete End-to-End Automation:**
+1. **Submit Transactions**: Use CLI to submit individual transactions
+2. **Create Batch**: Trigger batch creation from pending transactions
+3. **ZK Proof Generation**: Background process generates proof via Sindri
+4. **Smart Contract Posting**: Background process automatically posts state roots to contract
+5. **Status Tracking**: Database tracks posting status and timestamps
 
-### Environment Setup
-
-For smart contract integration to work, set these environment variables:
+### Quick Deployment
 
 ```bash
-# Required for --submit-to-contract flag
-export ETHEREUM_RPC_URL=https://eth-mainnet.alchemyapi.io/v2/demo
-export ETHEREUM_CONTRACT_ADDRESS=0x1234567890123456789012345678901234567890
-export ETHEREUM_WALLET_PRIVATE_KEY=your_private_key_without_0x_prefix
+# 1. Apply database migration (adds contract posting tracking)
+cd db && sqlx migrate run
+
+# 2. Start API server with automated background processing
+cargo run -p api --bin server
 ```
 
 ### Usage Examples
 
 ```bash
-# Generate proof and submit to smart contract (default behavior)
-cargo run --release -- --prove --a 5 --b 10
+# Submit transactions and create batch
+cargo run --bin cli -- submit-transaction --amount 5
+cargo run --bin cli -- submit-transaction --amount 7
+cargo run --bin cli -- trigger-batch --verbose
 
-# Generate proof with result lookup and submit to contract
-cargo run --release -- --prove --result 15
+# The background process automatically handles:
+# ✅ ZK proof generation via Sindri
+# ✅ Smart contract posting when proof is ready  
+# ✅ Database status updates with timestamps
 
-# Generate proof, create EVM fixture, and submit to contract
-cargo run --release -- --prove --a 7 --b 8 --generate-fixture
-
-# Generate proof only (skip smart contract submission)
-cargo run --release -- --prove --a 5 --b 10 --skip-contract-submission
+# Monitor batch progress
+cargo run --bin cli -- list-batches
+cargo run --bin cli -- get-batch --batch-id 1
 ```
 
-### Integration Flow
+### Environment Setup
 
-1. **Proof Generation**: Generate zero-knowledge proof via Sindri
-2. **Data Extraction**: Extract SP1 proof and verification key from Sindri response
-3. **Client Initialization**: Create ethereum client from environment configuration
-4. **State Generation**: Generate deterministic state IDs and state roots based on arithmetic result
-5. **Contract Submission**: Submit proof to Arithmetic contract for on-chain verification
-6. **Transaction Confirmation**: Wait for transaction confirmation and provide detailed feedback
+For automated smart contract posting, configure these environment variables:
+
+```bash
+# Required for smart contract integration
+export ETHEREUM_RPC_URL=https://eth-mainnet.alchemyapi.io/v2/demo
+export ETHEREUM_CONTRACT_ADDRESS=0x1234567890123456789012345678901234567890
+export ETHEREUM_WALLET_PRIVATE_KEY=your_private_key_without_0x_prefix
+export ETHEREUM_DEPLOYER_ADDRESS=0x1234567890123456789012345678901234567890
+export SINDRI_API_KEY=your_sindri_api_key_here
+```
+
+### Background Process Features
+
+- **Automatic Detection**: Scans for proven batches every 30 seconds
+- **Smart Contract Submission**: Posts state roots using ethereum-client
+- **Random State Roots**: Uses 32-byte hashes (temporary until ADS integration)
+- **Error Handling**: Graceful fallback if Ethereum client not configured
+- **Rate Limiting**: Controlled submission rate to avoid network congestion
+- **Audit Trail**: Complete database tracking of posting status and timestamps
+
+### Database Schema
+
+New tracking columns in `proof_batches`:
+```sql
+posted_to_contract BOOLEAN DEFAULT FALSE  -- Tracks if batch posted to contract
+posted_to_contract_at TIMESTAMP           -- Timestamp of successful posting
+```
 
 ### Benefits
 
-- **End-to-End Automation**: Single command generates proof and submits to blockchain
-- **Trustless Verification**: Proofs are verifiable on-chain without trusting the prover
-- **State Management**: Automatic state tracking and organization on smart contracts
-- **Developer Experience**: Default behavior enables complex blockchain interactions with simple commands
-- **Production Ready**: Handles errors gracefully with detailed feedback
+- **Zero Manual Intervention**: Fully automated pipeline from CLI to blockchain
+- **Fault Tolerance**: Background process handles retries and error recovery
+- **Audit Trail**: Complete database tracking of batch lifecycle
+- **Scalable**: Handles multiple batches concurrently with rate limiting
+- **Production Ready**: Comprehensive error handling and monitoring
 
 ## Sindri Integration for Serverless ZK Proofs
 

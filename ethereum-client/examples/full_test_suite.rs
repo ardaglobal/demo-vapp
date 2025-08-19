@@ -1,4 +1,4 @@
-use alloy_primitives::{Bytes, FixedBytes};
+use alloy_primitives::FixedBytes;
 use ethereum_client::{Config, EthereumClient};
 
 #[tokio::main]

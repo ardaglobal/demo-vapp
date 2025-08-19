@@ -51,6 +51,8 @@ pub use db::{
     get_all_batches,
     get_batch_by_id,
     get_contract_submission_data,
+    get_proven_unposted_batches,
+    mark_batch_posted_to_contract,
     // State functions
     get_current_counter_value,
     get_current_state,
