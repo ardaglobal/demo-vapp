@@ -33,23 +33,70 @@
 #![allow(clippy::struct_excessive_bools)]
 #![allow(clippy::suboptimal_flops)]
 
+pub mod batch_processor;
 pub mod client;
-pub mod graphql;
-pub mod integration;
-pub mod middleware;
 pub mod rest;
 pub mod server;
 
+// Temporarily disabled for minimal PoC:
+// pub mod graphql;       // 883 lines - GraphQL API for old nullifier system (depends on disabled modules)
+// pub mod integration;   // 480 lines - Complex deployment/scaling configs (depends on disabled modules)
+// pub mod middleware;    // 654 lines - Comprehensive middleware (rate limiting, auth, etc. - overkill for PoC)
+
 // Re-export main API types for convenience
-pub use client::{ApiClientError, ArithmeticApiClient};
-pub use graphql::{create_schema, GraphQLSchema, MutationRoot, QueryRoot, SubscriptionRoot};
-pub use rest::{
-    create_router, ApiConfig, ApiState, AuditTrailResponse, BatchInsertRequest,
-    BatchInsertResponse, HealthResponse, InsertNullifierRequest, InsertNullifierResponse,
-    MembershipCheckResponse, NonMembershipResponse, ProofResponse, TransactionRequest,
-    TransactionResponse, TreeStatsResponse,
+pub use client::{
+    ApiClientError,
+    ArithmeticApiClient, // Keep old name for compatibility
+    BatchApiClient,
+    BatchInfo,
+    BatchListResponse,
+    ContractSubmissionData,
+    CreateBatchRequest,
+    CreateBatchResponse,
+    CurrentStateResponse,
+    HealthResponse,
+    PendingTransactionsResponse,
+    SubmitTransactionRequest,
+    SubmitTransactionResponse,
+    TransactionInfo,
 };
+
+pub use rest::{
+    create_router, ApiConfig, ApiInfoResponse, ApiState, BatchListQuery,
+    BatchListResponse as RestBatchListResponse, CreateBatchRequest as RestCreateBatchRequest,
+    CreateBatchResponse as RestCreateBatchResponse,
+    CurrentStateResponse as RestCurrentStateResponse, EndpointInfo,
+    PendingTransactionsResponse as RestPendingTransactionsResponse,
+    SubmitTransactionRequest as RestSubmitTransactionRequest,
+    SubmitTransactionResponse as RestSubmitTransactionResponse, UpdateBatchProofRequest,
+};
+
 pub use server::{ApiServer, ApiServerBuilder, ApiServerConfig};
 
 // Re-export database types that the API uses
-pub use arithmetic_db::{AdsServiceFactory, IndexedMerkleTreeADS, VAppAdsIntegration, VAppConfig};
+pub use arithmetic_db::{
+    create_batch,
+    get_all_batches,
+    get_batch_by_id,
+    get_contract_submission_data,
+    get_current_state,
+    get_pending_transactions,
+    // Database functions
+    init_db,
+    store_ads_state_commit,
+    submit_transaction,
+    update_batch_proof,
+
+    AdsStateCommit,
+    ContractPrivateData,
+
+    ContractPublicData,
+    ContractSubmissionData as DbContractSubmissionData,
+    CounterState,
+    // Essential error handling
+    DbError,
+    DbResult,
+    // New batch processing types
+    IncomingTransaction,
+    ProofBatch,
+};

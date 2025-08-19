@@ -1,20 +1,35 @@
 # Arda Demo vApp
 
-A simple arithmetic demo demonstrating the [vApp Architecture](https://arxiv.org/pdf/2504.14809)
+A batch processing arithmetic demo demonstrating the [vApp Architecture](https://arxiv.org/pdf/2504.14809)
 
 Based off the template for creating an end-to-end [SP1](https://github.com/succinctlabs/sp1) project
-that can generate a proof of any RISC-V program.
+that can generate Zero-Knowledge proofs for batched transactions with continuous balance tracking.
 
 ## Architecture Overview
 
-This project features a clean separation of concerns:
+This project demonstrates **batch processing with Zero-Knowledge proofs** for continuous balance tracking:
 
-- **`script/`** - Local SP1 unit testing (`cargo run` for fast development)
-- **`cli/`** - Simple HTTP client for API server interaction
-- **`api/`** - Production web server with complex logic and Sindri integration
-- **`db/`** - Database layer with PostgreSQL and indexed Merkle trees
-- **`lib/`** - Pure computation logic (zkVM compatible)
-- **`program/`** - RISC-V program source for SP1 zkVM
+### Core Concept
+- **Continuous Balance**: An internal counter is continuously updated by user transactions
+- **Batch Processing**: Transactions are grouped into batches (FIFO) and proven together
+- **Zero-Knowledge Privacy**: Individual transaction amounts remain private in batches
+- **Authenticated Data Structure**: Merkle roots link counter states to cryptographic commitments
+
+### Example Flow
+```
+Initial balance: 10
+User submits: +5, +7 → Batched together
+ZK Proof: "Balance went from 10 to 22" (without revealing +5, +7)
+New balance: 22
+```
+
+### Clean Architecture
+- **`script/`** - Local SP1 unit testing for batch proofs (`cargo run` for fast development)
+- **`cli/`** - Batch processing client for submitting transactions and managing batches
+- **`api/`** - Production server with batch creation and ZK proof generation via Sindri
+- **`db/`** - PostgreSQL with batch processing tables and Merkle tree state management
+- **`lib/`** - Pure computation logic for processing transaction batches (zkVM compatible)  
+- **`program/`** - RISC-V program for proving batch transitions: `initial_balance + [tx1, tx2, ...] = final_balance`
 
 ## Requirements
 
@@ -75,7 +90,7 @@ docker-compose up -d
 docker-compose ps
 
 # Check server health
-curl http://localhost:8080/api/v1/health
+curl http://localhost:8080/api/v2/health
 ```
 
 **For Local Development**: If you're actively developing and want to build the Docker image locally for faster iteration:
@@ -88,57 +103,82 @@ docker-compose up postgres -d
 cargo run --bin server --release
 ```
 
-### 5. Test the API
+### 5. Test the Batch Processing API
 
 **Option A: Direct HTTP API**
 ```sh
-# Submit a transaction
-curl -X POST http://localhost:8080/api/v1/transactions \
+# Submit individual transactions to batch queue
+curl -X POST http://localhost:8080/api/v2/transactions \
   -H 'Content-Type: application/json' \
-  -d '{"a": 7, "b": 13, "generate_proof": false}'
+  -d '{"amount": 5}'
 
-# Generate a proof via Sindri (requires SINDRI_API_KEY in .env)
-curl -X POST http://localhost:8080/api/v1/transactions \
+curl -X POST http://localhost:8080/api/v2/transactions \
   -H 'Content-Type: application/json' \
-  -d '{"a": 5, "b": 10, "generate_proof": true}'
+  -d '{"amount": 7}'
+
+# View pending (unbatched) transactions
+curl http://localhost:8080/api/v2/transactions/pending
+
+# Trigger batch creation and get contract data (public/private split)
+curl -X POST http://localhost:8080/api/v2/batches \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+
+# Get current counter state
+curl http://localhost:8080/api/v2/state/current
 ```
 
 **Option B: CLI Client (Recommended)**
 
-> **💡 Note**: Since binary names are unique across packages, you can use `cargo run --bin <binary>` from the workspace root. Only use `-p <package>` if you encounter naming conflicts or want to be explicit.
+> **💡 Note**: The CLI now supports the complete batch processing workflow with ZK proof verification.
 
 ```sh
 # Check API server health
 cargo run --bin cli -- health-check
 
-# Store a transaction via CLI
-cargo run --bin cli -- store-transaction --a 5 --b 10
+# Submit transactions to the batch queue
+cargo run --bin cli -- submit-transaction --amount 5
+cargo run --bin cli -- submit-transaction --amount 7
 
-# Query a transaction by result
-cargo run --bin cli -- get-transaction --result 15
+# View all pending transactions
+cargo run --bin cli -- view-pending
 
-# Download proof data for local verification
-cargo run --bin cli -- download-proof --proof-id <proof_id>
+# Trigger batch creation with verbose contract data
+cargo run --bin cli -- trigger-batch --verbose
+
+# Get current counter state and Merkle root
+cargo run --bin cli -- get-current-state
+
+# List all historical batches
+cargo run --bin cli -- list-batches
+
+# Get specific batch details
+cargo run --bin cli -- get-batch --batch-id 1
+
+# Download proof data for local verification (when ready)
+cargo run --bin cli -- download-proof --batch-id 1
 
 # Verify proof locally using the downloaded JSON file
 cargo run --bin cli -- verify-proof \
-  --proof-file proof_<proof_id>.json \
-  --expected-result 15
+  --proof-file proof_batch_1.json \
+  --expected-initial-balance 0 \
+  --expected-final-balance 12
 ```
 
 ### 6. Local SP1 Development
 
-For fast local SP1 unit testing during development:
+For fast local SP1 unit testing of batch processing during development:
 ```sh
-# Quick SP1 unit test (generates Core proof in ~3.5 seconds)
-# This runs the default binary (main) from the script package
+# Quick SP1 batch processing test (generates Core proof in ~3.5 seconds)
+# Tests: initial_balance=10 + [5, 7] → final_balance=22
 cargo run --release
 
 # Equivalent explicit command:
 # cargo run --bin main --release
 ```
 
-This provides a fast feedback loop for SP1 development without database or Sindri dependencies.
+This provides a fast feedback loop for batch processing SP1 development without database or Sindri dependencies. 
+The local test proves that a batch of transactions `[5, 7]` correctly transitions the balance from `10` to `22` while keeping individual amounts private.
 
 ---
 
@@ -155,14 +195,16 @@ That's it! 🎉 You now have a running zero-knowledge arithmetic server with mul
 
 **Installed Tools**: The script installs all necessary development tools including Rust toolchain, SP1, Foundry, Docker, Node.js, PostgreSQL client tools, sqlx-cli for database migrations, and other utilities.
 
-## Proofs 
+## Batch Processing Proofs 
 
-The proof generation process:
-1. Creates SP1 inputs and serializes them for Sindri
-2. Generates EVM-compatible proofs (Groth16 by default)
-3. Submits proof request to Sindri using the `demo-vapp` circuit
-4. Stores proof metadata in PostgreSQL  
-5. Returns proof ID for external verification
+The batch proof generation process:
+1. Collects pending transactions into a batch (FIFO order)
+2. Creates SP1 inputs: `initial_balance` and `transactions: Vec<i32>`
+3. Generates EVM-compatible batch proofs (Groth16 by default) via Sindri
+4. Submits proof request to Sindri using the `demo-vapp` circuit
+5. Stores batch metadata and proof ID in PostgreSQL
+6. Associates Merkle root with the proven state transition
+7. Returns batch ID and contract submission data (public/private split)
 
 ### Continuous Integration
 
@@ -182,11 +224,19 @@ This ensures each deployment is uniquely tagged and traceable to the source code
 
 ### What This Proves
 
-The zero-knowledge proofs demonstrate that:
-- You know two secret numbers (a and b)
-- Their sum equals the public result
-- The computation was performed correctly
-- No one can forge this proof without knowing the actual computation
+The zero-knowledge batch proofs demonstrate that:
+- You know the individual transaction amounts in a batch (e.g., `[5, 7]`)
+- The batch correctly transitions the balance (e.g., `10 → 22`)
+- The computation was performed correctly according to the batching rules
+- **Privacy**: Individual transaction amounts remain hidden from public view
+- **Integrity**: The balance transition is cryptographically proven without revealing private data
+- **Authenticity**: No one can forge this proof without knowing the actual transaction batch
+
+### Batch Privacy Example
+```
+Public: "Balance went from 10 to 22" + ZK Proof + Merkle Root
+Private: Individual amounts [5, 7] (never revealed on-chain)
+```
 
 ### Zero-Knowledge Verification Mental Model
 
@@ -235,73 +285,111 @@ The API server will start on `http://localhost:8080` by default.
 ### API Endpoints
 
 **Transaction Operations:**
-- `POST /api/v1/transactions` - Submit new transactions (a + b), optionally generate ZK proofs
-- `GET /api/v1/results/{result}` - Query transaction inputs by result value
+- `POST /api/v2/transactions` - Submit individual transactions to batch processing queue
+- `GET /api/v2/transactions/pending` - View all pending (unbatched) transactions
 
-**Proof Operations:**
-- `GET /api/v1/proofs/{proof_id}` - Retrieve proof information by Sindri proof ID
-- `GET /api/v1/proofs/{proof_id}/download` - Download raw proof data for local verification
+**Batch Operations:**
+- `POST /api/v2/batches` - Create batch from pending transactions and get contract data
+- `GET /api/v2/batches` - List all historical batches
+- `GET /api/v2/batches/{batch_id}` - Get specific batch details
+- `POST /api/v2/batches/{batch_id}/proof` - Update batch with ZK proof from Sindri
+
+**State Operations:**
+- `GET /api/v2/state/current` - Get current counter state and Merkle root status
+- `GET /api/v2/state/{batch_id}/contract` - Get contract submission data (public/private split)
 
 **System Operations:**
-- `GET /api/v1/health` - Health check and service status
-- `GET /api/v1/info` - API information and capabilities
+- `GET /api/v2/health` - Health check and service status  
+- `GET /api/v2/info` - API information and capabilities
 
 ### Usage Examples
 
 **Note**: `curl` is installed by the dependency script and ready for API testing.
 
 ```sh
-# Submit a transaction with proof generation
-curl -X POST http://localhost:8080/api/v1/transactions \
+# Submit transactions to batch processing queue
+curl -X POST http://localhost:8080/api/v2/transactions \
   -H 'Content-Type: application/json' \
-  -d '{"a": 5, "b": 10, "generate_proof": true}'
+  -d '{"amount": 5}'
 
-# Query transaction by result
-curl http://localhost:8080/api/v1/results/15
+curl -X POST http://localhost:8080/api/v2/transactions \
+  -H 'Content-Type: application/json' \
+  -d '{"amount": 7}'
 
-# Verify proof for result
-curl http://localhost:8080/api/v1/results/15/verify
+# View pending transactions
+curl http://localhost:8080/api/v2/transactions/pending
+
+# Create batch and get contract submission data (public/private split)
+curl -X POST http://localhost:8080/api/v2/batches \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+
+# Get current counter state and Merkle root
+curl http://localhost:8080/api/v2/state/current
+
+# List all batches
+curl http://localhost:8080/api/v2/batches
+
+# Get specific batch details
+curl http://localhost:8080/api/v2/batches/1
+
+# Get contract submission data for batch
+curl http://localhost:8080/api/v2/state/1/contract
 
 # Health check
-curl http://localhost:8080/api/v1/health
+curl http://localhost:8080/api/v2/health
 ```
 
 ### Local Verification Workflow
 
-The system provides a clean separation between proof generation (via the API server) and proof verification (done locally):
+The system provides a clean separation between batch proof generation (via the API server) and proof verification (done locally):
 
-#### 1. Generate Proof via API
+#### 1. Submit Transactions and Create Batch
 ```sh
-# Submit transaction with proof generation
-curl -X POST http://localhost:8080/api/v1/transactions \
+# Submit transactions to batch queue
+curl -X POST http://localhost:8080/api/v2/transactions \
   -H 'Content-Type: application/json' \
-  -d '{"a": 5, "b": 10, "generate_proof": true}'
+  -d '{"amount": 5}'
 
-# Response includes proof_id for later verification
+curl -X POST http://localhost:8080/api/v2/transactions \
+  -H 'Content-Type: application/json' \
+  -d '{"amount": 7}'
+
+# Create batch (triggers ZK proof generation)
+curl -X POST http://localhost:8080/api/v2/batches \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+
+# Response includes batch_id for later verification
 ```
 
-#### 2. Download Proof Data
+#### 2. Download Batch Proof Data
 ```sh
-# Get raw proof data for local verification
-curl http://localhost:8080/api/v1/proofs/{proof_id}/download
+# Get raw proof data for local verification (when proof is ready)
+cargo run --bin cli -- download-proof --batch-id 1
 
-# Response includes:
+# Downloads proof_batch_1.json containing:
 # - proof_data: hex-encoded SP1 proof
-# - public_values: hex-encoded public values
+# - public_values: hex-encoded public values  
 # - verifying_key: hex-encoded verification key
+# - initial_balance and final_balance for verification
 ```
 
 #### 3. Verify Locally (No Network Dependencies)
 ```sh
-# Run local verification tool with downloaded JSON file
+# Run local verification tool with downloaded batch proof
 cargo run --bin cli -- verify-proof \
-  --proof-file proof_<proof_id>.json \
-  --expected-result 15
+  --proof-file proof_batch_1.json \
+  --expected-initial-balance 0 \
+  --expected-final-balance 12 \
+  --verbose
 
 # Output:
-# ✅ Cryptographic proof verification PASSED
-# ✅ Computation result verification PASSED
-# 🎉 Zero-knowledge proof successfully verified!
+# ✅ Balance validation PASSED (0 → 12)
+# ✅ Structure validation PASSED  
+# 🎉 Batch proof structure successfully verified!
+#     • Privacy: Individual transaction amounts [5, 7] remain hidden
+#     • Correctness: Balance transition verified
 ```
 
 ### Benefits of Local Verification

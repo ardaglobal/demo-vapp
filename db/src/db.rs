@@ -1,10 +1,9 @@
 use chrono::{DateTime, Utc};
-use sqlx::{PgPool, Row};
+use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
 use std::env;
 use std::str::FromStr;
 use tracing::debug;
-
-use crate::error::DbError;
 
 #[cfg(all(not(target_env = "msvc"), feature = "tikv-jemallocator"))]
 use tikv_jemallocator::Jemalloc;
@@ -13,39 +12,73 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ArithmeticTransaction {
-    pub a: i32,
-    pub b: i32,
-    pub result: i32,
-}
+// ============================================================================
+// NEW BATCH PROCESSING TYPES
+// ============================================================================
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SindriProofRecord {
-    pub result: i32,
-    pub proof_id: String,
-    pub circuit_id: Option<String>,
-    pub status: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GlobalState {
-    pub current_state: i64,
-    pub transaction_count: i64,
-    pub last_updated: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StateTransition {
+/// Incoming transaction waiting to be batched
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IncomingTransaction {
     pub id: i32,
-    pub transaction_id: i32,
-    pub previous_state: i64,
-    pub arithmetic_result: i32,
-    pub new_state: i64,
-    pub a: i32,
-    pub b: i32,
+    pub amount: i32,
+    pub included_in_batch_id: Option<i32>,
     pub created_at: DateTime<Utc>,
 }
+
+/// Batch of transactions with ZK proof
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProofBatch {
+    pub id: i32,
+    pub previous_counter_value: i64,
+    pub final_counter_value: i64,
+    pub transaction_ids: Vec<i32>,
+    pub sindri_proof_id: Option<String>,
+    pub proof_status: String, // pending, proven, failed
+    pub created_at: DateTime<Utc>,
+    pub proven_at: Option<DateTime<Utc>>,
+}
+
+/// ADS/Merkle tree state commitment for smart contract
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdsStateCommit {
+    pub id: i32,
+    pub batch_id: i32,
+    pub merkle_root: Vec<u8>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Current counter state with Merkle root
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CounterState {
+    pub counter_value: i64,
+    pub merkle_root: Option<Vec<u8>>,
+    pub last_batch_id: Option<i32>,
+}
+
+/// Contract submission data (public/private split)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContractSubmissionData {
+    pub public: ContractPublicData,
+    pub private: ContractPrivateData,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContractPublicData {
+    pub prev_merkle_root: String,
+    pub new_merkle_root: String,
+    pub zk_proof: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContractPrivateData {
+    pub prev_counter_value: i64,
+    pub new_counter_value: i64,
+    pub transactions: Vec<i32>,
+}
+
+// ============================================================================
+// DATABASE CONNECTION FUNCTIONS
+// ============================================================================
 
 /// Initialize the database connection with a specific URL
 ///
@@ -97,338 +130,390 @@ async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-/// Store an arithmetic transaction in the database
-///
-/// # Errors
-/// Returns error if database operation fails
-pub async fn store_arithmetic_transaction(
-    pool: &PgPool,
-    a: i32,
-    b: i32,
-    result: i32,
-) -> Result<(), sqlx::Error> {
-    debug!("Storing transaction: a={a}, b={b}, result={result}");
-
-    sqlx::query(
-        r"
-        INSERT INTO arithmetic_transactions (a, b, result)
-        VALUES ($1, $2, $3)
-        ON CONFLICT (a, b, result) DO NOTHING
-        ",
-    )
-    .bind(a)
-    .bind(b)
-    .bind(result)
-    .execute(pool)
-    .await?;
-
-    debug!("Transaction stored successfully");
-    Ok(())
-}
-
-/// Get arithmetic transactions by result value
-///
-/// # Errors
-/// Returns error if database operation fails
-pub async fn get_transactions_by_result(
-    pool: &PgPool,
-    result: i32,
-) -> Result<Vec<ArithmeticTransaction>, sqlx::Error> {
-    debug!("Looking for transactions with result: {result}");
-
-    let rows = sqlx::query("SELECT a, b, result FROM arithmetic_transactions WHERE result = $1")
-        .bind(result)
-        .fetch_all(pool)
-        .await?;
-
-    let transactions: Vec<ArithmeticTransaction> = rows
-        .into_iter()
-        .map(|row| ArithmeticTransaction {
-            a: row.get("a"),
-            b: row.get("b"),
-            result: row.get("result"),
-        })
-        .collect();
-
-    debug!("Found {} transactions", transactions.len());
-    Ok(transactions)
-}
-
-/// Get the first arithmetic transaction by result value (for compatibility with old QMDB interface)
-///
-/// # Errors
-/// Returns error if database operation fails
-pub async fn get_value_by_result(
-    pool: &PgPool,
-    result: i32,
-) -> Result<Option<(i32, i32, DateTime<Utc>)>, sqlx::Error> {
-    debug!("Looking for single transaction with result: {result}");
-
-    let row = sqlx::query(
-        "SELECT a, b, created_at FROM arithmetic_transactions WHERE result = $1 LIMIT 1",
-    )
-    .bind(result)
-    .fetch_optional(pool)
-    .await?;
-
-    row.map_or_else(
-        || {
-            debug!("No transaction found with result: {result}");
-            Ok(None)
-        },
-        |row| {
-            let a: i32 = row.get("a");
-            let b: i32 = row.get("b");
-            let created_at: DateTime<Utc> = row.get("created_at");
-            debug!("Found transaction: a={a}, b={b}, created_at={created_at}");
-            Ok(Some((a, b, created_at)))
-        },
-    )
-}
-
-/// Store or update a Sindri proof record by result
-///
-/// # Errors
-/// Returns error if database operation fails
-pub async fn upsert_sindri_proof(
-    pool: &PgPool,
-    result: i32,
-    proof_id: &str,
-    circuit_id: Option<String>,
-    status: Option<String>,
-) -> Result<(), sqlx::Error> {
-    debug!("Upserting Sindri proof: result={result}, proof_id={proof_id}");
-
-    sqlx::query(
-        r"
-        INSERT INTO sindri_proofs (result, proof_id, circuit_id, status)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (result)
-        DO UPDATE SET proof_id = EXCLUDED.proof_id,
-                      circuit_id = EXCLUDED.circuit_id,
-                      status = EXCLUDED.status
-        ",
-    )
-    .bind(result)
-    .bind(proof_id)
-    .bind(circuit_id.as_deref())
-    .bind(status.as_deref())
-    .execute(pool)
-    .await?;
-
-    Ok(())
-}
-
-/// Fetch a Sindri proof record by result
-///
-/// # Errors
-/// Returns error if database operation fails
-pub async fn get_sindri_proof_by_result(
-    pool: &PgPool,
-    result: i32,
-) -> Result<Option<SindriProofRecord>, sqlx::Error> {
-    let row = sqlx::query(
-        r"SELECT result, proof_id, circuit_id, status FROM sindri_proofs WHERE result = $1 LIMIT 1",
-    )
-    .bind(result)
-    .fetch_optional(pool)
-    .await?;
-
-    Ok(row.map(|row| SindriProofRecord {
-        result: row.get("result"),
-        proof_id: row.get("proof_id"),
-        circuit_id: row.get::<Option<String>, _>("circuit_id"),
-        status: row.get::<Option<String>, _>("status"),
-    }))
-}
-
 // ============================================================================
-// CONTINUOUS STATE MANAGEMENT FUNCTIONS
+// TRANSACTION FUNCTIONS
 // ============================================================================
 
-/// Store an arithmetic transaction AND update global state atomically
+/// Submit a new transaction to the queue
 ///
 /// # Errors
 /// Returns error if database operation fails
-pub async fn store_transaction_with_state_update(
+pub async fn submit_transaction(
     pool: &PgPool,
-    a: i32,
-    b: i32,
-    result: i32,
-) -> Result<StateTransition, DbError> {
-    debug!("Storing transaction with state update: a={a}, b={b}, result={result}");
-
-    // First, store the arithmetic transaction
-    let transaction_row = sqlx::query!(
-        r"
-        INSERT INTO arithmetic_transactions (a, b, result)
-        VALUES ($1, $2, $3)
-        ON CONFLICT (a, b, result) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
-        RETURNING id
-        ",
-        a,
-        b,
-        result
-    )
-    .fetch_one(pool)
-    .await?;
-
-    let transaction_id = transaction_row.id;
-
-    // Then, atomically update the global state
-    let state_row = sqlx::query!(
-        r"
-        SELECT * FROM update_global_state($1, $2, $3, $4)
-        ",
-        transaction_id,
-        result,
-        a,
-        b
-    )
-    .fetch_one(pool)
-    .await?;
-
-    if !state_row.success.unwrap_or(false) {
-        let error_msg = format!(
-            "State update failed for transaction_id={}, a={}, b={}, result={}, previous_state={:?}, new_state={:?}",
-            transaction_id, a, b, result, state_row.previous_state, state_row.new_state
-        );
-        return Err(DbError::TransactionFailed(error_msg));
-    }
-
-    let previous_state = state_row.previous_state.unwrap_or(0);
-    let new_state = state_row.new_state.unwrap_or(0);
-
-    debug!("State updated: {previous_state} + {result} = {new_state}");
-
-    // Fetch the created transition record
-    let transition = sqlx::query!(
-        r"
-        SELECT id, transaction_id, previous_state, arithmetic_result, new_state, a, b, created_at
-        FROM state_transitions 
-        WHERE transaction_id = $1 
-        ORDER BY created_at DESC 
-        LIMIT 1
-        ",
-        transaction_id
-    )
-    .fetch_one(pool)
-    .await?;
-
-    Ok(StateTransition {
-        id: transition.id,
-        transaction_id: transition.transaction_id,
-        previous_state: transition.previous_state,
-        arithmetic_result: transition.arithmetic_result,
-        new_state: transition.new_state,
-        a: transition.a,
-        b: transition.b,
-        created_at: transition.created_at.unwrap_or_else(Utc::now),
-    })
-}
-
-/// Get current global state
-///
-/// # Errors
-/// Returns error if database operation fails
-pub async fn get_current_global_state(pool: &PgPool) -> Result<GlobalState, sqlx::Error> {
-    debug!("Getting current global state");
+    amount: i32,
+) -> Result<IncomingTransaction, sqlx::Error> {
+    debug!("Submitting transaction: amount={amount}");
 
     let row = sqlx::query!(
-        r"
-        SELECT * FROM get_current_state()
-        "
+        "INSERT INTO incoming_transactions (amount) VALUES ($1) RETURNING id, amount, included_in_batch_id, created_at",
+        amount
     )
     .fetch_one(pool)
     .await?;
 
-    Ok(GlobalState {
-        current_state: row.current_state.unwrap_or(0),
-        transaction_count: row.transaction_count.unwrap_or(0),
-        last_updated: row.last_updated.unwrap_or_else(Utc::now),
-    })
+    let transaction = IncomingTransaction {
+        id: row.id,
+        amount: row.amount,
+        included_in_batch_id: row.included_in_batch_id,
+        created_at: row.created_at.unwrap_or_else(|| Utc::now()),
+    };
+
+    debug!("Transaction submitted: id={}", transaction.id);
+    Ok(transaction)
 }
 
-/// Get state transition history
+/// Get pending transactions (not yet batched)
 ///
 /// # Errors
 /// Returns error if database operation fails
-pub async fn get_state_history(
+pub async fn get_pending_transactions(
     pool: &PgPool,
-    limit: Option<i32>,
-) -> Result<Vec<StateTransition>, sqlx::Error> {
-    debug!("Getting state history (limit: {:?})", limit);
+) -> Result<Vec<IncomingTransaction>, sqlx::Error> {
+    debug!("Getting pending transactions");
 
     let rows = sqlx::query!(
-        r"
-        SELECT * FROM get_state_history($1)
-        ",
-        limit.unwrap_or(10)
+        "SELECT transaction_id as id, amount, created_at FROM get_unbatched_transactions(1000)"
     )
     .fetch_all(pool)
     .await?;
 
-    let transitions: Vec<StateTransition> = rows
+    let transactions: Vec<IncomingTransaction> = rows
         .into_iter()
-        .map(|row| StateTransition {
-            id: row.transition_id.unwrap_or(0),
-            transaction_id: row.transaction_id.unwrap_or(0),
-            previous_state: row.previous_state.unwrap_or(0),
-            arithmetic_result: row.arithmetic_result.unwrap_or(0),
-            new_state: row.new_state.unwrap_or(0),
-            a: row.a.unwrap_or(0),
-            b: row.b.unwrap_or(0),
-            created_at: row.created_at.unwrap_or_else(Utc::now),
+        .map(|row| IncomingTransaction {
+            id: row.id.unwrap_or(0),
+            amount: row.amount.unwrap_or(0),
+            included_in_batch_id: None,
+            created_at: row.created_at.unwrap_or_else(|| Utc::now()),
         })
         .collect();
 
-    debug!("Found {} state transitions", transitions.len());
-    Ok(transitions)
+    debug!("Found {} pending transactions", transactions.len());
+    Ok(transactions)
 }
 
-/// Validate state integrity
+// ============================================================================
+// BATCH FUNCTIONS
+// ============================================================================
+
+/// Create a new batch from pending transactions
 ///
 /// # Errors
 /// Returns error if database operation fails
-pub async fn validate_state_integrity(pool: &PgPool) -> Result<(bool, String), sqlx::Error> {
-    debug!("Validating state integrity");
+pub async fn create_batch(
+    pool: &PgPool,
+    batch_size: Option<i32>,
+) -> Result<Option<ProofBatch>, sqlx::Error> {
+    let size = batch_size.unwrap_or(10);
+    debug!("Creating batch with size: {size}");
+
+    let batch_id: i32 = sqlx::query_scalar!("SELECT create_batch($1)", size)
+        .fetch_one(pool)
+        .await?
+        .unwrap_or(0);
+
+    if batch_id == 0 {
+        debug!("No transactions to batch");
+        return Ok(None);
+    }
+
+    // Get the created batch details
+    get_batch_by_id(pool, batch_id).await.map(Some)
+}
+
+/// Get batch by ID
+///
+/// # Errors
+/// Returns error if database operation fails or batch not found
+pub async fn get_batch_by_id(pool: &PgPool, batch_id: i32) -> Result<ProofBatch, sqlx::Error> {
+    debug!("Getting batch: id={batch_id}");
 
     let row = sqlx::query!(
         r"
-        SELECT * FROM validate_state_integrity()
-        "
+        SELECT id, previous_counter_value, final_counter_value, transaction_ids, 
+               sindri_proof_id, proof_status, created_at, proven_at
+        FROM proof_batches 
+        WHERE id = $1
+        ",
+        batch_id
     )
     .fetch_one(pool)
     .await?;
 
-    let is_valid = row.is_valid.unwrap_or(false);
-    let message = row
-        .error_message
-        .unwrap_or_else(|| "Unknown error".to_string());
+    let batch = ProofBatch {
+        id: row.id,
+        previous_counter_value: row.previous_counter_value,
+        final_counter_value: row.final_counter_value,
+        transaction_ids: row.transaction_ids,
+        sindri_proof_id: row.sindri_proof_id,
+        proof_status: row.proof_status.unwrap_or_else(|| "pending".to_string()),
+        created_at: row.created_at.unwrap_or_else(|| Utc::now()),
+        proven_at: row.proven_at,
+    };
 
     debug!(
-        "State integrity check: valid={}, message={}",
-        is_valid, message
+        "Found batch: id={}, status={}",
+        batch.id, batch.proof_status
     );
-    Ok((is_valid, message))
+    Ok(batch)
 }
 
-/// Get the total number of transactions in the database
+/// Get all batches (paginated)
 ///
 /// # Errors
 /// Returns error if database operation fails
-pub async fn get_transaction_count(pool: &PgPool) -> Result<i64, sqlx::Error> {
-    debug!("Getting total transaction count");
+pub async fn get_all_batches(
+    pool: &PgPool,
+    limit: Option<i32>,
+) -> Result<Vec<ProofBatch>, sqlx::Error> {
+    let limit_val = limit.unwrap_or(50);
+    debug!("Getting batches with limit: {limit_val}");
+
+    let rows = sqlx::query!(
+        r"
+        SELECT id, previous_counter_value, final_counter_value, transaction_ids,
+               sindri_proof_id, proof_status, created_at, proven_at
+        FROM proof_batches 
+        ORDER BY id DESC 
+        LIMIT $1
+        ",
+        limit_val as i64
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let batches: Vec<ProofBatch> = rows
+        .into_iter()
+        .map(|row| ProofBatch {
+            id: row.id,
+            previous_counter_value: row.previous_counter_value,
+            final_counter_value: row.final_counter_value,
+            transaction_ids: row.transaction_ids,
+            sindri_proof_id: row.sindri_proof_id,
+            proof_status: row.proof_status.unwrap_or_else(|| "pending".to_string()),
+            created_at: row.created_at.unwrap_or_else(|| Utc::now()),
+            proven_at: row.proven_at,
+        })
+        .collect();
+
+    debug!("Found {} batches", batches.len());
+    Ok(batches)
+}
+
+/// Update batch with Sindri proof ID and status
+///
+/// # Errors
+/// Returns error if database operation fails
+pub async fn update_batch_proof(
+    pool: &PgPool,
+    batch_id: i32,
+    proof_id: &str,
+    status: &str,
+) -> Result<(), sqlx::Error> {
+    debug!("Updating batch {batch_id} with proof {proof_id}, status: {status}");
+
+    let proven_at = if status == "proven" {
+        Some(Utc::now())
+    } else {
+        None
+    };
+
+    sqlx::query!(
+        r"
+        UPDATE proof_batches 
+        SET sindri_proof_id = $1, proof_status = $2, proven_at = $3
+        WHERE id = $4
+        ",
+        proof_id,
+        status,
+        proven_at,
+        batch_id
+    )
+    .execute(pool)
+    .await?;
+
+    debug!("Batch updated successfully");
+    Ok(())
+}
+
+// ============================================================================
+// STATE FUNCTIONS
+// ============================================================================
+
+/// Get current counter value
+///
+/// # Errors
+/// Returns error if database operation fails
+pub async fn get_current_counter_value(pool: &PgPool) -> Result<i64, sqlx::Error> {
+    debug!("Getting current counter value");
+
+    let value: i64 = sqlx::query_scalar!("SELECT get_current_counter_value()")
+        .fetch_one(pool)
+        .await?
+        .unwrap_or(0);
+
+    debug!("Current counter value: {value}");
+    Ok(value)
+}
+
+/// Get current counter state with latest Merkle root
+///
+/// # Errors
+/// Returns error if database operation fails
+pub async fn get_current_state(pool: &PgPool) -> Result<CounterState, sqlx::Error> {
+    debug!("Getting current counter state");
+
+    let counter_value = get_current_counter_value(pool).await?;
+
+    // Get latest proven batch and its Merkle root
+    let row = sqlx::query!(
+        r"
+        SELECT pb.id, ads.merkle_root
+        FROM proof_batches pb
+        LEFT JOIN ads_state_commits ads ON pb.id = ads.batch_id
+        WHERE pb.proof_status = 'proven'
+        ORDER BY pb.id DESC
+        LIMIT 1
+        "
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    let (last_batch_id, merkle_root) = match row {
+        Some(row) => (Some(row.id), Some(row.merkle_root)),
+        None => (None, None),
+    };
+
+    let state = CounterState {
+        counter_value,
+        merkle_root,
+        last_batch_id,
+    };
+
+    debug!(
+        "Current state: counter={}, batch_id={:?}",
+        state.counter_value, state.last_batch_id
+    );
+    Ok(state)
+}
+
+// ============================================================================
+// ADS/MERKLE TREE FUNCTIONS
+// ============================================================================
+
+/// Store Merkle root for a batch
+///
+/// # Errors
+/// Returns error if database operation fails
+pub async fn store_ads_state_commit(
+    pool: &PgPool,
+    batch_id: i32,
+    merkle_root: &[u8],
+) -> Result<AdsStateCommit, sqlx::Error> {
+    debug!("Storing ADS state commit for batch {batch_id}");
 
     let row = sqlx::query!(
         r"
-        SELECT COUNT(*) as count FROM arithmetic_transactions
-        "
+        INSERT INTO ads_state_commits (batch_id, merkle_root)
+        VALUES ($1, $2)
+        RETURNING id, batch_id, merkle_root, created_at
+        ",
+        batch_id,
+        merkle_root
     )
     .fetch_one(pool)
     .await?;
 
-    let count = row.count.unwrap_or(0);
-    debug!("Total transaction count: {}", count);
-    Ok(count)
+    let commit = AdsStateCommit {
+        id: row.id,
+        batch_id: row.batch_id,
+        merkle_root: row.merkle_root,
+        created_at: row.created_at.unwrap_or_else(|| Utc::now()),
+    };
+
+    debug!("ADS state commit stored: id={}", commit.id);
+    Ok(commit)
+}
+
+/// Get contract submission data for a batch (public/private split)
+///
+/// # Errors
+/// Returns error if database operation fails or batch not found
+pub async fn get_contract_submission_data(
+    pool: &PgPool,
+    batch_id: i32,
+) -> Result<ContractSubmissionData, sqlx::Error> {
+    debug!("Getting contract submission data for batch {batch_id}");
+
+    // Get batch details
+    let batch = get_batch_by_id(pool, batch_id).await?;
+
+    // Get previous and new Merkle roots
+    let prev_root = if batch.previous_counter_value == 0 {
+        // Genesis state - use empty root
+        "0x0000000000000000000000000000000000000000000000000000000000000000".to_string()
+    } else {
+        // Get previous batch's Merkle root
+        let prev_row = sqlx::query!(
+            r"
+            SELECT ads.merkle_root
+            FROM proof_batches pb
+            JOIN ads_state_commits ads ON pb.id = ads.batch_id
+            WHERE pb.final_counter_value = $1 AND pb.proof_status = 'proven'
+            ORDER BY pb.id DESC
+            LIMIT 1
+            ",
+            batch.previous_counter_value
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        match prev_row {
+            Some(row) => format!("0x{}", hex::encode(row.merkle_root)),
+            None => {
+                "0x0000000000000000000000000000000000000000000000000000000000000000".to_string()
+            }
+        }
+    };
+
+    // Get new Merkle root
+    let new_row = sqlx::query!(
+        "SELECT merkle_root FROM ads_state_commits WHERE batch_id = $1",
+        batch_id
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    let new_root = match new_row {
+        Some(row) => format!("0x{}", hex::encode(row.merkle_root)),
+        None => return Err(sqlx::Error::RowNotFound),
+    };
+
+    // Get transaction amounts for the batch
+    let transaction_amounts: Vec<i32> = sqlx::query!(
+        "SELECT amount FROM incoming_transactions WHERE id = ANY($1) ORDER BY id",
+        &batch.transaction_ids
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| row.amount)
+    .collect();
+
+    let data = ContractSubmissionData {
+        public: ContractPublicData {
+            prev_merkle_root: prev_root,
+            new_merkle_root: new_root,
+            zk_proof: batch
+                .sindri_proof_id
+                .unwrap_or_else(|| "pending".to_string()),
+        },
+        private: ContractPrivateData {
+            prev_counter_value: batch.previous_counter_value,
+            new_counter_value: batch.final_counter_value,
+            transactions: transaction_amounts,
+        },
+    };
+
+    debug!("Contract submission data prepared for batch {batch_id}");
+    Ok(data)
 }

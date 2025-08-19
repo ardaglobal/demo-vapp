@@ -2,22 +2,22 @@
 
 ## Project Overview
 
-SP1 zero-knowledge proof project demonstrating arithmetic addition with indexed Merkle trees and comprehensive state management. Clean architectural separation:
+SP1 zero-knowledge proof project demonstrating **batch processing with continuous balance tracking**. Features batched transactions with ZK privacy, indexed Merkle trees, and comprehensive state management. Clean architectural separation:
 
 ### 🏗️ **New Architecture (Post-Refactor)**
 
-1. **RISC-V Program** (`program/`): Arithmetic addition in SP1 zkVM
-2. **Local SP1 Testing** (`script/`): Fast unit testing with Core proofs (`cargo run -p demo-vapp`)  
-3. **Unified CLI** (`cli/`): HTTP client + local verification tool (no database dependencies)
-4. **API Server** (`api/`): Proof generation and data distribution (verification removed)
-5. **Database Module** (`db/`): PostgreSQL with indexed Merkle tree operations
-6. **Smart Contracts** (`contracts/`): Solidity proof verification with state management
-7. **Shared Library** (`lib/`): Pure computation logic (zkVM compatible)
+1. **RISC-V Program** (`program/`): Batch transaction processing in SP1 zkVM (`initial_balance + [tx1, tx2, ...] = final_balance`)
+2. **Local SP1 Testing** (`script/`): Fast unit testing with batch Core proofs (`cargo run -p demo-vapp`)  
+3. **Unified CLI** (`cli/`): Batch processing client for transactions, batch management, and local verification
+4. **API Server** (`api/`): Batch creation, ZK proof generation via Sindri, contract data generation (public/private split)
+5. **Database Module** (`db/`): PostgreSQL with batch processing tables, Merkle tree state management
+6. **Smart Contracts** (`contracts/`): Solidity proof verification with state management  
+7. **Shared Library** (`lib/`): Pure batch computation logic (zkVM compatible)
 
 ### 🎯 **Clear Separation of Concerns**
-- **`cargo run -p demo-vapp`** → Local SP1 development (3.5s Core proofs)
-- **CLI** → API client + local verification (unified tool, no server dependencies for verification)
-- **API Server** → Proof generation and data distribution (Sindri integration, no verification)
+- **`cargo run -p demo-vapp`** → Local SP1 batch proof development (3.5s Core proofs, tests `10 + [5, 7] → 22`)
+- **CLI** → Batch processing client for submitting transactions, creating batches, and local verification
+- **API Server** → Batch creation, ZK proof generation via Sindri, contract data with public/private split
 
 ## Essential Commands
 
@@ -47,15 +47,20 @@ curl http://localhost:8080/api/v1/health
 
 ### Development Commands
 ```bash
-# 🚀 Local SP1 unit testing (fast development)
+# 🚀 Local SP1 batch processing testing (fast development)
 cargo run -p demo-vapp --bin demo-vapp --release
 
-# 🖥️ Unified CLI (API client + local verification)
+# 🖥️ Batch Processing CLI (complete workflow)
 cargo run --bin cli -- health-check
-cargo run --bin cli -- store-transaction --a 5 --b 10 --generate-proof
-cargo run --bin cli -- get-transaction --result 15
-cargo run --bin cli -- download-proof --proof-id <proof_id>
-cargo run --bin cli -- verify-proof --proof-file proof_<id>.json --expected-result 15
+cargo run --bin cli -- submit-transaction --amount 5
+cargo run --bin cli -- submit-transaction --amount 7
+cargo run --bin cli -- view-pending
+cargo run --bin cli -- trigger-batch --verbose
+cargo run --bin cli -- get-current-state
+cargo run --bin cli -- list-batches
+cargo run --bin cli -- get-batch --batch-id 1
+cargo run --bin cli -- download-proof --batch-id 1
+cargo run --bin cli -- verify-proof --proof-file proof_batch_1.json --expected-initial-balance 0 --expected-final-balance 12
 
 # 🌐 Local API server development (alternative to Docker)
 docker-compose up postgres -d
@@ -65,37 +70,52 @@ cargo run -p api --bin server --release
 cd program && cargo prove build --output-directory ../build
 ```
 
-### Zero-Knowledge Proofs
+### Zero-Knowledge Batch Proofs
 
-#### Proof Generation
+#### Batch Proof Generation
 ```bash
 # Prerequisites: Circuit must be deployed to Sindri first (see Quick Start)
 
-# 🌐 Generate proof via API server (Groth16 default)
-curl -X POST http://localhost:8080/api/v1/transactions \
+# 🌐 Generate batch proof via API server (Groth16 default)
+# 1. Submit transactions to batch queue
+curl -X POST http://localhost:8080/api/v2/transactions \
   -H 'Content-Type: application/json' \
-  -d '{"a": 5, "b": 10, "generate_proof": true}'
+  -d '{"amount": 5}'
 
-# 🖥️ Generate proof via CLI client  
-cargo run --bin cli -- store-transaction --a 5 --b 10 --generate-proof
+curl -X POST http://localhost:8080/api/v2/transactions \
+  -H 'Content-Type: application/json' \
+  -d '{"amount": 7}'
+
+# 2. Create batch (triggers ZK proof generation)
+curl -X POST http://localhost:8080/api/v2/batches \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+
+# 🖥️ Generate batch proof via CLI client  
+cargo run --bin cli -- submit-transaction --amount 5
+cargo run --bin cli -- submit-transaction --amount 7
+cargo run --bin cli -- trigger-batch --verbose
 ```
 
 #### Local Verification Workflow
 ```bash
-# 1. Download proof data from API server
-cargo run --bin cli -- download-proof --proof-id <PROOF_ID>
+# 1. Download batch proof data from API server
+cargo run --bin cli -- download-proof --batch-id <BATCH_ID>
 
-# 2. Verify proof locally (no server/database dependencies)
+# 2. Verify batch proof locally (no server/database dependencies)
 cargo run --bin cli -- verify-proof \
-  --proof-file proof_<PROOF_ID>.json \
-  --expected-result 15
+  --proof-file proof_batch_<BATCH_ID>.json \
+  --expected-initial-balance 0 \
+  --expected-final-balance 12 \
+  --verbose
 
 # Alternative: Direct hex data verification (advanced)
 cargo run --bin cli -- verify-proof \
   --proof-data <hex_proof> \
   --public-values <hex_values> \
   --verifying-key <hex_vkey> \
-  --expected-result 15
+  --expected-initial-balance 0 \
+  --expected-final-balance 12
 ```
 
 #### Circuit Management
@@ -160,41 +180,48 @@ cp .env.example .env
 ### 🏗️ **Clean Separation Architecture**
 
 **🚀 Local Development Path (`script/`):**
-- `cargo run -p demo-vapp` → Fast SP1 unit testing (~3.5s Core proofs)
+- `cargo run -p demo-vapp` → Fast SP1 batch proof testing (~3.5s Core proofs)
+- Tests batch processing: `initial_balance=10 + [5, 7] → final_balance=22`
 - Zero dependencies on database, Sindri, or production workflows
-- Perfect for SP1 program development and quick verification
+- Perfect for SP1 batch program development and quick verification
 
 **🖥️ Unified CLI Path (`cli/`):**
-- HTTP client for API server interaction + local verification tool
-- API commands: health-check, store-transaction, get-transaction, download-proof
-- Local verification: verify-proof (no server dependencies)
-- No interactive modes, no direct database access
+- Batch processing client: submit transactions, create batches, manage state
+- CLI commands: submit-transaction, view-pending, trigger-batch, list-batches, get-batch
+- Local verification: verify-proof with batch support (no server dependencies)
+- Contract data visualization: public/private split with verbose output
 - Environment variable configuration: `ARITHMETIC_API_URL`
 
 **🌐 Production API Path (`api/` + `db/`):**
-- Proof generation and data distribution server
-- Sindri integration for proof generation
-- Database operations and indexed Merkle trees
-- Background processing and state management
-- GraphQL and REST endpoints (verification removed)
+- Batch creation and ZK proof generation server
+- Sindri integration for batch proof generation
+- Database operations with batch processing tables and Merkle tree state
+- Contract data generation with public/private split
+- REST endpoints focused on batch processing workflow
 
 ### Core Components
-- **lib** (`lib/`): Shared arithmetic computation logic (zkVM compatible)
-- **program** (`program/`): RISC-V program for zkVM (private inputs → public result)
-- **demo-vapp** (`script/`): Local SP1 unit testing with fast Core proofs
-- **cli** (`cli/`): Unified HTTP client + local verification tool
-- **api** (`api/`): Proof generation server with Sindri integration
-- **db** (`db/`): PostgreSQL with indexed Merkle tree operations
-- **state-management-system** (`contracts/src/interfaces/`): Complete state lifecycle management with proof verification
+- **lib** (`lib/`): Shared batch computation logic for processing transaction arrays (zkVM compatible)
+- **program** (`program/`): RISC-V program for zkVM batch processing (`initial_balance + [tx1, tx2, ...] → final_balance`)
+- **demo-vapp** (`script/`): Local SP1 batch proof testing with fast Core proofs
+- **cli** (`cli/`): Unified batch processing client + local verification tool
+- **api** (`api/`): Batch creation and ZK proof generation server with Sindri integration
+- **db** (`db/`): PostgreSQL with batch processing tables and indexed Merkle tree state management
+- **state-management-system** (`contracts/src/interfaces/`): Complete state lifecycle management with batch proof verification
 
 ### Zero-Knowledge Properties
 ```rust
 struct PublicValuesStruct {
-    int32 result;  // Only result is public - inputs remain private
+    int32 initial_balance;  // Starting balance (public)
+    int32 final_balance;    // Ending balance (public)
+    // Individual transaction amounts [5, 7] remain private
 }
 ```
 
-**ZK Guarantees**: Privacy (inputs hidden), Soundness (proof correctness), Completeness (valid proofs always verify)
+**ZK Guarantees**: 
+- **Privacy**: Individual transaction amounts in batches remain hidden
+- **Soundness**: Batch transitions are cryptographically proven correct  
+- **Completeness**: Valid batch proofs always verify
+- **Batch Privacy**: Only balance transitions are public, not individual amounts
 
 ### Zero-Knowledge Verification Mental Model
 
@@ -294,10 +321,15 @@ SERVER_PORT=8080
 
 ## API Layer
 
-**REST Endpoints** (`/api/v1/`):
-- `POST /nullifiers` - Insert nullifier
-- `GET /nullifiers/{value}/membership` - Generate membership proof
-- `GET /tree/stats` - Tree statistics and performance metrics
+**REST Endpoints** (`/api/v2/`):
+- `POST /transactions` - Submit individual transactions to batch queue
+- `GET /transactions/pending` - View pending (unbatched) transactions
+- `POST /batches` - Create batch from pending transactions
+- `GET /batches` - List all historical batches  
+- `GET /batches/{id}` - Get specific batch details
+- `POST /batches/{id}/proof` - Update batch with ZK proof
+- `GET /state/current` - Get current counter state and Merkle root
+- `GET /state/{batch_id}/contract` - Get contract data (public/private split)
 
 **GraphQL** (`/graphql`): Flexible queries, mutations, and real-time subscriptions
 
@@ -312,22 +344,22 @@ The project includes a comprehensive REST API server located in the `api/` direc
 ### API Endpoints
 
 **Transaction Operations**:
-- `POST /api/v1/transactions` - Submit new transactions (a + b), optionally generate ZK proofs
-- `GET /api/v1/results/{result}` - Query transaction inputs (a,b) by result value
+- `POST /api/v2/transactions` - Submit individual transactions to batch processing queue
+- `GET /api/v2/transactions/pending` - View all pending (unbatched) transactions
+
+**Batch Operations**:
+- `POST /api/v2/batches` - Create batch from pending transactions and get contract data
+- `GET /api/v2/batches` - List all historical batches
+- `GET /api/v2/batches/{batch_id}` - Get specific batch details
+- `POST /api/v2/batches/{batch_id}/proof` - Update batch with ZK proof from Sindri
 
 **State Operations**:
-- `GET /api/v1/state` - Get current global state counter
-- `GET /api/v1/state/history` - State transition history with audit trail
-- `GET /api/v1/state/validate` - State integrity validation across all transactions
-
-**Proof Operations**:
-- `GET /api/v1/proofs/{proof_id}` - Retrieve basic proof information by Sindri proof ID
-- `GET /api/v1/proofs/{proof_id}/download` - Download raw proof data for local verification
+- `GET /api/v2/state/current` - Get current counter state and Merkle root status
+- `GET /api/v2/state/{batch_id}/contract` - Get contract submission data (public/private split)
 
 **System Operations**:
-- `GET /api/v1/health` - Health check and service status
-- `GET /api/v1/info` - API information and capabilities
-- `GET /api/v1/tree/stats` - Merkle tree statistics and performance metrics
+- `GET /api/v2/health` - Health check and service status
+- `GET /api/v2/info` - API information and capabilities
 
 **GraphQL** (Optional):
 - `POST /graphql` - GraphQL endpoint for complex queries
@@ -339,31 +371,37 @@ The project includes a comprehensive REST API server located in the `api/` direc
 # Start the API server
 cargo run -p api --bin server --release
 
-# Submit a transaction with proof generation (continuous state)
-curl -X POST http://localhost:8080/api/v1/transactions \
+# Submit transactions to batch processing queue
+curl -X POST http://localhost:8080/api/v2/transactions \
   -H 'Content-Type: application/json' \
-  -d '{"a": 5, "b": 10, "generate_proof": true}'
+  -d '{"amount": 5}'
 
-# Get current global state
-curl http://localhost:8080/api/v1/state
+curl -X POST http://localhost:8080/api/v2/transactions \
+  -H 'Content-Type: application/json' \
+  -d '{"amount": 7}'
 
-# Get state transition history
-curl http://localhost:8080/api/v1/state/history
+# View pending (unbatched) transactions
+curl http://localhost:8080/api/v2/transactions/pending
 
-# Validate state integrity
-curl http://localhost:8080/api/v1/state/validate
+# Create batch from pending transactions (triggers ZK proof generation)
+curl -X POST http://localhost:8080/api/v2/batches \
+  -H 'Content-Type: application/json' \
+  -d '{}'
 
-# Query transaction by result
-curl http://localhost:8080/api/v1/results/15
+# Get current counter state and Merkle root
+curl http://localhost:8080/api/v2/state/current
 
-# Get proof information
-curl http://localhost:8080/api/v1/proofs/proof_abc123
+# List all historical batches
+curl http://localhost:8080/api/v2/batches
 
-# Download proof data for local verification
-curl http://localhost:8080/api/v1/proofs/proof_abc123/download
+# Get specific batch details
+curl http://localhost:8080/api/v2/batches/1
+
+# Get contract submission data (public/private split)
+curl http://localhost:8080/api/v2/state/1/contract
 
 # Health check
-curl http://localhost:8080/api/v1/health
+curl http://localhost:8080/api/v2/health
 ```
 
 ### Server Configuration
@@ -378,13 +416,16 @@ The server supports various configuration options via command line arguments:
 
 ### Local Verification Workflow
 
-External actors can verify proofs without server dependencies:
-1. Submit transaction with `generate_proof: true`
-2. Receive proof ID in response
-3. Download proof data: `GET /api/v1/proofs/{proof_id}/download`
-4. Verify locally using CLI: `cargo run --bin cli -- verify-proof --proof-file <file> --expected-result <result>`
+External actors can verify batch proofs without server dependencies:
+1. Submit transactions to batch queue: `POST /api/v2/transactions`
+2. Create batch: `POST /api/v2/batches` (triggers ZK proof generation)
+3. Receive batch ID in response  
+4. Download batch proof data: `CLI download-proof --batch-id <id>`
+5. Verify locally using CLI: `cargo run --bin cli -- verify-proof --proof-file proof_batch_<id>.json --expected-initial-balance <initial> --expected-final-balance <final>`
 
-This enables trustless verification where external parties can cryptographically verify computation results without seeing private inputs, requiring database access, or trusting the API server for verification.
+This enables trustless verification where external parties can cryptographically verify batch transitions without seeing individual transaction amounts, requiring database access, or trusting the API server for verification.
+
+**Key Privacy Feature**: The verification process proves balance transitions (e.g., `10 → 22`) without revealing individual transaction amounts (`[5, 7]`).
 
 **Note**: Proof generation requires a valid `SINDRI_API_KEY` environment variable and deployed circuit. Without the API key, transactions will be stored successfully but proof generation will fail with a 401 Unauthorized error. Without circuit deployment, proof generation will fail with circuit not found errors. The REST API endpoints remain fully functional for transaction storage and retrieval.
 
@@ -396,7 +437,7 @@ This enables trustless verification where external parties can cryptographically
 
 ### Development Workflow
 ```bash
-# Update circuit and deploy new version
+# Update batch processing circuit and deploy new version
 ./deploy-circuit.sh "dev-$(date +%s)"
 
 # Update environment to use new circuit version
@@ -405,10 +446,18 @@ echo "SINDRI_CIRCUIT_TAG=dev-1234567890" >> .env
 # Restart services to pick up new configuration
 docker-compose restart server
 
-# Test with new circuit version
-curl -X POST http://localhost:8080/api/v1/transactions \
+# Test batch processing with new circuit version
+curl -X POST http://localhost:8080/api/v2/transactions \
   -H 'Content-Type: application/json' \
-  -d '{"a": 5, "b": 10, "generate_proof": true}'
+  -d '{"amount": 5}'
+
+curl -X POST http://localhost:8080/api/v2/transactions \
+  -H 'Content-Type: application/json' \
+  -d '{"amount": 7}'
+
+curl -X POST http://localhost:8080/api/v2/batches \
+  -H 'Content-Type: application/json' \
+  -d '{}'
 ```
 
 ### Troubleshooting
@@ -450,26 +499,25 @@ cargo run -p api --bin server --release
 ```
 
 **Database Tables:**
-- `arithmetic_transactions`: Hot path storage for user inputs
-- `nullifiers`: Indexed Merkle tree nodes (cold path output)
-- `processor_state`: Tracks last processed transaction ID for resume capability
-- `global_state`: Continuous ledger state tracking
-- `state_transitions`: Audit trail for all state changes
+- `incoming_transactions`: Individual transactions submitted to batch processing queue
+- `proof_batches`: Batch metadata with counter transitions and ZK proof references
+- `ads_state_commits`: Merkle root commitments linked to batch state transitions
 
-**Processing Flow:**
-1. Poll `arithmetic_transactions` for new entries since last processed ID
-2. Convert transaction data to deterministic nullifier values using hash function
-3. Insert nullifiers into indexed Merkle tree using 7-step algorithm
-4. Update `processor_state` with last processed transaction ID
-5. Repeat based on polling interval
+**Batch Processing Flow:**
+1. Users submit individual transactions to `incoming_transactions` table
+2. API endpoint triggers batch creation from unbatched transactions (FIFO order)
+3. Batch is created in `proof_batches` table with previous and final counter values
+4. ZK proof is generated via Sindri for the batch transition
+5. Merkle root commitment is stored in `ads_state_commits` linked to the batch
+6. Contract submission data is generated with public/private split for on-chain posting
 
 ## Key Features
 
 ### 🏗️ **Clean Architecture**
-- **Separation of Concerns**: Local development, unified CLI, and proof generation server as separate packages
-- **Fast Local Testing**: SP1 Core proofs in ~3.5s for development workflows
-- **Unified CLI Tool**: HTTP client + local verification in a single binary
-- **Focused API Server**: Proof generation and data distribution (verification moved to CLI)
+- **Separation of Concerns**: Local development, batch processing CLI, and ZK proof generation server as separate packages
+- **Fast Local Testing**: SP1 batch Core proofs in ~3.5s for development workflows
+- **Unified CLI Tool**: Complete batch processing workflow + local verification in a single binary
+- **Focused API Server**: Batch creation, ZK proof generation, and contract data distribution
 
 ### 🚀 **Development Experience** 
 - **Automated Setup**: One-command dependency installation for all platforms (`./install-dependencies.sh`)
@@ -478,43 +526,44 @@ cargo run -p api --bin server --release
 - **Cross-Platform Support**: Works on macOS (Intel/Apple Silicon) and Linux (Ubuntu/Debian)
 
 ### 🔒 **Zero-Knowledge Features**
-- **Zero-Knowledge Proofs**: Private inputs (`a`, `b`) → public result only
-- **Local Verification**: Trustless proof verification without server dependencies
-- **Sindri Integration**: Cloud proof generation with SP1 v5 and configurable circuit versions
+- **Batch Privacy**: Private transaction amounts (`[5, 7]`) → public balance transitions only (`10 → 22`)
+- **Local Verification**: Trustless batch proof verification without server dependencies  
+- **Sindri Integration**: Cloud batch proof generation with SP1 v5 and configurable circuit versions
 - **Circuit Management**: Configurable Sindri circuit deployment with version tagging
+- **Contract Data Split**: Public information (Merkle roots, proofs) vs Private information (transaction amounts)
 
 ### 🌐 **Production Ready**
-- **32-Level Merkle Trees**: 8x constraint reduction vs traditional implementations
-- **Background Processing**: Asynchronous indexed Merkle tree construction with resume capability
-- **Production APIs**: REST/GraphQL with rate limiting and authentication
-- **State Management**: Complete state lifecycle management with proof verification and batch operations
-- **Continuous Ledger State**: Global state counter with atomic transitions and audit trail
-- **Comprehensive Testing**: End-to-end CI with automated ZK validation
+- **32-Level Merkle Trees**: 8x constraint reduction vs traditional implementations  
+- **Batch Processing**: Efficient transaction batching with FIFO ordering and ZK proof generation
+- **Production APIs**: REST endpoints with rate limiting and authentication
+- **State Management**: Complete batch lifecycle management with proof verification
+- **Continuous Balance Tracking**: Counter state transitions with atomic batch updates
+- **Comprehensive Testing**: End-to-end CI with automated batch ZK validation
 - **Development Tools**: Automated circuit linting, deployment, and management via Sindri CLI
 
 ### 🔐 **Local Verification Benefits**
 
-The new local verification approach provides several key advantages:
+The new local batch verification approach provides several key advantages:
 
 **🛡️ Trustless Verification:**
-- No need to trust the API server for proof verification
+- No need to trust the API server for batch proof verification
 - Cryptographic verification happens entirely in your local environment
-- External parties can verify proofs without any server dependencies
+- External parties can verify batch transitions without any server dependencies
 
 **🚀 Performance & Scalability:**
 - API server no longer performs expensive cryptographic operations
-- Verification can be done offline once proof data is downloaded
+- Batch verification can be done offline once proof data is downloaded
 - Reduces server load and improves response times
 
 **🔒 Security & Privacy:**
 - All verification happens locally where you control the environment
-- No sensitive verification data sent over the network
+- Batch privacy preserved: individual amounts never leave local verification
 - Proof verification can be done in air-gapped environments
 
 **🧹 Clean Architecture:**
-- Clear separation: API server handles generation, CLI handles verification
-- Unified CLI tool provides single entry point for all operations
-- Simplified API server focused on core responsibilities
+- Clear separation: API server handles batch creation, CLI handles verification
+- Unified CLI tool provides single entry point for all batch operations
+- Simplified API server focused on batch processing and proof generation
 
 ## State Management System
 

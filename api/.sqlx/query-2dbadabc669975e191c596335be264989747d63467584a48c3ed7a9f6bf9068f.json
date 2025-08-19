@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, sindri_proof_id FROM proof_batches \n             WHERE proof_status = 'pending' \n               AND sindri_proof_id IS NOT NULL \n               AND sindri_proof_id != '' \n               AND sindri_proof_id NOT LIKE 'failed_%'\n               AND sindri_proof_id NOT LIKE 'error_%'\n             ORDER BY id ASC \n             LIMIT 10",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "sindri_proof_id",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "2dbadabc669975e191c596335be264989747d63467584a48c3ed7a9f6bf9068f"
+}

@@ -1,7 +1,8 @@
-//! Local SP1 Unit Testing
+//! Local SP1 Continuous Balance Tracking Testing
 //!
-//! This program provides a simple way to test the SP1 arithmetic program locally.
-//! It generates fast Core proofs for development and testing purposes.
+//! This program provides a simple way to test the SP1 continuous balance tracking program locally.
+//! It tests the ability to prove balance transitions from an initial state through multiple
+//! transactions without revealing the individual transaction amounts.
 //!
 //! Usage:
 //! ```shell
@@ -22,22 +23,25 @@ fn main() -> Result<()> {
     // Setup logging
     tracing_subscriber::fmt().with_env_filter("info").init();
 
-    info!("🧮 Starting local SP1 arithmetic unit test");
+    info!("🧮 Starting local SP1 continuous balance tracking test");
 
     // Create a prover client for local testing
     let client = ProverClient::from_env();
 
-    // Test case: 5 + 3 = 8
-    let a = 5i32;
-    let b = 3i32;
-    let expected_result = a + b;
+    // Test case: Initial balance 10, transactions [5, 7] -> final balance 22
+    let initial_balance = 10i32;
+    let transactions = vec![5i32, 7i32];
+    let expected_final_balance = initial_balance + transactions.iter().sum::<i32>();
 
-    info!("Testing: {} + {} = {}", a, b, expected_result);
+    info!("Testing continuous balance tracking:");
+    info!("  Initial balance: {}", initial_balance);
+    info!("  Transactions: {:?}", transactions);
+    info!("  Expected final balance: {}", expected_final_balance);
 
     // Create inputs for the zkVM program
     let mut stdin = SP1Stdin::new();
-    stdin.write(&a);
-    stdin.write(&b);
+    stdin.write(&initial_balance);
+    stdin.write(&transactions);
 
     info!("🔄 Generating Core proof (fast, for development)...");
 
@@ -63,17 +67,29 @@ fn main() -> Result<()> {
     let output = PublicValuesStruct::abi_decode(&public_values.as_slice())
         .expect("Failed to decode public values");
 
-    info!("📤 Public output: result = {}", output.result);
+    info!("📤 Public output:");
+    info!("  Initial balance: {}", output.initial_balance);
+    info!("  Final balance: {}", output.final_balance);
 
     // Verify the computation is correct
-    if output.result == expected_result {
-        info!("✅ Computation verified: {} + {} = {}", a, b, output.result);
-        info!("🎉 Local SP1 unit test completed successfully!");
+    if output.initial_balance == initial_balance && output.final_balance == expected_final_balance {
+        info!("✅ Continuous balance tracking verified:");
+        info!(
+            "  Balance transition: {} -> {} (transactions: {:?})",
+            output.initial_balance, output.final_balance, transactions
+        );
+        info!(
+            "🎉 The individual transaction amounts ({:?}) remain private!",
+            transactions
+        );
+        info!("🎉 Local SP1 continuous balance tracking test completed successfully!");
     } else {
         eyre::bail!(
-            "❌ Computation mismatch: expected {}, got {}",
-            expected_result,
-            output.result
+            "❌ Balance tracking mismatch: expected {} -> {}, got {} -> {}",
+            initial_balance,
+            expected_final_balance,
+            output.initial_balance,
+            output.final_balance
         );
     }
 
