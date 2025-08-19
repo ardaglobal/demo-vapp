@@ -437,7 +437,7 @@ async fn create_batch_endpoint(
             );
 
             // Trigger proof generation for the newly created batch
-            if let Some(ref batch_processor) = state.batch_processor {
+            if let Some(ref _batch_processor) = state.batch_processor {
                 info!("🚀 Triggering proof generation for batch {}", batch.id);
                 tokio::spawn({
                     let pool = state.pool.clone();
@@ -783,7 +783,7 @@ async fn trigger_batch_endpoint(
     info!("🔄 API: Manual batch trigger requested");
 
     if let Some(batch_processor) = &state.batch_processor {
-        match batch_processor.trigger_batch().await {
+        match batch_processor.trigger_batch() {
             Ok(()) => {
                 info!("✅ API: Batch trigger sent successfully");
                 Ok(Json(TriggerBatchResponse {
@@ -816,16 +816,16 @@ async fn get_batch_processor_stats_endpoint(
     info!("📊 API: Batch processor stats requested");
 
     if let Some(batch_processor) = &state.batch_processor {
-        let stats = batch_processor.get_stats().await;
+        let processor_stats = batch_processor.get_stats().await;
 
         let response = BatchProcessorStatsResponse {
-            total_batches_created: stats.total_batches_created,
-            total_transactions_processed: stats.total_transactions_processed,
-            timer_triggers: stats.timer_triggers,
-            count_triggers: stats.count_triggers,
-            manual_triggers: stats.manual_triggers,
-            errors: stats.errors,
-            last_batch_time: stats
+            total_batches_created: processor_stats.total_batches_created,
+            total_transactions_processed: processor_stats.total_transactions_processed,
+            timer_triggers: processor_stats.timer_triggers,
+            count_triggers: processor_stats.count_triggers,
+            manual_triggers: processor_stats.manual_triggers,
+            errors: processor_stats.errors,
+            last_batch_time: processor_stats
                 .last_batch_time
                 .map(|t| format!("{} ago", format_duration(t.elapsed()))),
         };

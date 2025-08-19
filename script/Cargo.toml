@@ -5,7 +5,7 @@ license     = "MIT"
 name        = "demo-vapp"
 version     = "0.1.0"
 
-# Default package for `cargo run` (local SP1 unit testing)  
+# Default package for `cargo run` (local SP1 unit testing)
 # Provides fast local SP1 unit testing with Core proofs
 # The CLI functionality has been moved to the cli/ directory
 
@@ -22,10 +22,10 @@ arithmetic-lib = { path = "../lib", package = "lib" }
 sp1-sdk = { workspace = true }
 
 # Utilities
-alloy-sol-types = { workspace = true }
-eyre = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = "0.3"
+alloy-sol-types    = { workspace = true }
+eyre               = { workspace = true }
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [build-dependencies]
 sp1-build = { workspace = true }

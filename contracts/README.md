@@ -8,7 +8,7 @@ Smart contracts for zero-knowledge arithmetic proof verification with comprehens
 - **interfaces/IStateManager.sol**: Standardized interface for state operations and proof management
 - **examples/**: Production-ready integration contracts
   - **StateConsumer.sol**: Safe state reading with caching and batch operations
-  - **StateUpdater.sol**: State updates with validation and queue-based processing  
+  - **StateUpdater.sol**: State updates with validation and queue-based processing
   - **ProofReader.sol**: Proof access with verification and enumeration
 - **test/StateManagement.t.sol**: Comprehensive test suite for state management functionality
 
@@ -22,7 +22,7 @@ Smart contracts for zero-knowledge arithmetic proof verification with comprehens
 # Run all tests
 forge test -v
 
-# Test state management functionality specifically  
+# Test state management functionality specifically
 forge test --match-contract StateManagementTest -vv
 
 # Test integration examples
@@ -39,7 +39,7 @@ The Arithmetic contract provides complete state management with ZK proof verific
 // Update state with ZK proof verification
 arithmetic.postStateUpdate(stateId, newState, proof, publicValues);
 
-// Read current state  
+// Read current state
 bytes32 currentState = arithmetic.getCurrentState(stateId);
 
 // Batch operations (gas efficient)
@@ -55,17 +55,21 @@ See `examples/README.md` for detailed integration patterns and best practices.
 
 ## Deployment
 
+Included is an example `.env.example` file that you can use to deploy the contract to Sepolia.
+
 #### Step 1: Set the `VERIFIER` environment variable
 
-Find the address of the `verifier` to use from the [deployments](https://github.com/succinctlabs/sp1-contracts/tree/main/contracts/deployments) list for the chain you are deploying to. Set it to the `VERIFIER` environment variable, for example:
+Find the address of the `verifier` to use from the [deployments](https://docs.succinct.xyz/docs/sp1/verification/contract-addresses) list for the chain you are deploying to. Set it to the `VERIFIER` environment variable, for example:
 
 ```sh
-VERIFIER=0x3B6041173B80E77f038f3F2C0f9744f04837185e
+VERIFIER=0x397A5f7f3dBd538f23DE225B51f532c34448dA9B
 ```
 
 Note: you can use either the [SP1VerifierGateway](https://github.com/succinctlabs/sp1-contracts/blob/main/contracts/src/SP1VerifierGateway.sol) or a specific version, but it is highly recommended to use the gateway as this will allow you to use different versions of SP1.
 
 #### Step 2: Set the `PROGRAM_VKEY` environment variable
+
+This step is required for the contract to be able to verify proofs.
 
 Find your program verification key by going into the `../script` directory and running `RUST_LOG=info cargo run --package arithmetic-script --release -- --vkey`, which will print an output like:
 

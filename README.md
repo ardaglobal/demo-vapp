@@ -28,7 +28,7 @@ New balance: 22
 - **`cli/`** - Batch processing client for submitting transactions and managing batches
 - **`api/`** - Production server with batch creation and ZK proof generation via Sindri
 - **`db/`** - PostgreSQL with batch processing tables and Merkle tree state management
-- **`lib/`** - Pure computation logic for processing transaction batches (zkVM compatible)  
+- **`lib/`** - Pure computation logic for processing transaction batches (zkVM compatible)
 - **`program/`** - RISC-V program for proving batch transitions: `initial_balance + [tx1, tx2, ...] = final_balance`
 
 ## Requirements
@@ -45,7 +45,7 @@ New balance: 22
 ```sh
 make setup    # Install dependencies + copy .env
 # Update .env file with needed env vars
-make deploy   # Deploy circuit to Sindri  
+make deploy   # Deploy circuit to Sindri
 make up       # Start services
 ```
 
@@ -177,7 +177,7 @@ cargo run --release
 # cargo run --bin main --release
 ```
 
-This provides a fast feedback loop for batch processing SP1 development without database or Sindri dependencies. 
+This provides a fast feedback loop for batch processing SP1 development without database or Sindri dependencies.
 The local test proves that a batch of transactions `[5, 7]` correctly transitions the balance from `10` to `22` while keeping individual amounts private.
 
 ---
@@ -188,14 +188,261 @@ That's it! 🎉 You now have a running zero-knowledge arithmetic server with mul
 
 ## Detailed Setup Instructions
 
-**Note for Linux users**: 
+**Note for Linux users**:
 - After running the install script, you may need to log out and back in (or restart your terminal) for Docker group membership to take effect. You can verify Docker is working by running `docker --version` and `docker compose version`.
 - The script installs OpenSSL development libraries (`libssl-dev`) required for Rust crates compilation.
 - If you encounter OpenSSL-related compilation errors, ensure you have the latest packages: `sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config`
 
 **Installed Tools**: The script installs all necessary development tools including Rust toolchain, SP1, Foundry, Docker, Node.js, PostgreSQL client tools, sqlx-cli for database migrations, and other utilities.
 
-## Batch Processing Proofs 
+## Proofs
+
+To verify that results are stored in the database:
+
+```sh
+cd script
+cargo run --release -- --verify
+```
+
+This will start an interactive CLI where you can:
+- Enter a result value (e.g., 15)
+- See what values of 'a' and 'b' were added to get that result
+- Continue looking up different results until you press 'q' to quit
+
+You can also verify a specific result non-interactively:
+
+```sh
+cargo run --release -- --verify --result 15
+```
+
+### Generate Zero-Knowledge Proofs via Sindri (Local Development)
+
+**Note**: This section covers local SP1 testing in the `script/` directory. For production batch processing with automated smart contract posting, see the [Smart Contract Integration](#smart-contract-integration) section.
+
+**All proofs are now EVM-compatible by default** using Sindri's cloud infrastructure:
+
+```sh
+cd script
+# Generate Groth16 proof for specific values (default)
+cargo run --release -- --prove --a 5 --b 10
+
+# Generate PLONK proof for specific values
+cargo run --release -- --prove --a 5 --b 10 --system plonk
+
+# Generate proof for a previously computed result stored in database
+cargo run --release -- --prove --result 15
+
+# Generate proof with Solidity test fixtures and submit to contract
+cargo run --release -- --prove --a 5 --b 10 --generate-fixture
+
+# Generate proof only (skip smart contract submission)
+cargo run --release -- --prove --a 5 --b 10 --skip-contract-submission
+```
+
+**Command Options:**
+- `--system groth16|plonk`: Choose EVM-compatible proof system (default: groth16)
+- `--generate-fixture`: Create Solidity test fixtures in `contracts/src/fixtures/`
+- `--skip-contract-submission`: Skip automatic smart contract submission (smart contract submission is enabled by default)
+- `--a` and `--b`: Direct input values for computation
+- `--result`: Look up stored transaction inputs by result value
+
+The `--prove` command will:
+1. Create SP1 inputs and serialize them for Sindri
+2. Generate EVM-compatible proofs (Groth16 or PLONK)
+3. Submit proof request to Sindri using the `demo-vapp` circuit
+4. Automatically submit proof to smart contract (unless `--skip-contract-submission` is used)
+5. Store proof metadata in PostgreSQL (database mode) or run standalone
+6. Display proof ID for external verification
+
+### Verify Sindri Proofs
+
+There are two ways to verify proofs generated via Sindri:
+
+#### External Verification (Recommended for sharing proofs)
+
+Use the proof ID printed during the prove flow:
+
+```sh
+cd script
+# Verify using proof ID (no database required)
+cargo run --release -- --verify --proof-id <PROOF_ID> --result <EXPECTED_RESULT>
+
+# Example:
+cargo run --release -- --verify --proof-id "proof_abc123def456" --result 15
+```
+
+This method:
+- ✅ Works for external users without database access
+- ✅ Only requires the proof ID and expected result
+- ✅ Performs full cryptographic verification using Sindri's verification key
+- ✅ Demonstrates true zero-knowledge properties
+
+#### Database Verification (Internal use)
+
+For internal use with database access:
+
+```sh
+cd script
+# Interactive verification mode
+cargo run --release -- --verify
+
+# Verify specific result
+cargo run --release -- --verify --result 15
+```
+
+This method:
+1. Looks up the stored Sindri proof metadata by result
+2. Queries Sindri's API to get the current proof status
+3. Displays verification results and updates the stored status
+
+### Generate EVM-Compatible Proofs via Sindri
+
+All proofs generated through the main CLI are now EVM-compatible by default, using Sindri's cloud infrastructure. This provides scalable, production-ready proof generation without requiring local GPU resources.
+
+To generate a Groth16 proof (default):
+
+```sh
+cd script
+# Using specific inputs
+cargo run --release -- --prove --a 5 --b 10 --system groth16
+
+# Using database lookup by result
+cargo run --release -- --prove --result 15 --system groth16
+```
+
+To generate a PLONK proof:
+
+```sh
+cd script
+# Using specific inputs
+cargo run --release -- --prove --a 5 --b 10 --system plonk
+
+# Using database lookup by result
+cargo run --release -- --prove --result 15 --system plonk
+```
+
+To generate Solidity test fixtures for on-chain verification:
+
+```sh
+cd script
+# Generate proof with EVM fixture files
+cargo run --release -- --prove --a 5 --b 10 --system groth16 --generate-fixture
+```
+
+These commands will:
+1. Generate EVM-compatible proofs (Groth16/PLONK) via Sindri
+2. Optionally create fixtures for Solidity contract testing (with `--generate-fixture`)
+3. Provide proof IDs for external verification
+4. Store proof metadata for later verification (database mode only)
+
+### Retrieve the Verification Key
+
+To retrieve your `programVKey` for your on-chain contract, run the following command in `script`:
+
+```sh
+cargo run --release -- --vkey
+```
+
+## Smart Contract Integration
+
+The project features **automated smart contract posting** for proven batches. After batches are created and proven, a background process automatically detects proven batches and posts state roots to the Ethereum smart contract, providing a fully automated pipeline from batch creation to on-chain state updates.
+
+### Automated Batch Posting Flow
+
+**🔄 Complete End-to-End Automation:**
+1. **Submit Transactions**: Use CLI to submit individual transactions
+2. **Create Batch**: Trigger batch creation from pending transactions
+3. **ZK Proof Generation**: Background process generates proof via Sindri
+4. **Smart Contract Posting**: Background process automatically posts state roots to contract
+5. **Status Tracking**: Database tracks posting status and timestamps
+
+### Quick Deployment
+
+```bash
+# 1. Apply database migration (adds contract posting tracking)
+cd db && sqlx migrate run
+
+# 2. Start API server with automated background processing
+cargo run -p api --bin server
+```
+
+### Usage Examples
+
+```bash
+# Submit transactions and create batch
+cargo run --bin cli -- submit-transaction --amount 5
+cargo run --bin cli -- submit-transaction --amount 7
+cargo run --bin cli -- trigger-batch --verbose
+
+# The background process automatically handles:
+# ✅ ZK proof generation via Sindri
+# ✅ Smart contract posting when proof is ready  
+# ✅ Database status updates with timestamps
+
+# Monitor batch progress
+cargo run --bin cli -- list-batches
+cargo run --bin cli -- get-batch --batch-id 1
+```
+
+### Environment Setup
+
+For automated smart contract posting, configure these environment variables:
+
+```bash
+# Required for smart contract integration
+export ETHEREUM_RPC_URL=https://eth-mainnet.alchemyapi.io/v2/demo
+export ETHEREUM_CONTRACT_ADDRESS=0x1234567890123456789012345678901234567890
+export ETHEREUM_WALLET_PRIVATE_KEY=your_private_key_without_0x_prefix
+export ETHEREUM_DEPLOYER_ADDRESS=0x1234567890123456789012345678901234567890
+export SINDRI_API_KEY=your_sindri_api_key_here
+```
+
+### Background Process Features
+
+- **Automatic Detection**: Scans for proven batches every 30 seconds
+- **Smart Contract Submission**: Posts state roots using ethereum-client
+- **Random State Roots**: Uses 32-byte hashes (temporary until ADS integration)
+- **Error Handling**: Graceful fallback if Ethereum client not configured
+- **Rate Limiting**: Controlled submission rate to avoid network congestion
+- **Audit Trail**: Complete database tracking of posting status and timestamps
+
+### Database Schema
+
+New tracking columns in `proof_batches`:
+```sql
+posted_to_contract BOOLEAN DEFAULT FALSE  -- Tracks if batch posted to contract
+posted_to_contract_at TIMESTAMP           -- Timestamp of successful posting
+```
+
+### Benefits
+
+- **Zero Manual Intervention**: Fully automated pipeline from CLI to blockchain
+- **Fault Tolerance**: Background process handles retries and error recovery
+- **Audit Trail**: Complete database tracking of batch lifecycle
+- **Scalable**: Handles multiple batches concurrently with rate limiting
+- **Production Ready**: Comprehensive error handling and monitoring
+
+## Sindri Integration for Serverless ZK Proofs
+
+This project integrates with [Sindri](https://sindri.app) for serverless zero-knowledge proof generation, providing a scalable alternative to local SP1 proving.
+
+### Setup
+
+1. **Get your Sindri API key:**
+   - Sign up at [sindri.app](https://sindri.app)
+   - Create an API key from your account dashboard
+
+2. **Set your API key as an environment variable:**
+   ```bash
+   export SINDRI_API_KEY=your_api_key_here
+   ```
+The proof generation process:
+1. Creates SP1 inputs and serializes them for Sindri
+2. Generates EVM-compatible proofs (Groth16 by default)
+3. Submits proof request to Sindri using the `demo-vapp` circuit
+4. Stores proof metadata in PostgreSQL
+5. Returns proof ID for external verification
+## Batch Processing Proofs
 
 The batch proof generation process:
 1. Collects pending transactions into a batch (FIFO order)
@@ -205,6 +452,15 @@ The batch proof generation process:
 5. Stores batch metadata and proof ID in PostgreSQL
 6. Associates Merkle root with the proven state transition
 7. Returns batch ID and contract submission data (public/private split)
+
+3. **For Smart Contract Integration (Optional):**
+   ```bash
+   # Required for --submit-to-contract flag
+   export ETHEREUM_RPC_URL=https://eth-mainnet.alchemyapi.io/v2/demo
+   export ETHEREUM_CONTRACT_ADDRESS=0x1234567890123456789012345678901234567890
+   export ETHEREUM_WALLET_PRIVATE_KEY=your_private_key_without_0x_prefix
+   export ETHEREUM_DEPLOYER_ADDRESS=0x1234567890123456789012345678901234567890
+   ```
 
 ### Continuous Integration
 
@@ -299,7 +555,7 @@ The API server will start on `http://localhost:8080` by default.
 - `GET /api/v2/state/{batch_id}/contract` - Get contract submission data (public/private split)
 
 **System Operations:**
-- `GET /api/v2/health` - Health check and service status  
+- `GET /api/v2/health` - Health check and service status
 - `GET /api/v2/info` - API information and capabilities
 
 ### Usage Examples
@@ -370,7 +626,7 @@ cargo run --bin cli -- download-proof --batch-id 1
 
 # Downloads proof_batch_1.json containing:
 # - proof_data: hex-encoded SP1 proof
-# - public_values: hex-encoded public values  
+# - public_values: hex-encoded public values
 # - verifying_key: hex-encoded verification key
 # - initial_balance and final_balance for verification
 ```
@@ -386,7 +642,7 @@ cargo run --bin cli -- verify-proof \
 
 # Output:
 # ✅ Balance validation PASSED (0 → 12)
-# ✅ Structure validation PASSED  
+# ✅ Structure validation PASSED
 # 🎉 Batch proof structure successfully verified!
 #     • Privacy: Individual transaction amounts [5, 7] remain hidden
 #     • Correctness: Balance transition verified

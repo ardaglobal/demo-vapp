@@ -1,0 +1,75 @@
+[package]
+edition = "2021"
+license = "MIT"
+name    = "ethereum-client"
+version = "0.1.0"
+
+[dependencies]
+# Alloy Ethereum types and utilities
+alloy-consensus      = { workspace = true }
+alloy-contract       = "1.0"
+alloy-json-rpc       = "1.0"
+alloy-network        = "1.0"
+alloy-primitives     = { workspace = true }
+alloy-provider       = { workspace = true, features = [ "reqwest", "ws" ] }
+alloy-rpc-types      = { workspace = true, features = [ "eth" ] }
+alloy-rpc-types-eth  = { workspace = true }
+alloy-signer         = { workspace = true }
+alloy-signer-local   = { workspace = true }
+alloy-sol-types      = { workspace = true, features = [ "json" ] }
+alloy-transport      = { workspace = true }
+alloy-transport-http = { workspace = true }
+
+# Async runtime
+futures = { workspace = true }
+tokio   = { workspace = true, features = [ "full" ] }
+
+# Serialization
+serde      = { workspace = true, features = [ "derive" ] }
+serde_json = { workspace = true }
+
+# Error handling
+anyhow    = { workspace = true }
+eyre      = { workspace = true }
+thiserror = { workspace = true }
+
+# Environment and configuration
+clap   = { workspace = true, features = [ "derive" ] }
+dotenv = { workspace = true }
+
+# Logging
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true, features = [ "env-filter" ] }
+
+# HTTP client
+reqwest = { workspace = true, features = [ "json" ] }
+
+# Utilities
+hex       = { workspace = true }
+once_cell = { workspace = true }
+url       = { workspace = true, features = [ "serde" ] }
+
+# Database integration (optional for caching/indexing)
+chrono = { workspace = true, features = [ "serde" ], optional = true }
+sqlx = { workspace = true, features = [
+    "chrono",
+    "postgres",
+    "runtime-tokio-rustls",
+    "uuid",
+], optional = true }
+uuid = { workspace = true, features = [ "serde", "v4" ], optional = true }
+
+# Local dependencies
+arithmetic-db  = { path = "../db", package = "db" }
+arithmetic-lib = { path = "../lib", package = "lib" }
+
+# Sindri integration
+sindri = { workspace = true }
+
+[[bin]]
+name = "bridge"
+path = "src/bin/bridge.rs"
+
+[features]
+database = [ "chrono", "sqlx", "uuid" ]
+default  = [ "database" ]

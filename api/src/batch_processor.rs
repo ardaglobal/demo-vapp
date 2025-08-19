@@ -15,8 +15,13 @@ use tokio::time::{interval, Instant};
 use tracing::{debug, error, info, instrument};
 
 use crate::rest::ApiConfig;
-use arithmetic_db::{create_batch, get_batch_by_id, get_pending_transactions, update_batch_proof};
+use alloy_primitives::{Bytes, FixedBytes};
+use arithmetic_db::{
+    create_batch, get_batch_by_id, get_pending_transactions, get_proven_unposted_batches,
+    mark_batch_posted_to_contract, update_batch_proof,
+};
 use arithmetic_lib::proof::{generate_batch_proof, BatchProofGenerationRequest, ProofSystem};
+use ethereum_client::{Config as EthConfig, EthereumClient};
 
 // ============================================================================
 // BATCH PROCESSOR CONFIGURATION
@@ -92,7 +97,7 @@ pub struct BatchProcessorResponse {
 }
 
 /// Statistics about the batch processor
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct BatchProcessorStats {
     pub total_batches_created: u64,
     pub total_transactions_processed: u64,
@@ -101,20 +106,6 @@ pub struct BatchProcessorStats {
     pub count_triggers: u64,
     pub manual_triggers: u64,
     pub errors: u64,
-}
-
-impl Default for BatchProcessorStats {
-    fn default() -> Self {
-        Self {
-            total_batches_created: 0,
-            total_transactions_processed: 0,
-            last_batch_time: None,
-            timer_triggers: 0,
-            count_triggers: 0,
-            manual_triggers: 0,
-            errors: 0,
-        }
-    }
 }
 
 // ============================================================================
@@ -138,21 +129,21 @@ pub struct BatchProcessorHandle {
 
 impl BatchProcessorHandle {
     /// Trigger manual batch processing
-    pub async fn trigger_batch(&self) -> Result<(), String> {
+    pub fn trigger_batch(&self) -> Result<(), String> {
         self.command_tx
             .send(BatchProcessorCommand::TriggerBatch)
             .map_err(|e| format!("Failed to send trigger command: {}", e))
     }
 
     /// Stop the batch processor
-    pub async fn stop(&self) -> Result<(), String> {
+    pub fn stop(&self) -> Result<(), String> {
         self.command_tx
             .send(BatchProcessorCommand::Stop)
             .map_err(|e| format!("Failed to send stop command: {}", e))
     }
 
     /// Update processor configuration
-    pub async fn update_config(&self, config: BatchProcessorConfig) -> Result<(), String> {
+    pub fn update_config(&self, config: BatchProcessorConfig) -> Result<(), String> {
         self.command_tx
             .send(BatchProcessorCommand::UpdateConfig(config))
             .map_err(|e| format!("Failed to send config update: {}", e))
@@ -214,7 +205,7 @@ impl BackgroundBatchProcessor {
             tokio::select! {
                 // Handle timer-based triggers
                 _ = timer.tick() => {
-                    if self.should_process_batch(last_batch_time).await {
+                    if self.should_process_batch(last_batch_time) {
                         match self.process_batch("timer").await {
                             Ok(Some(_)) => {
                                 last_batch_time = Instant::now();
@@ -271,7 +262,7 @@ impl BackgroundBatchProcessor {
 
                 // Check count-based trigger periodically (every 10 seconds)
                 _ = tokio::time::sleep(Duration::from_secs(10)) => {
-                    if self.should_process_batch(last_batch_time).await {
+                    if self.should_process_batch(last_batch_time) {
                         match self.check_count_trigger().await {
                             Ok(true) => {
                                 match self.process_batch("count").await {
@@ -305,7 +296,7 @@ impl BackgroundBatchProcessor {
     }
 
     /// Check if we should process a batch (respecting minimum interval)
-    async fn should_process_batch(&self, last_batch_time: Instant) -> bool {
+    fn should_process_batch(&self, last_batch_time: Instant) -> bool {
         let elapsed = last_batch_time.elapsed();
         elapsed.as_secs() >= self.config.min_batch_interval_seconds
     }
@@ -356,7 +347,7 @@ impl BackgroundBatchProcessor {
                 self.update_stats(batch.id, transaction_count).await;
 
                 // Trigger proof generation asynchronously
-                self.trigger_proof_generation(batch.id).await;
+                self.trigger_proof_generation(batch.id);
 
                 Ok(Some(batch.id))
             }
@@ -420,6 +411,11 @@ impl BackgroundBatchProcessor {
                 error!("❌ Failed to update proof statuses: {}", e);
             }
 
+            // Phase 3: Post proven batches to smart contract
+            if let Err(e) = Self::post_proven_batches_to_contract(&pool).await {
+                error!("❌ Failed to post proven batches to contract: {}", e);
+            }
+
             // Small delay before next cycle
             tokio::time::sleep(Duration::from_secs(5)).await;
         }
@@ -428,12 +424,12 @@ impl BackgroundBatchProcessor {
     /// Phase 1: Submit proofs for batches missing Sindri proof IDs
     async fn submit_missing_proofs(pool: &PgPool) -> Result<(), String> {
         let batches_missing_proofs = sqlx::query!(
-            "SELECT id FROM proof_batches 
-             WHERE sindri_proof_id IS NULL 
-                OR sindri_proof_id = '' 
+            "SELECT id FROM proof_batches
+             WHERE sindri_proof_id IS NULL
+                OR sindri_proof_id = ''
                 OR sindri_proof_id LIKE 'failed_%'
                 OR sindri_proof_id LIKE 'error_%'
-             ORDER BY id ASC 
+             ORDER BY id ASC
              LIMIT 5" // Process in small batches to avoid overwhelming
         )
         .fetch_all(pool)
@@ -472,13 +468,13 @@ impl BackgroundBatchProcessor {
     /// Phase 2: Update status for batches with pending proofs
     async fn update_proof_statuses(pool: &PgPool) -> Result<(), String> {
         let pending_batches = sqlx::query!(
-            "SELECT id, sindri_proof_id FROM proof_batches 
-             WHERE proof_status = 'pending' 
-               AND sindri_proof_id IS NOT NULL 
-               AND sindri_proof_id != '' 
+            "SELECT id, sindri_proof_id FROM proof_batches
+             WHERE proof_status = 'pending'
+               AND sindri_proof_id IS NOT NULL
+               AND sindri_proof_id != ''
                AND sindri_proof_id NOT LIKE 'failed_%'
                AND sindri_proof_id NOT LIKE 'error_%'
-             ORDER BY id ASC 
+             ORDER BY id ASC
              LIMIT 10" // Check statuses in small batches
         )
         .fetch_all(pool)
@@ -636,7 +632,7 @@ impl BackgroundBatchProcessor {
     }
 
     /// Trigger proof generation for a batch asynchronously
-    async fn trigger_proof_generation(&self, batch_id: i32) {
+    fn trigger_proof_generation(&self, batch_id: i32) {
         // The continuous monitoring service will pick up this batch automatically
         // No need to do anything here - just log that the batch was created
         info!(
@@ -792,6 +788,109 @@ impl BackgroundBatchProcessor {
                 }
 
                 Err(format!("Failed to submit proof request: {}", e))
+            }
+        }
+    }
+
+    /// Phase 3: Post proven batches to smart contract
+    async fn post_proven_batches_to_contract(pool: &PgPool) -> Result<(), String> {
+        // Get proven batches that haven't been posted to contract yet
+        let unposted_batches = get_proven_unposted_batches(pool, Some(5))
+            .await
+            .map_err(|e| format!("Failed to get proven unposted batches: {}", e))?;
+
+        if unposted_batches.is_empty() {
+            return Ok(()); // No work to do
+        }
+
+        info!(
+            "🔗 Found {} proven batches to post to smart contract",
+            unposted_batches.len()
+        );
+
+        // Try to initialize Ethereum client (graceful fallback if not configured)
+        let eth_client = match EthConfig::from_env() {
+            Ok(config) => match EthereumClient::new(config).await {
+                Ok(client) => Some(client),
+                Err(e) => {
+                    error!("❌ Failed to initialize Ethereum client: {}", e);
+                    error!("   Smart contract posting will be skipped");
+                    return Ok(());
+                }
+            },
+            Err(e) => {
+                error!("❌ Ethereum configuration not found: {}", e);
+                error!("   Smart contract posting will be skipped");
+                return Ok(());
+            }
+        };
+
+        let eth_client = eth_client.unwrap();
+
+        for batch in unposted_batches {
+            if let Err(e) = Self::submit_batch_to_contract(pool, &eth_client, &batch).await {
+                error!("❌ Failed to submit batch {} to contract: {}", batch.id, e);
+                continue; // Continue with next batch
+            }
+
+            // Mark as posted after successful submission
+            if let Err(e) = mark_batch_posted_to_contract(pool, batch.id).await {
+                error!("❌ Failed to mark batch {} as posted: {}", batch.id, e);
+            } else {
+                info!("✅ Successfully posted batch {} to contract", batch.id);
+            }
+
+            // Small delay between submissions to avoid overwhelming the network
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+
+        Ok(())
+    }
+
+    /// Submit a single batch to the smart contract
+    async fn submit_batch_to_contract(
+        _pool: &PgPool,
+        eth_client: &EthereumClient,
+        batch: &arithmetic_db::ProofBatch,
+    ) -> Result<(), String> {
+        info!("🚀 Submitting batch {} to smart contract", batch.id);
+
+        // For now, use a random 32-byte hash as mentioned in the user's request
+        // until the ADS state root issue is fixed
+        let state_id = FixedBytes::from_slice(
+            &alloy_primitives::keccak256(format!("batch_{}", batch.id).as_bytes())[..32],
+        );
+        let new_state_root = FixedBytes::from_slice(
+            &alloy_primitives::keccak256(
+                format!("state_root_{}", batch.final_counter_value).as_bytes(),
+            )[..32],
+        );
+
+        // Create dummy proof data (will be replaced with actual Sindri proof data later)
+        let proof_bytes = Bytes::from(vec![0u8; 128]); // Dummy proof
+        let public_values = Bytes::from(
+            [
+                (batch.previous_counter_value as u32).to_le_bytes(),
+                (batch.final_counter_value as u32).to_le_bytes(),
+            ]
+            .concat(),
+        );
+
+        // Submit to smart contract
+        match eth_client
+            .update_state(state_id, new_state_root, proof_bytes, public_values)
+            .await
+        {
+            Ok(result) => {
+                info!("✅ Batch {} submitted to contract successfully!", batch.id);
+                info!("   Transaction hash: {:?}", result.transaction_hash);
+                info!("   State ID: {}", result.state_id);
+                info!("   New state root: {}", result.new_state_root);
+                Ok(())
+            }
+            Err(e) => {
+                error!("❌ Failed to submit batch {} to contract: {}", batch.id, e);
+                Err(format!("Smart contract submission failed: {}", e))
             }
         }
     }

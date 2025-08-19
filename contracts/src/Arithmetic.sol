@@ -82,10 +82,12 @@ contract Arithmetic is EventHelpers {
     string public constant EVENT_PROOF_READ = "ProofRead";
 
     /// @notice Pre-computed hashes for gas-efficient event type comparisons.
-    bytes32 private constant STATE_UPDATE_HASH = keccak256(abi.encodePacked("state_update"));
-    bytes32 private constant BATCH_UPDATE_HASH = keccak256(abi.encodePacked("batch_update"));
-    bytes32 private constant PROOF_STORED_HASH = keccak256(abi.encodePacked("proof_stored"));
-
+    bytes32 private constant STATE_UPDATE_HASH =
+        keccak256(abi.encodePacked("state_update"));
+    bytes32 private constant BATCH_UPDATE_HASH =
+        keccak256(abi.encodePacked("batch_update"));
+    bytes32 private constant PROOF_STORED_HASH =
+        keccak256(abi.encodePacked("proof_stored"));
 
     /// @notice Global event statistics.
     EventStats public eventStats;
@@ -155,7 +157,10 @@ contract Arithmetic is EventHelpers {
 
     /// @notice Legacy events for backwards compatibility.
     event AuthorizationChanged(address indexed account, bool authorized);
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    event OwnershipTransferred(
+        address indexed previousOwner,
+        address indexed newOwner
+    );
 
     /// @notice Event emitted for bulk operations.
     event BulkOperationExecuted(
@@ -189,7 +194,8 @@ contract Arithmetic is EventHelpers {
 
     /// @notice Modifier to restrict access to authorized posters only.
     modifier onlyAuthorized() {
-        if (!authorizedPosters[msg.sender] && msg.sender != owner) revert UnauthorizedAccess();
+        if (!authorizedPosters[msg.sender] && msg.sender != owner)
+            revert UnauthorizedAccess();
         _;
     }
 
@@ -236,19 +242,25 @@ contract Arithmetic is EventHelpers {
             publicValues,
             proof
         );
-        
+
         bytes32 proofHash = keccak256(proof);
-        
+
         currentState[stateId] = newStateRoot;
         storedProofs[proofHash] = proof;
         storedResults[proofHash] = publicValues;
         verifiedProofs[proofHash] = true;
-        
+
         // Store proof metadata
         _storeProofMetadata(proofHash, stateId, msg.sender);
-        
-        emit StateUpdated(stateId, newStateRoot, proofHash, msg.sender, block.timestamp);
-        
+
+        emit StateUpdated(
+            stateId,
+            newStateRoot,
+            proofHash,
+            msg.sender,
+            block.timestamp
+        );
+
         // Update event statistics
         eventCountByStateId[stateId]++;
         _updateEventStats("state_update");
@@ -281,28 +293,36 @@ contract Arithmetic is EventHelpers {
         bytes calldata proof,
         bytes calldata result
     ) internal returns (bool success) {
-        try ISP1Verifier(verifier).verifyProof(
-            arithmeticProgramVKey,
-            result,
-            proof
-        ) {
+        try
+            ISP1Verifier(verifier).verifyProof(
+                arithmeticProgramVKey,
+                result,
+                proof
+            )
+        {
             bytes32 proofHash = keccak256(proof);
-            
+
             currentState[stateId] = newState;
             stateHistory[stateId].push(newState);
             storedProofs[proofHash] = proof;
             storedResults[proofHash] = result;
             verifiedProofs[proofHash] = true;
-            
+
             // Store proof metadata
             _storeProofMetadata(proofHash, stateId, msg.sender);
-            
-            emit StateUpdated(stateId, newState, proofHash, msg.sender, block.timestamp);
-            
+
+            emit StateUpdated(
+                stateId,
+                newState,
+                proofHash,
+                msg.sender,
+                block.timestamp
+            );
+
             // Update event statistics
             eventCountByStateId[stateId]++;
             _updateEventStats("state_update");
-            
+
             return true;
         } catch {
             return false;
@@ -320,10 +340,12 @@ contract Arithmetic is EventHelpers {
     /// @param stateId The state identifier.
     /// @return state The current state root.
     /// @return exists True if the state exists.
-    function readCurrentState(bytes32 stateId) external returns (bytes32 state, bool exists) {
+    function readCurrentState(
+        bytes32 stateId
+    ) external returns (bytes32 state, bool exists) {
         state = currentState[stateId];
         exists = (state != bytes32(0) || stateHistory[stateId].length > 0);
-        
+
         // Track read event
         _trackReadEvent(stateId, bytes32(0));
     }
@@ -332,21 +354,24 @@ contract Arithmetic is EventHelpers {
     /// @param stateId The state identifier.
     /// @param limit Maximum number of recent states to return (0 for all).
     /// @return states Array of recent state roots.
-    function readStateHistory(bytes32 stateId, uint256 limit) external view returns (bytes32[] memory states) {
+    function readStateHistory(
+        bytes32 stateId,
+        uint256 limit
+    ) external view returns (bytes32[] memory states) {
         bytes32[] storage history = stateHistory[stateId];
         uint256 length = history.length;
-        
+
         if (length == 0) {
             return new bytes32[](0);
         }
-        
+
         if (limit == 0 || limit > length) {
             limit = length;
         }
-        
+
         states = new bytes32[](limit);
         uint256 startIndex = length - limit;
-        
+
         for (uint256 i = 0; i < limit; i++) {
             states[i] = history[startIndex + i];
         }
@@ -355,14 +380,30 @@ contract Arithmetic is EventHelpers {
     /// @notice Get a stored proof by proof ID.
     /// @param proofId The proof identifier (hash).
     /// @return The stored proof bytes.
-    function getStoredProof(bytes32 proofId) external view returns (bytes memory) {
+    function getStoredProof(
+        bytes32 proofId
+    ) external view returns (bytes memory) {
+        if (storedProofs[proofId].length == 0) revert ProofNotFound();
+        return storedProofs[proofId];
+    }
+
+    /// @notice Get a stored proof by providing the raw proof bytes.
+    /// @param proof The raw proof bytes.
+    /// @return The stored proof bytes.
+    function getStoredProofByProof(
+        bytes calldata proof
+    ) external view returns (bytes memory) {
+        bytes32 proofId = keccak256(proof);
+        if (storedProofs[proofId].length == 0) revert ProofNotFound();
         return storedProofs[proofId];
     }
 
     /// @notice Get stored verification result by proof ID.
     /// @param proofId The proof identifier (hash).
     /// @return The stored result bytes.
-    function getStoredResult(bytes32 proofId) external view returns (bytes memory) {
+    function getStoredResult(
+        bytes32 proofId
+    ) external view returns (bytes memory) {
         return storedResults[proofId];
     }
 
@@ -371,15 +412,17 @@ contract Arithmetic is EventHelpers {
     /// @return proof The stored proof bytes.
     /// @return result The stored result bytes.
     /// @return verified True if the proof has been verified.
-    function readProofDetails(bytes32 proofId) external view returns (
-        bytes memory proof,
-        bytes memory result,
-        bool verified
-    ) {
+    function readProofDetails(
+        bytes32 proofId
+    )
+        external
+        view
+        returns (bytes memory proof, bytes memory result, bool verified)
+    {
         proof = storedProofs[proofId];
         result = storedResults[proofId];
         verified = verifiedProofs[proofId];
-        
+
         if (proof.length == 0) revert ProofNotFound();
     }
 
@@ -396,80 +439,97 @@ contract Arithmetic is EventHelpers {
         bytes[] calldata results
     ) external onlyAuthorized returns (bool[] memory successes) {
         uint256 length = stateIds.length;
-        
-        if (length != newStates.length || 
-            length != proofs.length || 
-            length != results.length) {
+
+        if (
+            length != newStates.length ||
+            length != proofs.length ||
+            length != results.length
+        ) {
             revert InvalidArrayLength();
         }
-        
+
         successes = new bool[](length);
-        
+
         // Cache frequently accessed values to reduce external calls
         address cachedVerifier = verifier;
         bytes32 cachedVKey = arithmeticProgramVKey;
         address cachedSender = msg.sender;
         uint256 cachedTimestamp = block.timestamp;
-        
+
         // Pre-verify all proofs to fail fast if any are invalid
-        for (uint256 i = 0; i < length;) {
-            try ISP1Verifier(cachedVerifier).verifyProof(
-                cachedVKey,
-                results[i],
-                proofs[i]
-            ) {
+        for (uint256 i = 0; i < length; ) {
+            try
+                ISP1Verifier(cachedVerifier).verifyProof(
+                    cachedVKey,
+                    results[i],
+                    proofs[i]
+                )
+            {
                 successes[i] = true;
             } catch {
                 successes[i] = false;
             }
-            
+
             unchecked {
                 ++i;
             }
         }
-        
+
         // Batch process all successful verifications
-        for (uint256 i = 0; i < length;) {
+        for (uint256 i = 0; i < length; ) {
             if (successes[i]) {
                 bytes32 proofHash = keccak256(proofs[i]);
-                
+
                 // Batch storage updates
                 currentState[stateIds[i]] = newStates[i];
                 stateHistory[stateIds[i]].push(newStates[i]);
                 storedProofs[proofHash] = proofs[i];
                 storedResults[proofHash] = results[i];
                 verifiedProofs[proofHash] = true;
-                
+
                 // Store proof metadata (optimized call)
                 _storeProofMetadata(proofHash, stateIds[i], cachedSender);
-                
+
                 // Emit individual state updated events
-                emit StateUpdated(stateIds[i], newStates[i], proofHash, cachedSender, cachedTimestamp);
-                
+                emit StateUpdated(
+                    stateIds[i],
+                    newStates[i],
+                    proofHash,
+                    cachedSender,
+                    cachedTimestamp
+                );
+
                 // Update event statistics
                 eventCountByStateId[stateIds[i]]++;
             }
-            
+
             unchecked {
                 ++i;
             }
         }
-        
+
         // Emit batch event and update stats once
-        emit BatchStateUpdated(stateIds, newStates, cachedSender, cachedTimestamp);
+        emit BatchStateUpdated(
+            stateIds,
+            newStates,
+            cachedSender,
+            cachedTimestamp
+        );
         _updateEventStats("batch_update");
     }
 
     /// @notice Read multiple current states.
     /// @param stateIds Array of state identifiers.
     /// @return states Array of current state roots.
-    function batchReadStates(bytes32[] calldata stateIds) external view returns (bytes32[] memory states) {
+    function batchReadStates(
+        bytes32[] calldata stateIds
+    ) external view returns (bytes32[] memory states) {
         uint256 length = stateIds.length;
         states = new bytes32[](length);
-        
-        for (uint256 i = 0; i < length;) {
+
+        for (uint256 i = 0; i < length; ) {
             states[i] = currentState[stateIds[i]];
-            
+
             unchecked {
                 ++i;
             }
@@ -479,7 +539,10 @@ contract Arithmetic is EventHelpers {
     /// @notice Grant or revoke authorization to post state updates.
     /// @param account The account to modify authorization for.
     /// @param authorized True to grant, false to revoke authorization.
-    function setAuthorization(address account, bool authorized) external onlyOwner {
+    function setAuthorization(
+        address account,
+        bool authorized
+    ) external onlyOwner {
         authorizedPosters[account] = authorized;
         emit AuthorizationChanged(account, authorized);
     }
@@ -490,10 +553,10 @@ contract Arithmetic is EventHelpers {
         require(newOwner != address(0), "new owner is zero address");
         address previousOwner = owner;
         owner = newOwner;
-        
+
         authorizedPosters[previousOwner] = false;
         authorizedPosters[newOwner] = true;
-        
+
         emit AuthorizationChanged(previousOwner, false);
         emit AuthorizationChanged(newOwner, true);
         emit OwnershipTransferred(previousOwner, newOwner);
@@ -506,11 +569,19 @@ contract Arithmetic is EventHelpers {
         return authorizedPosters[account] || account == owner;
     }
 
+    /// @notice Check if a proof exists.
+    /// @param proof The proof to check.
+    /// @return True if the proof exists.
+    function proofExists(bytes calldata proof) external view returns (bool) {
+        return storedProofs[keccak256(proof)].length > 0;
+    }
 
     /// @notice Get the total number of states in history for a state ID.
     /// @param stateId The state identifier.
     /// @return The number of historical states.
-    function getStateHistoryLength(bytes32 stateId) external view returns (uint256) {
+    function getStateHistoryLength(
+        bytes32 stateId
+    ) external view returns (uint256) {
         return stateHistory[stateId].length;
     }
 
@@ -522,10 +593,12 @@ contract Arithmetic is EventHelpers {
     /// @param proofId The proof identifier (hash).
     /// @return proof The proof bytes.
     /// @return exists True if the proof exists.
-    function getProofById(bytes32 proofId) external returns (bytes memory proof, bool exists) {
+    function getProofById(
+        bytes32 proofId
+    ) external returns (bytes memory proof, bool exists) {
         proof = storedProofs[proofId];
         exists = proofMetadata[proofId].exists;
-        
+
         // Track read event
         _trackReadEvent(bytes32(0), proofId);
     }
@@ -534,13 +607,15 @@ contract Arithmetic is EventHelpers {
     /// @param stateId The state identifier.
     /// @return proof The latest proof bytes for the state.
     /// @return proofId The proof identifier.
-    function getProofByStateId(bytes32 stateId) external returns (bytes memory proof, bytes32 proofId) {
+    function getProofByStateId(
+        bytes32 stateId
+    ) external returns (bytes memory proof, bytes32 proofId) {
         proofId = latestProofForState[stateId];
         if (proofId == bytes32(0)) {
             return (new bytes(0), bytes32(0));
         }
         proof = storedProofs[proofId];
-        
+
         // Track read events for both state and proof
         _trackReadEvent(stateId, proofId);
     }
@@ -550,16 +625,18 @@ contract Arithmetic is EventHelpers {
     /// @return proof The latest proof bytes.
     /// @return proofId The proof identifier.
     /// @return timestamp When the proof was submitted.
-    function getLatestProof(bytes32 stateId) external view returns (
-        bytes memory proof,
-        bytes32 proofId,
-        uint256 timestamp
-    ) {
+    function getLatestProof(
+        bytes32 stateId
+    )
+        external
+        view
+        returns (bytes memory proof, bytes32 proofId, uint256 timestamp)
+    {
         proofId = latestProofForState[stateId];
         if (proofId == bytes32(0)) {
             return (new bytes(0), bytes32(0), 0);
         }
-        
+
         proof = storedProofs[proofId];
         timestamp = proofMetadata[proofId].timestamp;
     }
@@ -579,7 +656,9 @@ contract Arithmetic is EventHelpers {
     /// @param proofId The proof identifier.
     /// @return verified True if the proof is verified.
     /// @return result The verification result bytes.
-    function getVerificationResult(bytes32 proofId) external view returns (bool verified, bytes memory result) {
+    function getVerificationResult(
+        bytes32 proofId
+    ) external view returns (bool verified, bytes memory result) {
         verified = proofMetadata[proofId].verified;
         result = storedResults[proofId];
     }
@@ -587,7 +666,9 @@ contract Arithmetic is EventHelpers {
     /// @notice Get timestamp when proof was submitted.
     /// @param proofId The proof identifier.
     /// @return The timestamp of proof submission.
-    function getProofTimestamp(bytes32 proofId) external view returns (uint256) {
+    function getProofTimestamp(
+        bytes32 proofId
+    ) external view returns (uint256) {
         return proofMetadata[proofId].timestamp;
     }
 
@@ -605,9 +686,11 @@ contract Arithmetic is EventHelpers {
     /// @param index The index in the proof array.
     /// @return proofId The proof identifier at the index.
     /// @return proof The proof bytes.
-    function getProofByIndex(uint256 index) external view returns (bytes32 proofId, bytes memory proof) {
+    function getProofByIndex(
+        uint256 index
+    ) external view returns (bytes32 proofId, bytes memory proof) {
         if (index >= allProofIds.length) revert InvalidIndex();
-        
+
         proofId = allProofIds[index];
         proof = storedProofs[proofId];
     }
@@ -616,29 +699,28 @@ contract Arithmetic is EventHelpers {
     /// @param limit Maximum number of recent proofs to return.
     /// @return proofIds Array of recent proof identifiers.
     /// @return proofs Array of recent proof bytes.
-    function getRecentProofs(uint256 limit) external view returns (
-        bytes32[] memory proofIds,
-        bytes[] memory proofs
-    ) {
+    function getRecentProofs(
+        uint256 limit
+    ) external view returns (bytes32[] memory proofIds, bytes[] memory proofs) {
         uint256 totalProofs = allProofIds.length;
         if (totalProofs == 0) {
             return (new bytes32[](0), new bytes[](0));
         }
-        
+
         if (limit == 0 || limit > totalProofs) {
             limit = totalProofs;
         }
-        
+
         proofIds = new bytes32[](limit);
         proofs = new bytes[](limit);
-        
+
         uint256 startIndex = totalProofs - limit;
-        
-        for (uint256 i = 0; i < limit;) {
+
+        for (uint256 i = 0; i < limit; ) {
             bytes32 proofId = allProofIds[startIndex + i];
             proofIds[i] = proofId;
             proofs[i] = storedProofs[proofId];
-            
+
             unchecked {
                 ++i;
             }
@@ -648,14 +730,18 @@ contract Arithmetic is EventHelpers {
     /// @notice Get all proof IDs for a specific state ID.
     /// @param stateId The state identifier.
     /// @return proofIds Array of proof identifiers for the state.
-    function getProofsByStateId(bytes32 stateId) external view returns (bytes32[] memory proofIds) {
+    function getProofsByStateId(
+        bytes32 stateId
+    ) external view returns (bytes32[] memory proofIds) {
         return stateToProofs[stateId];
     }
 
     /// @notice Get proof metadata by proof ID.
     /// @param proofId The proof identifier.
     /// @return metadata The complete proof metadata.
-    function getProofMetadata(bytes32 proofId) external view returns (ProofMetadata memory metadata) {
+    function getProofMetadata(
+        bytes32 proofId
+    ) external view returns (ProofMetadata memory metadata) {
         metadata = proofMetadata[proofId];
         if (!metadata.exists) revert ProofNotFound();
     }
@@ -663,7 +749,9 @@ contract Arithmetic is EventHelpers {
     /// @notice Get submitter address for a proof.
     /// @param proofId The proof identifier.
     /// @return submitter The address that submitted the proof.
-    function getProofSubmitter(bytes32 proofId) external view returns (address submitter) {
+    function getProofSubmitter(
+        bytes32 proofId
+    ) external view returns (address submitter) {
         if (!proofMetadata[proofId].exists) revert ProofNotFound();
         return proofMetadata[proofId].submitter;
     }
@@ -676,12 +764,16 @@ contract Arithmetic is EventHelpers {
     /// @param proofId The proof identifier.
     /// @param stateId The associated state identifier.
     /// @param submitter The address submitting the proof.
-    function _storeProofMetadata(bytes32 proofId, bytes32 stateId, address submitter) internal {
+    function _storeProofMetadata(
+        bytes32 proofId,
+        bytes32 stateId,
+        address submitter
+    ) internal {
         // Revert if proof already exists to prevent duplicate submissions
         if (proofMetadata[proofId].exists) {
             revert ProofAlreadyExists();
         }
-        
+
         proofMetadata[proofId] = ProofMetadata({
             proofId: proofId,
             stateId: stateId,
@@ -690,20 +782,20 @@ contract Arithmetic is EventHelpers {
             verified: true, // Set to true since we verify before storing
             exists: true
         });
-        
+
         // Add to enumeration
         proofIdToIndex[proofId] = allProofIds.length;
         allProofIds.push(proofId);
-        
+
         // Add to state mapping
         stateToProofs[stateId].push(proofId);
-        
+
         // Update latest proof for state
         latestProofForState[stateId] = proofId;
-        
+
         emit ProofStored(proofId, stateId, submitter, block.timestamp);
         emit ProofVerified(proofId, true, new bytes(0), block.timestamp);
-        
+
         // Update event statistics
         _updateEventStats("proof_stored");
     }
@@ -715,17 +807,17 @@ contract Arithmetic is EventHelpers {
     /// @notice Internal function to update event statistics.
     function _updateEventStats(string memory eventType) internal override {
         eventStats.lastEventTimestamp = block.timestamp;
-        
+
         // Update daily counts
         uint256 today = block.timestamp / 86400;
         dailyEventCounts[today]++;
-        
+
         // Update submitter counts
         eventCountBySubmitter[msg.sender]++;
-        
+
         // Update specific event type counts
         bytes32 eventHash = keccak256(abi.encodePacked(eventType));
-        
+
         if (eventHash == STATE_UPDATE_HASH) {
             eventStats.totalStateUpdates++;
         } else if (eventHash == BATCH_UPDATE_HASH) {
@@ -737,24 +829,27 @@ contract Arithmetic is EventHelpers {
     }
 
     /// @notice Internal function to track read events.
-    function _trackReadEvent(bytes32 stateId, bytes32 proofId) internal override {
+    function _trackReadEvent(
+        bytes32 stateId,
+        bytes32 proofId
+    ) internal override {
         if (!readEventTrackingEnabled) return;
-        
+
         eventStats.lastEventTimestamp = block.timestamp;
-        
+
         // Update daily counts
         uint256 today = block.timestamp / 86400;
         dailyEventCounts[today]++;
-        
+
         // Update submitter counts
         eventCountBySubmitter[msg.sender]++;
-        
+
         if (stateId != bytes32(0)) {
             eventStats.totalStateReads++;
             eventCountByStateId[stateId]++;
             emit StateReadRequested(stateId, msg.sender, block.timestamp);
         }
-        
+
         if (proofId != bytes32(0)) {
             eventStats.totalProofReads++;
             emit ProofReadRequested(proofId, msg.sender, block.timestamp);
@@ -762,22 +857,33 @@ contract Arithmetic is EventHelpers {
     }
 
     /// @notice Get event statistics for monitoring.
-    function getEventStats() external view override returns (EventStats memory) {
+    function getEventStats()
+        external
+        view
+        override
+        returns (EventStats memory)
+    {
         return eventStats;
     }
 
     /// @notice Get event count by submitter address.
-    function getEventCountBySubmitter(address submitter) external view override returns (uint256) {
+    function getEventCountBySubmitter(
+        address submitter
+    ) external view override returns (uint256) {
         return eventCountBySubmitter[submitter];
     }
 
     /// @notice Get event count by state ID.
-    function getEventCountByStateId(bytes32 stateId) external view override returns (uint256) {
+    function getEventCountByStateId(
+        bytes32 stateId
+    ) external view override returns (uint256) {
         return eventCountByStateId[stateId];
     }
 
     /// @notice Get daily event count for a specific day.
-    function getDailyEventCount(uint256 day) external view override returns (uint256) {
+    function getDailyEventCount(
+        uint256 day
+    ) external view override returns (uint256) {
         return dailyEventCounts[day];
     }
 
@@ -787,19 +893,19 @@ contract Arithmetic is EventHelpers {
     }
 
     /// @notice Get aggregated event counts for a time range.
-    function getEventCountInRange(uint256 startTime, uint256 endTime) external view override returns (
-        uint256 totalEvents
-    ) {
+    function getEventCountInRange(
+        uint256 startTime,
+        uint256 endTime
+    ) external view override returns (uint256 totalEvents) {
         if (startTime >= endTime) {
             return 0;
         }
-        
+
         uint256 startDay = startTime / 86400;
         uint256 endDay = endTime / 86400;
-        
+
         for (uint256 day = startDay; day <= endDay; day++) {
             totalEvents += dailyEventCounts[day];
         }
     }
-
 }

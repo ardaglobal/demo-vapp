@@ -17,26 +17,22 @@ use thiserror::Error;
 use tracing::{error, info, warn};
 
 /// Available EVM-compatible proof systems
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize, Default)]
 #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum ProofSystem {
     Plonk,
+    #[default]
     Groth16,
 }
 
 impl ProofSystem {
     /// Convert to the proving scheme string expected by Sindri
-    pub fn to_sindri_scheme(&self) -> &'static str {
+    #[must_use]
+    pub const fn to_sindri_scheme(&self) -> &'static str {
         match self {
-            ProofSystem::Plonk => "plonk",
-            ProofSystem::Groth16 => "groth16",
+            Self::Plonk => "plonk",
+            Self::Groth16 => "groth16",
         }
-    }
-}
-
-impl Default for ProofSystem {
-    fn default() -> Self {
-        ProofSystem::Groth16
     }
 }
 
@@ -148,6 +144,15 @@ pub struct SP1BatchProofFixture {
 }
 
 /// Generate a batch proof via Sindri with full feature support
+///
+/// # Errors
+///
+/// Returns `ProofError` if:
+/// - Sindri API key is not set in environment
+/// - Circuit is not found or not deployed
+/// - Proof generation fails on Sindri servers
+/// - Network communication errors occur
+#[allow(clippy::cognitive_complexity)]
 pub async fn generate_batch_proof(
     request: BatchProofGenerationRequest,
 ) -> Result<ProofGenerationResponse, ProofError> {
@@ -186,19 +191,18 @@ pub async fn generate_batch_proof(
 
     // Get circuit name with configurable tag from environment
     let circuit_tag = std::env::var("SINDRI_CIRCUIT_TAG").unwrap_or_else(|_| "latest".to_string());
-    let circuit_name = format!("demo-vapp:{}", circuit_tag);
+    let circuit_name = format!("demo-vapp:{circuit_tag}");
 
     info!("📋 Using circuit: {} (tag: {})", circuit_name, circuit_tag);
     info!("🔑 Checking SINDRI_API_KEY availability...");
 
-    match std::env::var("SINDRI_API_KEY") {
-        Ok(key) => info!("✅ SINDRI_API_KEY is set (length: {} chars)", key.len()),
-        Err(_) => {
-            error!("❌ SINDRI_API_KEY is not set in environment!");
-            return Err(ProofError::ConfigError(
-                "SINDRI_API_KEY not set".to_string(),
-            ));
-        }
+    if let Ok(key) = std::env::var("SINDRI_API_KEY") {
+        info!("✅ SINDRI_API_KEY is set (length: {} chars)", key.len());
+    } else {
+        error!("❌ SINDRI_API_KEY is not set in environment!");
+        return Err(ProofError::ConfigError(
+            "SINDRI_API_KEY not set".to_string(),
+        ));
     }
 
     info!("🌐 Creating Sindri client...");
@@ -272,6 +276,15 @@ pub async fn generate_batch_proof(
 }
 
 /// Generate a proof via Sindri with full feature support
+///
+/// # Errors
+///
+/// Returns `ProofError` if:
+/// - Sindri API key is not set in environment
+/// - Circuit is not found or not deployed
+/// - Proof generation fails on Sindri servers
+/// - Network communication errors occur
+#[allow(clippy::cognitive_complexity)]
 pub async fn generate_sindri_proof(
     request: ProofGenerationRequest,
 ) -> Result<ProofGenerationResponse, ProofError> {
@@ -294,7 +307,7 @@ pub async fn generate_sindri_proof(
 
     // Get circuit name with configurable tag from environment
     let circuit_tag = std::env::var("SINDRI_CIRCUIT_TAG").unwrap_or_else(|_| "latest".to_string());
-    let circuit_name = format!("demo-vapp:{}", circuit_tag);
+    let circuit_name = format!("demo-vapp:{circuit_tag}");
 
     info!("📋 Using circuit: {} (tag: {})", circuit_name, circuit_tag);
 
@@ -357,6 +370,14 @@ pub async fn generate_sindri_proof(
 }
 
 /// Verify a proof via Sindri with comprehensive validation
+///
+/// # Errors
+///
+/// Returns `ProofError` if:
+/// - Proof is not found on Sindri
+/// - Proof verification fails
+/// - Network communication errors occur  
+/// - SP1 proof extraction fails
 pub async fn verify_sindri_proof(
     request: ProofVerificationRequest,
 ) -> Result<ProofVerificationResponse, ProofError> {
@@ -381,17 +402,21 @@ pub async fn verify_sindri_proof(
             expected_initial_balance: request.expected_initial_balance,
             expected_final_balance: request.expected_final_balance,
             verification_message: format!("Proof not ready. Status: {:?}", proof_info.status),
-            verification_time_ms: start_time.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
+            verification_time_ms: start_time
+                .elapsed()
+                .as_millis()
+                .try_into()
+                .unwrap_or(u64::MAX),
         });
     }
 
     // Extract SP1 proof and verification key from Sindri response
-    let sp1_proof = proof_info.to_sp1_proof_with_public().map_err(|e| {
-        ProofError::VerificationFailed(format!("Failed to extract SP1 proof: {}", e))
-    })?;
+    let sp1_proof = proof_info
+        .to_sp1_proof_with_public()
+        .map_err(|e| ProofError::VerificationFailed(format!("Failed to extract SP1 proof: {e}")))?;
 
     let sindri_verifying_key = proof_info.get_sp1_verifying_key().map_err(|e| {
-        ProofError::VerificationFailed(format!("Failed to extract verification key: {}", e))
+        ProofError::VerificationFailed(format!("Failed to extract verification key: {e}"))
     })?;
 
     // Perform local verification using Sindri's verification key
@@ -409,7 +434,11 @@ pub async fn verify_sindri_proof(
             expected_initial_balance: request.expected_initial_balance,
             expected_final_balance: request.expected_final_balance,
             verification_message: "Cryptographic proof verification failed".to_string(),
-            verification_time_ms: start_time.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
+            verification_time_ms: start_time
+                .elapsed()
+                .as_millis()
+                .try_into()
+                .unwrap_or(u64::MAX),
         });
     }
 
@@ -425,8 +454,7 @@ pub async fn verify_sindri_proof(
 
     let verification_message = if is_valid {
         format!(
-            "✅ CONTINUOUS BALANCE TRACKING VERIFIED: {} -> {} (cryptographically verified)",
-            actual_initial_balance, actual_final_balance
+            "✅ CONTINUOUS BALANCE TRACKING VERIFIED: {actual_initial_balance} -> {actual_final_balance} (cryptographically verified)"
         )
     } else {
         format!(
@@ -449,11 +477,16 @@ pub async fn verify_sindri_proof(
         expected_initial_balance: request.expected_initial_balance,
         expected_final_balance: request.expected_final_balance,
         verification_message,
-        verification_time_ms: start_time.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
+        verification_time_ms: start_time
+            .elapsed()
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX),
     })
 }
 
 /// Create EVM-compatible fixture from Sindri proof for Solidity testing
+#[allow(clippy::cognitive_complexity)]
 async fn create_evm_fixture(
     proof_info: &ProofInfoResponse,
     _a: i32,
@@ -461,6 +494,8 @@ async fn create_evm_fixture(
     result: i32,
     system: ProofSystem,
 ) -> Result<(), ProofError> {
+    const MAX_ATTEMPTS: u32 = 60; // 5 minutes with 5-second intervals
+
     info!(
         "🔧 Generating EVM fixture for {} proof...",
         system.to_sindri_scheme().to_uppercase()
@@ -472,7 +507,6 @@ async fn create_evm_fixture(
 
     // Poll until proof is ready (with timeout)
     let mut attempts = 0;
-    const MAX_ATTEMPTS: u32 = 60; // 5 minutes with 5-second intervals
 
     while current_proof.status != JobStatus::Ready && attempts < MAX_ATTEMPTS {
         if current_proof.status == JobStatus::Failed {
@@ -532,14 +566,14 @@ async fn create_evm_fixture(
         .join("contracts/src/fixtures");
 
     std::fs::create_dir_all(&fixture_path).map_err(|e| {
-        ProofError::FixtureGenerationError(format!("Failed to create fixtures directory: {}", e))
+        ProofError::FixtureGenerationError(format!("Failed to create fixtures directory: {e}"))
     })?;
 
     let filename = format!("{}-fixture.json", system.to_sindri_scheme());
     let fixture_file = fixture_path.join(&filename);
 
     std::fs::write(&fixture_file, serde_json::to_string_pretty(&fixture)?).map_err(|e| {
-        ProofError::FixtureGenerationError(format!("Failed to write fixture file: {}", e))
+        ProofError::FixtureGenerationError(format!("Failed to write fixture file: {e}"))
     })?;
 
     info!("✅ EVM fixture saved to: {}", fixture_file.display());
@@ -555,6 +589,12 @@ async fn create_evm_fixture(
 }
 
 /// Get proof information from Sindri
+///
+/// # Errors
+///
+/// Returns `ProofError` if:
+/// - Proof is not found on Sindri  
+/// - Network communication errors occur
 pub async fn get_sindri_proof_info(proof_id: &str) -> Result<ProofInfoResponse, ProofError> {
     let client = SindriClient::default();
     client
@@ -564,12 +604,19 @@ pub async fn get_sindri_proof_info(proof_id: &str) -> Result<ProofInfoResponse, 
 }
 
 /// Check if a proof is ready on Sindri
+///
+/// # Errors
+///
+/// Returns `ProofError` if:
+/// - Proof is not found on Sindri  
+/// - Network communication errors occur
 pub async fn is_proof_ready(proof_id: &str) -> Result<bool, ProofError> {
     let proof_info = get_sindri_proof_info(proof_id).await?;
     Ok(proof_info.status == JobStatus::Ready)
 }
 
 /// Create EVM-compatible fixture from Sindri proof for batch processing
+#[allow(clippy::cognitive_complexity)]
 async fn create_batch_evm_fixture(
     proof_info: &ProofInfoResponse,
     initial_balance: i32,
@@ -577,6 +624,7 @@ async fn create_batch_evm_fixture(
     final_balance: i32,
     system: ProofSystem,
 ) -> Result<(), ProofError> {
+    const MAX_ATTEMPTS: u32 = 60; // 5 minutes with 5-second intervals
     info!(
         "🔧 Generating batch EVM fixture for {} proof...",
         system.to_sindri_scheme().to_uppercase()
@@ -588,7 +636,6 @@ async fn create_batch_evm_fixture(
 
     // Poll until proof is ready (with timeout)
     let mut attempts = 0;
-    const MAX_ATTEMPTS: u32 = 60; // 5 minutes with 5-second intervals
 
     while current_proof.status != JobStatus::Ready && attempts < MAX_ATTEMPTS {
         if current_proof.status == JobStatus::Failed {
@@ -647,14 +694,14 @@ async fn create_batch_evm_fixture(
         .join("contracts/src/fixtures");
 
     std::fs::create_dir_all(&fixture_path).map_err(|e| {
-        ProofError::FixtureGenerationError(format!("Failed to create fixtures directory: {}", e))
+        ProofError::FixtureGenerationError(format!("Failed to create fixtures directory: {e}"))
     })?;
 
     let filename = format!("batch-{}-fixture.json", system.to_sindri_scheme());
     let fixture_file = fixture_path.join(&filename);
 
     std::fs::write(&fixture_file, serde_json::to_string_pretty(&fixture)?).map_err(|e| {
-        ProofError::FixtureGenerationError(format!("Failed to write fixture file: {}", e))
+        ProofError::FixtureGenerationError(format!("Failed to write fixture file: {e}"))
     })?;
 
     info!("✅ Batch EVM fixture saved to: {}", fixture_file.display());
@@ -670,6 +717,13 @@ async fn create_batch_evm_fixture(
 }
 
 /// Wait for a proof to be ready with timeout
+///
+/// # Errors
+///
+/// Returns `ProofError` if:
+/// - Proof times out before becoming ready
+/// - Proof fails during generation
+/// - Network communication errors occur
 pub async fn wait_for_proof_ready(
     proof_id: &str,
     timeout_seconds: u64,
@@ -695,8 +749,7 @@ pub async fn wait_for_proof_ready(
             _ => {
                 if attempts >= max_attempts {
                     return Err(ProofError::ProofGenerationFailed(format!(
-                        "Timeout waiting for proof to be ready after {} seconds",
-                        timeout_seconds
+                        "Timeout waiting for proof to be ready after {timeout_seconds} seconds"
                     )));
                 }
                 tokio::time::sleep(Duration::from_secs(5)).await;

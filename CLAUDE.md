@@ -6,12 +6,19 @@ SP1 zero-knowledge proof project demonstrating **batch processing with continuou
 
 ### 🏗️ **New Architecture (Post-Refactor)**
 
+1. **RISC-V Program** (`program/`): Arithmetic addition in SP1 zkVM
+2. **Local SP1 Testing** (`script/`): Fast unit testing with Core proofs (`cargo run -p demo-vapp`)
+3. **Unified CLI** (`cli/`): HTTP client + local verification tool (no database dependencies)
+4. **API Server** (`api/`): Proof generation and data distribution (verification removed)
+5. **Database Module** (`db/`): PostgreSQL with indexed Merkle tree operations
+6. **Smart Contracts** (`contracts/`): Solidity proof verification with state management
+7. **Shared Library** (`lib/`): Pure computation logic (zkVM compatible)
 1. **RISC-V Program** (`program/`): Batch transaction processing in SP1 zkVM (`initial_balance + [tx1, tx2, ...] = final_balance`)
-2. **Local SP1 Testing** (`script/`): Fast unit testing with batch Core proofs (`cargo run -p demo-vapp`)  
+2. **Local SP1 Testing** (`script/`): Fast unit testing with batch Core proofs (`cargo run -p demo-vapp`)
 3. **Unified CLI** (`cli/`): Batch processing client for transactions, batch management, and local verification
 4. **API Server** (`api/`): Batch creation, ZK proof generation via Sindri, contract data generation (public/private split)
 5. **Database Module** (`db/`): PostgreSQL with batch processing tables, Merkle tree state management
-6. **Smart Contracts** (`contracts/`): Solidity proof verification with state management  
+6. **Smart Contracts** (`contracts/`): Solidity proof verification with state management
 7. **Shared Library** (`lib/`): Pure batch computation logic (zkVM compatible)
 
 ### 🎯 **Clear Separation of Concerns**
@@ -74,6 +81,23 @@ cd program && cargo prove build --output-directory ../build
 
 #### Batch Proof Generation
 ```bash
+# Generate EVM-compatible proof and submit to smart contract (Groth16 default)
+cd script && cargo run --release -- --prove --a 5 --b 10
+
+# Generate PLONK proof and submit to smart contract
+cd script && cargo run --release -- --prove --a 5 --b 10 --system plonk
+
+# Generate proof with Solidity fixtures and submit to contract
+cd script && cargo run --release -- --prove --a 5 --b 10 --generate-fixture
+
+# Generate proof with fixtures and submit to contract
+cd script && cargo run --release -- --prove --a 7 --b 8 --generate-fixture
+
+# Generate proof only (skip smart contract submission)
+cd script && cargo run --release -- --prove --a 5 --b 10 --skip-contract-submission
+
+# Verify with proof ID (external)
+cd script && cargo run --release -- --verify --proof-id <PROOF_ID> --result 15
 # Prerequisites: Circuit must be deployed to Sindri first (see Quick Start)
 
 # 🌐 Generate batch proof via API server (Groth16 default)
@@ -82,6 +106,8 @@ curl -X POST http://localhost:8080/api/v2/transactions \
   -H 'Content-Type: application/json' \
   -d '{"amount": 5}'
 
+# 🖥️ Generate proof via CLI client
+cargo run --bin cli -- store-transaction --a 5 --b 10 --generate-proof
 curl -X POST http://localhost:8080/api/v2/transactions \
   -H 'Content-Type: application/json' \
   -d '{"amount": 7}'
@@ -91,7 +117,7 @@ curl -X POST http://localhost:8080/api/v2/batches \
   -H 'Content-Type: application/json' \
   -d '{}'
 
-# 🖥️ Generate batch proof via CLI client  
+# 🖥️ Generate batch proof via CLI client
 cargo run --bin cli -- submit-transaction --amount 5
 cargo run --bin cli -- submit-transaction --amount 7
 cargo run --bin cli -- trigger-batch --verbose
@@ -217,9 +243,9 @@ struct PublicValuesStruct {
 }
 ```
 
-**ZK Guarantees**: 
+**ZK Guarantees**:
 - **Privacy**: Individual transaction amounts in batches remain hidden
-- **Soundness**: Batch transitions are cryptographically proven correct  
+- **Soundness**: Batch transitions are cryptographically proven correct
 - **Completeness**: Valid batch proofs always verify
 - **Batch Privacy**: Only balance transitions are public, not individual amounts
 
@@ -266,7 +292,7 @@ When you do the "setup" for a circuit (trusted or transparent), the compiler:
 
 ### Key Files
 - `program/src/main.rs`: SP1 zkVM program (ZK public values: result only)
-- `script/src/bin/main.rs`: Local SP1 unit testing (fast Core proofs) 
+- `script/src/bin/main.rs`: Local SP1 unit testing (fast Core proofs)
 - `cli/src/bin/cli.rs`: Unified CLI for API interaction and local verification
 - `api/src/bin/server.rs`: Production API server with Sindri integration
 - `api/src/client/mod.rs`: HTTP client library for API interaction
@@ -285,6 +311,18 @@ When you do the "setup" for a circuit (trusted or transparent), the compiler:
 
 **Key Environment Variables:**
 ```bash
+# Start PostgreSQL
+docker-compose up -d
+
+# Environment variables
+cp .env.example .env
+export SINDRI_API_KEY=your_api_key_here
+
+# Smart contract integration (required for --submit-to-contract)
+export ETHEREUM_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/your_api_key_here
+export ETHEREUM_CONTRACT_ADDRESS=0x1234567890123456789012345678901234567890
+export ETHEREUM_WALLET_PRIVATE_KEY=your_private_key_without_0x_prefix
+export ETHEREUM_DEPLOYER_ADDRESS=0x1234567890123456789012345678901234567890
 # Required in .env file:
 DATABASE_URL=postgresql://postgres:password@localhost:5432/arithmetic_db
 SINDRI_API_KEY=your_sindri_api_key_here
@@ -314,7 +352,7 @@ SERVER_PORT=8080
 **Test Coverage**:
 - Smart contracts (Foundry with proof fixtures)
 - State management system (comprehensive test suite)
-- Database operations (unit, integration, performance)  
+- Database operations (unit, integration, performance)
 - Merkle tree operations (7-step insertion algorithm)
 - API endpoints (REST/GraphQL)
 - Gas optimization and batch operations
@@ -325,7 +363,7 @@ SERVER_PORT=8080
 - `POST /transactions` - Submit individual transactions to batch queue
 - `GET /transactions/pending` - View pending (unbatched) transactions
 - `POST /batches` - Create batch from pending transactions
-- `GET /batches` - List all historical batches  
+- `GET /batches` - List all historical batches
 - `GET /batches/{id}` - Get specific batch details
 - `POST /batches/{id}/proof` - Update batch with ZK proof
 - `GET /state/current` - Get current counter state and Merkle root
@@ -419,7 +457,7 @@ The server supports various configuration options via command line arguments:
 External actors can verify batch proofs without server dependencies:
 1. Submit transactions to batch queue: `POST /api/v2/transactions`
 2. Create batch: `POST /api/v2/batches` (triggers ZK proof generation)
-3. Receive batch ID in response  
+3. Receive batch ID in response
 4. Download batch proof data: `CLI download-proof --batch-id <id>`
 5. Verify locally using CLI: `cargo run --bin cli -- verify-proof --proof-file proof_batch_<id>.json --expected-initial-balance <initial> --expected-final-balance <final>`
 
@@ -519,7 +557,7 @@ cargo run -p api --bin server --release
 - **Unified CLI Tool**: Complete batch processing workflow + local verification in a single binary
 - **Focused API Server**: Batch creation, ZK proof generation, and contract data distribution
 
-### 🚀 **Development Experience** 
+### 🚀 **Development Experience**
 - **Automated Setup**: One-command dependency installation for all platforms (`./install-dependencies.sh`)
 - **Docker Integration**: Full-stack deployment with automatic program compilation
 - **Multiple Interaction Methods**: `cargo run`, CLI client, HTTP API, Docker deployment
@@ -527,13 +565,98 @@ cargo run -p api --bin server --release
 
 ### 🔒 **Zero-Knowledge Features**
 - **Batch Privacy**: Private transaction amounts (`[5, 7]`) → public balance transitions only (`10 → 22`)
-- **Local Verification**: Trustless batch proof verification without server dependencies  
+- **Local Verification**: Trustless batch proof verification without server dependencies
 - **Sindri Integration**: Cloud batch proof generation with SP1 v5 and configurable circuit versions
 - **Circuit Management**: Configurable Sindri circuit deployment with version tagging
 - **Contract Data Split**: Public information (Merkle roots, proofs) vs Private information (transaction amounts)
 
 ### 🌐 **Production Ready**
-- **32-Level Merkle Trees**: 8x constraint reduction vs traditional implementations  
+- **32-Level Merkle Trees**: 8x constraint reduction vs traditional implementations
+- **Background Processing**: Asynchronous indexed Merkle tree construction with resume capability
+- **Production APIs**: REST/GraphQL with rate limiting and authentication
+- **State Management**: Complete state lifecycle management with proof verification and batch operations
+- **Continuous Ledger State**: Global state counter with atomic transitions and audit trail
+- **RESTful API Server**: HTTP API server for external transaction submission and proof verification
+- **Smart Contract Integration**: Automated background posting of proven batches to Ethereum contracts
+
+## Smart Contract Integration
+
+### Overview
+
+The project features **automated smart contract posting** for proven batches. After batches are created via the CLI and proven by Sindri, a background process automatically detects proven batches and posts state roots to the Ethereum smart contract. This provides a fully automated pipeline from batch creation to on-chain state updates.
+
+### Automated Batch Posting Flow
+
+**🔄 Complete Automation:**
+1. **Batch Creation**: `cargo run --bin cli -- trigger-batch` creates batch with `posted_to_contract = FALSE`
+2. **Proof Generation**: Background process generates ZK proof via Sindri
+3. **Smart Contract Posting**: Background process detects proven batches and posts state roots to contract
+4. **Status Tracking**: Batches marked as `posted_to_contract = TRUE` after successful submission
+
+### Deployment Commands
+
+```bash
+# 1. Apply database migration (adds contract posting tracking)
+cd /Users/horizon/Desktop/work/demo-vapp/db
+sqlx migrate run
+
+# 2. Start API server with automated background processing
+cd /Users/horizon/Desktop/work/demo-vapp
+cargo run -p api --bin server
+```
+
+### Background Process Features
+
+- **Automatic Detection**: Scans for proven batches not yet posted to contract every 30 seconds
+- **Smart Contract Submission**: Posts state roots using ethereum-client integration
+- **Random State Roots**: Uses temporary 32-byte hashes until ADS integration is complete
+- **Error Handling**: Graceful fallback if Ethereum client is not configured
+- **Audit Trail**: Tracks posting timestamps and status in database
+- **Rate Limiting**: Controlled submission rate to avoid overwhelming the network
+
+### Usage Examples
+
+```bash
+# Submit transactions and trigger batch creation
+cargo run --bin cli -- submit-transaction --amount 5
+cargo run --bin cli -- submit-transaction --amount 7
+cargo run --bin cli -- trigger-batch --verbose
+
+# Background process automatically handles:
+# - ZK proof generation via Sindri
+# - Smart contract posting when proof is ready
+# - Database status updates
+
+# Check batch status
+cargo run --bin cli -- list-batches
+cargo run --bin cli -- get-batch --batch-id 1
+```
+
+### Environment Requirements
+
+For smart contract posting to work, configure these environment variables:
+
+- `ETHEREUM_RPC_URL` - Ethereum RPC endpoint (e.g., Alchemy, Infura)
+- `ETHEREUM_CONTRACT_ADDRESS` - Address of deployed Arithmetic contract
+- `ETHEREUM_WALLET_PRIVATE_KEY` - Private key for signing transactions (without 0x prefix)
+- `ETHEREUM_DEPLOYER_ADDRESS` - Address that deployed the contract
+- `SINDRI_API_KEY` - For ZK proof generation
+
+### Database Schema Updates
+
+New columns in `proof_batches` table:
+- `posted_to_contract BOOLEAN DEFAULT FALSE` - Tracks posting status
+- `posted_to_contract_at TIMESTAMP` - Audit trail for successful postings
+
+### Error Handling & Monitoring
+
+- **Graceful Fallback**: Background process continues if smart contract posting fails
+- **Environment Validation**: Checks for required Ethereum configuration
+- **Transaction Feedback**: Logs transaction hashes, gas usage, and confirmation details
+- **Retry Logic**: Failed batches remain unposted for retry on next cycle
+- **Status Tracking**: Complete audit trail of batch lifecycle in database
+- **Comprehensive Testing**: End-to-end CI with automated ZK validation
+- **32-Level Merkle Trees**: 8x constraint reduction vs traditional implementations
 - **Batch Processing**: Efficient transaction batching with FIFO ordering and ZK proof generation
 - **Production APIs**: REST endpoints with rate limiting and authentication
 - **State Management**: Complete batch lifecycle management with proof verification
@@ -584,7 +707,7 @@ The state management system provides both on-chain (smart contracts) and off-cha
 ```
 Initial state: 0
 Transaction 1: 0 + 15 = 15 (inputs: 7 + 8)
-Transaction 2: 15 + 25 = 40 (inputs: 12 + 13)  
+Transaction 2: 15 + 25 = 40 (inputs: 12 + 13)
 Transaction 3: 40 + 10 = 50 (inputs: 3 + 7)
 ```
 
@@ -722,7 +845,7 @@ The system provides comprehensive error handling:
 ### Security Considerations
 
 - **Access Control**: Multi-layered authorization system
-- **Proof Validation**: Comprehensive proof verification before state updates  
+- **Proof Validation**: Comprehensive proof verification before state updates
 - **Parameter Validation**: Input sanitization and bounds checking
 - **Reentrancy Protection**: Safe external call patterns
 - **State Consistency**: Validation of state transitions
