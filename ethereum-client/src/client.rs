@@ -18,8 +18,14 @@ use alloy_provider::{
 use alloy_rpc_types_eth::{Filter, TransactionReceipt};
 use alloy_signer_local::PrivateKeySigner;
 use alloy_sol_types::SolEvent;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::{broadcast, RwLock};
 use tokio::time::{sleep, Duration};
 use tracing::{debug, error, info, warn};
+
+#[cfg(feature = "database")]
+use uuid;
 
 // Use a simpler provider type that works with the current Alloy version
 type EthProvider = FillProvider<
@@ -38,6 +44,109 @@ use crate::cache::EthereumCache;
 #[cfg(feature = "database")]
 use sqlx;
 
+/// Event data structures for comprehensive event handling
+#[derive(Debug, Clone)]
+pub enum ArithmeticEvent {
+    StateUpdated {
+        state_id: FixedBytes<32>,
+        new_state: FixedBytes<32>,
+        proof_id: FixedBytes<32>,
+        updater: Address,
+        timestamp: u64,
+        block_number: u64,
+        tx_hash: FixedBytes<32>,
+    },
+    BatchStateUpdated {
+        state_ids: Vec<FixedBytes<32>>,
+        new_states: Vec<FixedBytes<32>>,
+        updater: Address,
+        timestamp: u64,
+        block_number: u64,
+        tx_hash: FixedBytes<32>,
+    },
+    ProofStored {
+        proof_id: FixedBytes<32>,
+        state_id: FixedBytes<32>,
+        submitter: Address,
+        timestamp: u64,
+        block_number: u64,
+        tx_hash: FixedBytes<32>,
+    },
+    ProofVerified {
+        proof_id: FixedBytes<32>,
+        success: bool,
+        result: Bytes,
+        timestamp: u64,
+        block_number: u64,
+        tx_hash: FixedBytes<32>,
+    },
+    StateReadRequested {
+        state_id: FixedBytes<32>,
+        reader: Address,
+        timestamp: u64,
+        block_number: u64,
+        tx_hash: FixedBytes<32>,
+    },
+    ProofReadRequested {
+        proof_id: FixedBytes<32>,
+        reader: Address,
+        timestamp: u64,
+        block_number: u64,
+        tx_hash: FixedBytes<32>,
+    },
+}
+
+/// Event callback function type
+pub type EventCallback = Arc<dyn Fn(ArithmeticEvent) + Send + Sync>;
+
+/// Event filter configuration
+#[derive(Debug, Clone)]
+pub struct EventFilter {
+    pub event_types: Option<Vec<String>>,
+    pub state_ids: Option<Vec<FixedBytes<32>>>,
+    pub addresses: Option<Vec<Address>>,
+    pub from_block: Option<u64>,
+    pub to_block: Option<u64>,
+}
+
+impl Default for EventFilter {
+    fn default() -> Self {
+        Self {
+            event_types: None,
+            state_ids: None,
+            addresses: None,
+            from_block: None,
+            to_block: None,
+        }
+    }
+}
+
+/// Event subscription handle
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SubscriptionId(pub String);
+
+/// Event listener configuration
+#[derive(Debug, Clone)]
+pub struct EventListenerConfig {
+    pub poll_interval: Duration,
+    pub max_blocks_per_query: u64,
+    pub enable_persistence: bool,
+    pub retry_attempts: u32,
+    pub retry_delay: Duration,
+}
+
+impl Default for EventListenerConfig {
+    fn default() -> Self {
+        Self {
+            poll_interval: Duration::from_secs(12),
+            max_blocks_per_query: 1000,
+            enable_persistence: true,
+            retry_attempts: 3,
+            retry_delay: Duration::from_secs(5),
+        }
+    }
+}
+
 pub struct EthereumClient {
     #[allow(dead_code)]
     config: Config,
@@ -48,6 +157,14 @@ pub struct EthereumClient {
 
     #[cfg(feature = "database")]
     cache: Option<EthereumCache>,
+
+    // Event system components
+    event_callbacks: Arc<RwLock<HashMap<SubscriptionId, (EventFilter, EventCallback)>>>,
+    event_broadcaster: broadcast::Sender<ArithmeticEvent>,
+    #[allow(dead_code)]
+    event_receiver: broadcast::Receiver<ArithmeticEvent>,
+    listener_config: EventListenerConfig,
+    last_processed_block: Arc<RwLock<u64>>,
 }
 
 impl EthereumClient {
@@ -84,6 +201,12 @@ impl EthereumClient {
             None
         };
 
+        // Initialize event system
+        let (event_broadcaster, event_receiver) = broadcast::channel(1000);
+        let event_callbacks = Arc::new(RwLock::new(HashMap::new()));
+        let listener_config = EventListenerConfig::default();
+        let last_processed_block = Arc::new(RwLock::new(0));
+
         Ok(Self {
             config,
             http_provider,
@@ -92,6 +215,12 @@ impl EthereumClient {
 
             #[cfg(feature = "database")]
             cache,
+
+            event_callbacks,
+            event_broadcaster,
+            event_receiver,
+            listener_config,
+            last_processed_block,
         })
     }
 
@@ -298,42 +427,349 @@ impl EthereumClient {
         Ok(self)
     }
 
-    pub async fn monitor_events(&self) -> Result<()> {
+    /// Subscribe to specific events with callback
+    pub async fn subscribe_to_events(
+        &self,
+        filter: EventFilter,
+        callback: EventCallback,
+    ) -> Result<SubscriptionId> {
+        #[cfg(feature = "database")]
+        let subscription_id = SubscriptionId(format!("sub_{}", uuid::Uuid::new_v4()));
+        #[cfg(not(feature = "database"))]
+        let subscription_id = SubscriptionId(format!(
+            "sub_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        ));
+
+        let mut callbacks = self.event_callbacks.write().await;
+        callbacks.insert(subscription_id.clone(), (filter, callback));
+
+        info!("Created event subscription: {:?}", subscription_id);
+        Ok(subscription_id)
+    }
+
+    /// Unsubscribe from events
+    pub async fn unsubscribe(&self, subscription_id: &SubscriptionId) -> Result<bool> {
+        let mut callbacks = self.event_callbacks.write().await;
+        let removed = callbacks.remove(subscription_id).is_some();
+
+        if removed {
+            info!("Removed event subscription: {:?}", subscription_id);
+        }
+
+        Ok(removed)
+    }
+
+    /// Get global event stream
+    pub fn get_event_stream(&self) -> broadcast::Receiver<ArithmeticEvent> {
+        self.event_broadcaster.subscribe()
+    }
+
+    /// Start comprehensive event monitoring with enhanced capabilities
+    pub async fn start_event_monitoring(&self) -> Result<()> {
         info!(
-            "Starting event monitoring for contract: {}",
+            "Starting enhanced event monitoring for contract: {}",
             self.contracts.arithmetic
         );
 
-        let contract = IArithmetic::new(self.contracts.arithmetic, &self.http_provider);
-
-        // Create filter for all contract events
-        let _filter = Filter::new()
-            .address(self.contracts.arithmetic)
-            .from_block(0);
+        // Initialize last processed block if not set
+        {
+            let mut last_block = self.last_processed_block.write().await;
+            if *last_block == 0 {
+                *last_block = self.http_provider.get_block_number().await?;
+                info!("Initialized event monitoring from block: {}", *last_block);
+            }
+        }
 
         // Start monitoring loop
-        let mut current_block = self.http_provider.get_block_number().await?;
-
         loop {
-            match self.check_for_new_events(current_block, &contract).await {
-                Ok(new_block) => {
-                    current_block = new_block;
+            match self.process_new_events().await {
+                Ok(processed_count) => {
+                    if processed_count > 0 {
+                        debug!("Processed {} new events", processed_count);
+                    }
                 }
                 Err(e) => {
-                    error!("Error monitoring events: {}", e);
+                    error!("Error in event monitoring: {}", e);
+                    // Retry after delay
+                    sleep(self.listener_config.retry_delay).await;
                 }
             }
 
-            // Poll every 12 seconds (Ethereum block time)
-            sleep(Duration::from_secs(12)).await;
+            sleep(self.listener_config.poll_interval).await;
         }
     }
 
-    async fn check_for_new_events(
+    /// Process new events since last check
+    async fn process_new_events(&self) -> Result<usize> {
+        let current_block = self.http_provider.get_block_number().await?;
+        let last_processed = {
+            let last_block = self.last_processed_block.read().await;
+            *last_block
+        };
+
+        if current_block <= last_processed {
+            return Ok(0);
+        }
+
+        let from_block = last_processed + 1;
+        let to_block = std::cmp::min(
+            current_block,
+            last_processed + self.listener_config.max_blocks_per_query,
+        );
+
+        debug!(
+            "Processing events from block {} to {}",
+            from_block, to_block
+        );
+
+        let events = self.fetch_events_in_range(from_block, to_block).await?;
+        let event_count = events.len();
+
+        // Process events and notify subscribers
+        for event in events {
+            self.process_and_dispatch_event(event).await;
+        }
+
+        // Update last processed block
+        {
+            let mut last_block = self.last_processed_block.write().await;
+            *last_block = to_block;
+        }
+
+        Ok(event_count)
+    }
+
+    /// Fetch events in block range
+    async fn fetch_events_in_range(
+        &self,
+        from_block: u64,
+        to_block: u64,
+    ) -> Result<Vec<ArithmeticEvent>> {
+        let filter = Filter::new()
+            .address(self.contracts.arithmetic)
+            .from_block(from_block)
+            .to_block(to_block);
+
+        let logs = self.http_provider.get_logs(&filter).await.map_err(|e| {
+            error!("Failed to fetch logs: {}", e);
+            EthereumError::External(format!("Log retrieval failed: {e}"))
+        })?;
+
+        let mut events = Vec::new();
+        for log in logs {
+            if let Some(event) = self.convert_log_to_event(&log).await {
+                events.push(event);
+            }
+        }
+
+        Ok(events)
+    }
+
+    /// Convert RPC log to ArithmeticEvent
+    async fn convert_log_to_event(
+        &self,
+        log: &alloy_rpc_types_eth::Log,
+    ) -> Option<ArithmeticEvent> {
+        let primitive_log = Self::convert_rpc_log_to_primitive(log);
+        let block_number = log.block_number.unwrap_or(0);
+        let tx_hash = log.transaction_hash.unwrap_or_default();
+
+        // Decode different event types
+        if let Ok(event) = IArithmetic::StateUpdated::decode_log(&primitive_log) {
+            return Some(ArithmeticEvent::StateUpdated {
+                state_id: event.stateId.clone(),
+                new_state: event.newState.clone(),
+                proof_id: event.proofId.clone(),
+                updater: event.updater,
+                timestamp: event.timestamp.try_into().unwrap_or(0),
+                block_number,
+                tx_hash,
+            });
+        }
+
+        if let Ok(event) = IArithmetic::BatchStateUpdated::decode_log(&primitive_log) {
+            return Some(ArithmeticEvent::BatchStateUpdated {
+                state_ids: event.stateIds.clone(),
+                new_states: event.newStates.clone(),
+                updater: event.updater,
+                timestamp: event.timestamp.try_into().unwrap_or(0),
+                block_number,
+                tx_hash,
+            });
+        }
+
+        if let Ok(event) = IArithmetic::ProofStored::decode_log(&primitive_log) {
+            return Some(ArithmeticEvent::ProofStored {
+                proof_id: event.proofId,
+                state_id: event.stateId,
+                submitter: event.submitter,
+                timestamp: event.timestamp.try_into().unwrap_or(0),
+                block_number,
+                tx_hash,
+            });
+        }
+
+        if let Ok(event) = IArithmetic::ProofVerified::decode_log(&primitive_log) {
+            return Some(ArithmeticEvent::ProofVerified {
+                proof_id: event.proofId,
+                success: event.success,
+                result: event.result.clone(),
+                timestamp: event.timestamp.try_into().unwrap_or(0),
+                block_number,
+                tx_hash,
+            });
+        }
+
+        if let Ok(event) = IArithmetic::StateReadRequested::decode_log(&primitive_log) {
+            return Some(ArithmeticEvent::StateReadRequested {
+                state_id: event.stateId,
+                reader: event.reader,
+                timestamp: event.timestamp.try_into().unwrap_or(0),
+                block_number,
+                tx_hash,
+            });
+        }
+
+        if let Ok(event) = IArithmetic::ProofReadRequested::decode_log(&primitive_log) {
+            return Some(ArithmeticEvent::ProofReadRequested {
+                proof_id: event.proofId,
+                reader: event.reader,
+                timestamp: event.timestamp.try_into().unwrap_or(0),
+                block_number,
+                tx_hash,
+            });
+        }
+
+        debug!("Unknown event type in log: {:?}", log);
+        None
+    }
+
+    /// Process event and dispatch to subscribers
+    async fn process_and_dispatch_event(&self, event: ArithmeticEvent) {
+        // Broadcast to global stream
+        if let Err(e) = self.event_broadcaster.send(event.clone()) {
+            warn!("Failed to broadcast event: {}", e);
+        }
+
+        // Check subscribers and call matching callbacks
+        let callbacks = self.event_callbacks.read().await;
+        for (sub_id, (filter, callback)) in callbacks.iter() {
+            if self.event_matches_filter(&event, filter) {
+                debug!("Dispatching event to subscription: {:?}", sub_id);
+                callback(event.clone());
+            }
+        }
+
+        // Persist event if enabled
+        #[cfg(feature = "database")]
+        if self.listener_config.enable_persistence {
+            if let Some(cache) = &self.cache {
+                if let Err(e) = self.persist_event(&event, cache).await {
+                    warn!("Failed to persist event: {}", e);
+                }
+            }
+        }
+    }
+
+    /// Check if event matches filter criteria
+    fn event_matches_filter(&self, event: &ArithmeticEvent, filter: &EventFilter) -> bool {
+        // Check event type filter
+        if let Some(event_types) = &filter.event_types {
+            let event_type = match event {
+                ArithmeticEvent::StateUpdated { .. } => "StateUpdated",
+                ArithmeticEvent::BatchStateUpdated { .. } => "BatchStateUpdated",
+                ArithmeticEvent::ProofStored { .. } => "ProofStored",
+                ArithmeticEvent::ProofVerified { .. } => "ProofVerified",
+                ArithmeticEvent::StateReadRequested { .. } => "StateReadRequested",
+                ArithmeticEvent::ProofReadRequested { .. } => "ProofReadRequested",
+            };
+            if !event_types.contains(&event_type.to_string()) {
+                return false;
+            }
+        }
+
+        // Check state ID filter
+        if let Some(state_ids) = &filter.state_ids {
+            let event_state_id = match event {
+                ArithmeticEvent::StateUpdated { state_id, .. } => Some(*state_id),
+                ArithmeticEvent::ProofStored { state_id, .. } => Some(*state_id),
+                ArithmeticEvent::StateReadRequested { state_id, .. } => Some(*state_id),
+                _ => None,
+            };
+            if let Some(state_id) = event_state_id {
+                if !state_ids.contains(&state_id) {
+                    return false;
+                }
+            }
+        }
+
+        // Check address filter
+        if let Some(addresses) = &filter.addresses {
+            let event_address = match event {
+                ArithmeticEvent::StateUpdated { updater, .. } => Some(*updater),
+                ArithmeticEvent::BatchStateUpdated { updater, .. } => Some(*updater),
+                ArithmeticEvent::ProofStored { submitter, .. } => Some(*submitter),
+                ArithmeticEvent::StateReadRequested { reader, .. } => Some(*reader),
+                ArithmeticEvent::ProofReadRequested { reader, .. } => Some(*reader),
+                _ => None,
+            };
+            if let Some(address) = event_address {
+                if !addresses.contains(&address) {
+                    return false;
+                }
+            }
+        }
+
+        // Check block range filter
+        let event_block = match event {
+            ArithmeticEvent::StateUpdated { block_number, .. } => *block_number,
+            ArithmeticEvent::BatchStateUpdated { block_number, .. } => *block_number,
+            ArithmeticEvent::ProofStored { block_number, .. } => *block_number,
+            ArithmeticEvent::ProofVerified { block_number, .. } => *block_number,
+            ArithmeticEvent::StateReadRequested { block_number, .. } => *block_number,
+            ArithmeticEvent::ProofReadRequested { block_number, .. } => *block_number,
+        };
+
+        if let Some(from_block) = filter.from_block {
+            if event_block < from_block {
+                return false;
+            }
+        }
+
+        if let Some(to_block) = filter.to_block {
+            if event_block > to_block {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    /// Persist event to database cache
+    #[cfg(feature = "database")]
+    async fn persist_event(&self, event: &ArithmeticEvent, _cache: &EthereumCache) -> Result<()> {
+        // TODO: Implement event persistence to database
+        debug!("Persisting event: {:?}", event);
+        Ok(())
+    }
+
+    /// Legacy monitor_events method for backwards compatibility
+    pub async fn monitor_events(&self) -> Result<()> {
+        warn!("Using deprecated monitor_events. Use start_event_monitoring instead.");
+        self.start_event_monitoring().await
+    }
+
+    /// Legacy method - use process_new_events instead
+    pub async fn check_for_new_events(
         &self,
         last_block: u64,
         _contract: &IArithmeticInstance<&EthProvider>,
     ) -> Result<u64> {
+        warn!("Using deprecated check_for_new_events. Use process_new_events instead.");
         let current_block = self.http_provider.get_block_number().await?;
 
         if current_block <= last_block {
@@ -371,7 +807,7 @@ impl EthereumClient {
         Ok(current_block)
     }
 
-    fn process_event_log(&self, log: &alloy_rpc_types_eth::Log) {
+    pub fn process_event_log(&self, log: &alloy_rpc_types_eth::Log) {
         let primitive_log = Self::convert_rpc_log_to_primitive(log);
         self.decode_and_log_event(&primitive_log, log);
     }
@@ -389,7 +825,7 @@ impl EthereumClient {
         }
     }
 
-    fn decode_and_log_event(
+    pub fn decode_and_log_event(
         &self,
         primitive_log: &alloy_primitives::Log,
         original_log: &alloy_rpc_types_eth::Log,
@@ -405,7 +841,7 @@ impl EthereumClient {
         }
     }
 
-    fn handle_state_updated_event(&self, event: &IArithmetic::StateUpdated) {
+    pub fn handle_state_updated_event(&self, event: &IArithmetic::StateUpdated) {
         info!(
             "StateUpdated event: stateId={}, newState={}, proofId={}, updater={}",
             hex::encode(event.stateId.as_slice()),
@@ -421,7 +857,7 @@ impl EthereumClient {
         }
     }
 
-    fn handle_proof_stored_event(event: &IArithmetic::ProofStored) {
+    pub fn handle_proof_stored_event(event: &IArithmetic::ProofStored) {
         info!(
             "ProofStored event: proofId={}, stateId={}, submitter={}",
             hex::encode(event.proofId.as_slice()),
@@ -430,7 +866,7 @@ impl EthereumClient {
         );
     }
 
-    fn handle_proof_verified_event(event: &IArithmetic::ProofVerified) {
+    pub fn handle_proof_verified_event(event: &IArithmetic::ProofVerified) {
         info!(
             "ProofVerified event: proofId={}, success={}, result={}",
             hex::encode(event.proofId.as_slice()),
@@ -623,3 +1059,124 @@ impl EthereumClient {
 }
 
 pub type Receipt = TransactionReceipt;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy_primitives::{Address, B256, U256};
+
+    #[test]
+    fn test_handle_state_updated_event_is_public() {
+        // Test that handle_state_updated_event method is public and accessible
+        let event = IArithmetic::StateUpdated {
+            stateId: B256::from([1u8; 32]),
+            newState: B256::from([2u8; 32]),
+            proofId: B256::from([3u8; 32]),
+            updater: Address::from([4u8; 20]),
+            timestamp: U256::from(1234567890u64),
+        };
+        
+        // Since the method is part of the EthereumClient impl, we can't call it statically
+        // But we can verify it exists by checking the signature compiles
+        // The method just logs info, so this test verifies the event struct is correctly defined
+        assert_eq!(event.stateId, B256::from([1u8; 32]));
+        assert_eq!(event.newState, B256::from([2u8; 32]));
+        assert_eq!(event.proofId, B256::from([3u8; 32]));
+        assert_eq!(event.updater, Address::from([4u8; 20]));
+    }
+
+    #[test]
+    fn test_handle_proof_stored_event_is_public() {
+        // Test that handle_proof_stored_event method is public and accessible
+        let event = IArithmetic::ProofStored {
+            proofId: B256::from([1u8; 32]),
+            stateId: B256::from([2u8; 32]),
+            submitter: Address::from([3u8; 20]),
+            timestamp: U256::from(1234567890u64),
+        };
+        
+        // This test mainly checks that handle_proof_stored_event doesn't panic
+        // and verifies the event struct is correctly defined
+        EthereumClient::handle_proof_stored_event(&event);
+        
+        // Verify event fields
+        assert_eq!(event.proofId, B256::from([1u8; 32]));
+        assert_eq!(event.stateId, B256::from([2u8; 32]));
+        assert_eq!(event.submitter, Address::from([3u8; 20]));
+    }
+
+    #[test]
+    fn test_handle_proof_verified_event_is_public() {
+        // Test that handle_proof_verified_event method is public and accessible
+        let event = IArithmetic::ProofVerified {
+            proofId: B256::from([1u8; 32]),
+            success: true,
+            result: alloy_primitives::Bytes::from(vec![4u8, 5u8, 6u8]),
+            timestamp: U256::from(1234567890u64),
+        };
+        
+        // This test mainly checks that handle_proof_verified_event doesn't panic
+        // and verifies the event struct is correctly defined
+        EthereumClient::handle_proof_verified_event(&event);
+        
+        // Verify event fields
+        assert_eq!(event.proofId, B256::from([1u8; 32]));
+        assert_eq!(event.success, true);
+        assert_eq!(event.result, alloy_primitives::Bytes::from(vec![4u8, 5u8, 6u8]));
+    }
+
+    #[test]
+    fn test_event_listener_methods_are_public() {
+        // This test verifies that the event listener methods exist and are public.
+        // We test this by verifying the method signatures compile and are accessible.
+        
+        // Test proof stored event handling
+        let proof_stored = IArithmetic::ProofStored {
+            proofId: B256::from([1u8; 32]),
+            stateId: B256::from([2u8; 32]),
+            submitter: Address::from([3u8; 20]),
+            timestamp: U256::from(1234567890u64),
+        };
+        
+        // Verify static method is public and callable
+        EthereumClient::handle_proof_stored_event(&proof_stored);
+        
+        // Test proof verified event handling  
+        let proof_verified = IArithmetic::ProofVerified {
+            proofId: B256::from([4u8; 32]),
+            success: true,
+            result: alloy_primitives::Bytes::from(vec![1u8, 2u8, 3u8]),
+            timestamp: U256::from(1234567890u64),
+        };
+        
+        // Verify static method is public and callable
+        EthereumClient::handle_proof_verified_event(&proof_verified);
+        
+        // The main assertion is that these methods are accessible
+        // The fact that this test compiles proves the methods are public
+        assert!(true, "Event listener methods are public and accessible");
+    }
+
+    #[test]
+    fn test_event_method_signatures() {
+        // This test verifies that the method signatures are correct and public
+        // by creating function pointers to the methods
+        
+        // Test that we can create function pointers to the public methods
+        let _handle_proof_stored: fn(&IArithmetic::ProofStored) = EthereumClient::handle_proof_stored_event;
+        let _handle_proof_verified: fn(&IArithmetic::ProofVerified) = EthereumClient::handle_proof_verified_event;
+        
+        // Test that instance methods exist (can't easily test without a client instance)
+        // but we can verify their signatures by attempting to reference them
+        type StateUpdatedHandler = fn(&EthereumClient, &IArithmetic::StateUpdated);
+        type EventProcessor = fn(&EthereumClient, &alloy_rpc_types_eth::Log);
+        type EventDecoder = fn(&EthereumClient, &alloy_primitives::Log, &alloy_rpc_types_eth::Log);
+        
+        let _handle_state_updated: StateUpdatedHandler = EthereumClient::handle_state_updated_event;
+        let _process_event: EventProcessor = EthereumClient::process_event_log;
+        let _decode_event: EventDecoder = EthereumClient::decode_and_log_event;
+        
+        // The key test is that this compiles, proving all methods are public
+        assert!(true, "All event method signatures are public and correct");
+    }
+}

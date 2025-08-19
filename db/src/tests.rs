@@ -1,5 +1,5 @@
 use crate::db::{
-    get_transactions_by_result, get_value_by_result, init_db, store_arithmetic_transaction,
+    get_pending_transactions, init_db, submit_transaction,
 };
 use crate::test_utils::TestDatabase;
 use std::env;
@@ -32,179 +32,167 @@ mod db_tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_store_and_retrieve_transaction() {
+    async fn test_submit_and_retrieve_transaction() {
         let test_db = TestDatabase::new()
             .await
             .expect("Failed to create test database");
 
-        // Store a transaction
-        let a = 5;
-        let b = 10;
-        let result = 15;
+        // Submit a transaction
+        let amount = 15;
 
-        store_arithmetic_transaction(&test_db.pool, a, b, result)
+        let transaction = submit_transaction(&test_db.pool, amount)
             .await
-            .expect("Failed to store transaction");
+            .expect("Failed to submit transaction");
 
-        // Retrieve by result
-        let transactions = get_transactions_by_result(&test_db.pool, result)
+        // Retrieve pending transactions
+        let pending_transactions = get_pending_transactions(&test_db.pool)
             .await
-            .expect("Failed to retrieve transactions");
+            .expect("Failed to retrieve pending transactions");
 
-        assert_eq!(transactions.len(), 1);
-        assert_eq!(transactions[0].a, a);
-        assert_eq!(transactions[0].b, b);
-        assert_eq!(transactions[0].result, result);
+        assert_eq!(pending_transactions.len(), 1);
+        assert_eq!(pending_transactions[0].amount, amount);
+        assert_eq!(pending_transactions[0].id, transaction.id);
+        assert!(pending_transactions[0].included_in_batch_id.is_none());
 
-        // Test get_value_by_result
-        let value = get_value_by_result(&test_db.pool, result)
-            .await
-            .expect("Failed to get value by result");
-
-        assert!(value.is_some());
-        let (retrieved_a, retrieved_b, created_at) = value.unwrap();
-        assert_eq!(retrieved_a, a);
-        assert_eq!(retrieved_b, b);
         // Verify that created_at is recent (within last minute)
         let now = chrono::Utc::now();
-        assert!(now.signed_duration_since(created_at).num_seconds() < 60);
+        assert!(now.signed_duration_since(pending_transactions[0].created_at).num_seconds() < 60);
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_store_multiple_transactions_same_result() {
+    async fn test_submit_multiple_transactions() {
         let test_db = TestDatabase::new()
             .await
             .expect("Failed to create test database");
 
-        // Store multiple transactions that result in the same value
-        store_arithmetic_transaction(&test_db.pool, 5, 10, 15)
-            .await
-            .expect("Failed to store first transaction");
+        // Submit multiple transactions
+        let amounts = vec![5, 7, 3];
+        let mut submitted_ids = vec![];
 
-        store_arithmetic_transaction(&test_db.pool, 7, 8, 15)
-            .await
-            .expect("Failed to store second transaction");
-
-        store_arithmetic_transaction(&test_db.pool, 3, 12, 15)
-            .await
-            .expect("Failed to store third transaction");
-
-        // Retrieve all transactions with result 15
-        let transactions = get_transactions_by_result(&test_db.pool, 15)
-            .await
-            .expect("Failed to retrieve transactions");
-
-        assert_eq!(transactions.len(), 3);
-
-        // Verify all combinations are present
-        let mut found_combinations = vec![];
-        for transaction in transactions {
-            found_combinations.push((transaction.a, transaction.b));
-            assert_eq!(transaction.result, 15);
+        for amount in &amounts {
+            let transaction = submit_transaction(&test_db.pool, *amount)
+                .await
+                .expect("Failed to submit transaction");
+            submitted_ids.push(transaction.id);
         }
 
-        found_combinations.sort_unstable();
-        let mut expected = vec![(3, 12), (5, 10), (7, 8)];
-        expected.sort_unstable();
-        assert_eq!(found_combinations, expected);
+        // Retrieve all pending transactions
+        let pending_transactions = get_pending_transactions(&test_db.pool)
+            .await
+            .expect("Failed to retrieve pending transactions");
+
+        assert_eq!(pending_transactions.len(), 3);
+
+        // Verify all amounts are present
+        let mut found_amounts: Vec<i32> = pending_transactions.iter().map(|t| t.amount).collect();
+        found_amounts.sort_unstable();
+        let mut expected_amounts = amounts;
+        expected_amounts.sort_unstable();
+        assert_eq!(found_amounts, expected_amounts);
+
+        // Verify all are pending (not batched)
+        for transaction in pending_transactions {
+            assert!(transaction.included_in_batch_id.is_none());
+        }
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_duplicate_transaction_handling() {
+    async fn test_multiple_same_amount_transactions() {
         let test_db = TestDatabase::new()
             .await
             .expect("Failed to create test database");
 
-        // Store the same transaction multiple times
-        let a = 5;
-        let b = 10;
-        let result = 15;
+        // Submit the same amount multiple times (this should be allowed)
+        let amount = 15;
+        let mut submitted_ids = vec![];
 
         for _ in 0..3 {
-            store_arithmetic_transaction(&test_db.pool, a, b, result)
+            let transaction = submit_transaction(&test_db.pool, amount)
                 .await
-                .expect("Failed to store transaction");
+                .expect("Failed to submit transaction");
+            submitted_ids.push(transaction.id);
         }
 
-        // Should only have one transaction due to UNIQUE constraint
-        let transactions = get_transactions_by_result(&test_db.pool, result)
+        // Should have three separate transactions (each with unique ID)
+        let pending_transactions = get_pending_transactions(&test_db.pool)
             .await
             .expect("Failed to retrieve transactions");
 
-        assert_eq!(transactions.len(), 1);
-        assert_eq!(transactions[0].a, a);
-        assert_eq!(transactions[0].b, b);
-        assert_eq!(transactions[0].result, result);
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_arithmetic_correctness_validation() {
-        let test_db = TestDatabase::new()
-            .await
-            .expect("Failed to create test database");
-
-        // Test valid arithmetic operations
-        let test_cases = vec![
-            (5, 10, 15),
-            (0, 0, 0),
-            (-5, 3, -2),
-            (100, -50, 50),
-            (-10, -20, -30),
-        ];
-
-        for (a, b, expected_result) in test_cases {
-            store_arithmetic_transaction(&test_db.pool, a, b, expected_result)
-                .await
-                .expect("Failed to store valid transaction");
-
-            let transactions = get_transactions_by_result(&test_db.pool, expected_result)
-                .await
-                .expect("Failed to retrieve transactions");
-
-            // Find our specific transaction
-            let found = transactions.iter().find(|t| t.a == a && t.b == b);
-            assert!(
-                found.is_some(),
-                "Transaction not found: {a} + {b} = {expected_result}"
-            );
-
-            // Verify the arithmetic is correct
-            assert_eq!(
-                a + b,
-                expected_result,
-                "Arithmetic validation failed for {a} + {b}"
-            );
+        assert_eq!(pending_transactions.len(), 3);
+        for transaction in &pending_transactions {
+            assert_eq!(transaction.amount, amount);
+            assert!(submitted_ids.contains(&transaction.id));
         }
+
+        // Verify IDs are unique
+        let mut found_ids: Vec<i32> = pending_transactions.iter().map(|t| t.id).collect();
+        found_ids.sort_unstable();
+        submitted_ids.sort_unstable();
+        assert_eq!(found_ids, submitted_ids);
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_nonexistent_result_query() {
+    async fn test_transaction_amount_validation() {
         let test_db = TestDatabase::new()
             .await
             .expect("Failed to create test database");
 
-        // Store some transactions
-        store_arithmetic_transaction(&test_db.pool, 1, 2, 3)
+        // Test various transaction amounts
+        let test_amounts = vec![15, 0, -2, 50, -30];
+
+        for amount in test_amounts {
+            let transaction = submit_transaction(&test_db.pool, amount)
+                .await
+                .expect("Failed to submit transaction");
+
+            assert_eq!(transaction.amount, amount);
+            assert!(transaction.id > 0);
+            assert!(transaction.included_in_batch_id.is_none());
+        }
+
+        // Verify all transactions are pending
+        let pending_transactions = get_pending_transactions(&test_db.pool)
             .await
-            .expect("Failed to store transaction");
+            .expect("Failed to retrieve pending transactions");
 
-        // Query for a result that doesn't exist
-        let transactions = get_transactions_by_result(&test_db.pool, 999)
+        assert_eq!(pending_transactions.len(), 5);
+        
+        // Verify all expected amounts are present
+        let mut found_amounts: Vec<i32> = pending_transactions.iter().map(|t| t.amount).collect();
+        found_amounts.sort_unstable();
+        let expected_amounts = vec![-30, -2, 0, 15, 50];
+        assert_eq!(found_amounts, expected_amounts);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_empty_pending_transactions() {
+        let test_db = TestDatabase::new()
             .await
-            .expect("Failed to query for nonexistent result");
+            .expect("Failed to create test database");
 
-        assert!(transactions.is_empty());
-
-        // Test get_value_by_result for nonexistent result
-        let value = get_value_by_result(&test_db.pool, 999)
+        // Query for pending transactions when none exist
+        let pending_transactions = get_pending_transactions(&test_db.pool)
             .await
-            .expect("Failed to query for nonexistent value");
+            .expect("Failed to query for pending transactions");
 
-        assert!(value.is_none());
+        assert!(pending_transactions.is_empty());
+
+        // Submit a transaction
+        submit_transaction(&test_db.pool, 3)
+            .await
+            .expect("Failed to submit transaction");
+
+        // Now should have one pending transaction
+        let pending_transactions = get_pending_transactions(&test_db.pool)
+            .await
+            .expect("Failed to query for pending transactions");
+
+        assert_eq!(pending_transactions.len(), 1);
+        assert_eq!(pending_transactions[0].amount, 3);
     }
 
     #[tokio::test]
@@ -215,22 +203,21 @@ mod db_tests {
             .expect("Failed to create test database");
 
         // Test with large numbers (within i32 range)
-        let large_a = i32::MAX / 2;
-        let large_b = 1000;
-        let large_result = large_a + large_b;
+        let large_amount = i32::MAX / 2;
 
-        store_arithmetic_transaction(&test_db.pool, large_a, large_b, large_result)
+        let transaction = submit_transaction(&test_db.pool, large_amount)
             .await
-            .expect("Failed to store large number transaction");
+            .expect("Failed to submit large number transaction");
 
-        let transactions = get_transactions_by_result(&test_db.pool, large_result)
+        assert_eq!(transaction.amount, large_amount);
+
+        let pending_transactions = get_pending_transactions(&test_db.pool)
             .await
             .expect("Failed to retrieve large number transaction");
 
-        assert_eq!(transactions.len(), 1);
-        assert_eq!(transactions[0].a, large_a);
-        assert_eq!(transactions[0].b, large_b);
-        assert_eq!(transactions[0].result, large_result);
+        assert_eq!(pending_transactions.len(), 1);
+        assert_eq!(pending_transactions[0].amount, large_amount);
+        assert_eq!(pending_transactions[0].id, transaction.id);
     }
 
     #[tokio::test]
@@ -246,9 +233,9 @@ mod db_tests {
         for i in 0..10 {
             let pool = test_db.pool.clone();
             let task = tokio::spawn(async move {
-                store_arithmetic_transaction(&pool, i, i * 2, i * 3)
+                submit_transaction(&pool, i * 3)
                     .await
-                    .expect("Failed to store transaction in concurrent test");
+                    .expect("Failed to submit transaction in concurrent test");
             });
             tasks.push(task);
         }
@@ -258,18 +245,18 @@ mod db_tests {
             task.await.expect("Task failed");
         }
 
-        // Verify all transactions were stored
-        for i in 0..10 {
-            let result = i * 3;
-            let transactions = get_transactions_by_result(&test_db.pool, result)
-                .await
-                .expect("Failed to retrieve transaction in concurrent test");
+        // Verify all transactions were submitted
+        let pending_transactions = get_pending_transactions(&test_db.pool)
+            .await
+            .expect("Failed to retrieve transactions in concurrent test");
 
-            assert_eq!(transactions.len(), 1);
-            assert_eq!(transactions[0].a, i);
-            assert_eq!(transactions[0].b, i * 2);
-            assert_eq!(transactions[0].result, result);
-        }
+        assert_eq!(pending_transactions.len(), 10);
+        
+        // Verify all expected amounts are present
+        let mut found_amounts: Vec<i32> = pending_transactions.iter().map(|t| t.amount).collect();
+        found_amounts.sort_unstable();
+        let expected_amounts: Vec<i32> = (0..10).map(|i| i * 3).collect();
+        assert_eq!(found_amounts, expected_amounts);
     }
 }
 
@@ -288,59 +275,39 @@ mod performance_tests {
 
         let start = Instant::now();
 
-        // Insert 1000 transactions
+        // Submit 1000 transactions
         for i in 0..1000 {
-            store_arithmetic_transaction(&test_db.pool, i, i + 1, i * 2 + 1)
+            submit_transaction(&test_db.pool, i * 2 + 1)
                 .await
-                .expect("Failed to store bulk transaction");
+                .expect("Failed to submit bulk transaction");
         }
 
         let duration = start.elapsed();
         println!("Bulk insert of 1000 transactions took: {duration:?}");
 
-        // Verify all transactions were stored
-        for i in 0..100 {
-            // Check first 100 to avoid too much verification overhead
-            let result = i * 2 + 1;
-            let transactions = get_transactions_by_result(&test_db.pool, result)
-                .await
-                .expect("Failed to retrieve bulk transaction");
+        // Verify all transactions were submitted
+        let pending_transactions = get_pending_transactions(&test_db.pool)
+            .await
+            .expect("Failed to retrieve bulk transactions");
 
-            // Find our specific transaction (a=i, b=i+1, result=i*2+1)
-            // In concurrent environments, other tests might insert transactions with the same result
-            let our_transaction = transactions.iter().find(|t| t.a == i && t.b == i + 1);
-
-            if our_transaction.is_none() {
-                eprintln!(
-                    "ERROR: Could not find expected transaction for result {}: a={}, b={}",
-                    result,
-                    i,
-                    i + 1
-                );
-                eprintln!(
-                    "Found {} transactions for result {}:",
-                    transactions.len(),
-                    result
-                );
-                for (idx, txn) in transactions.iter().enumerate() {
-                    eprintln!(
-                        "  Transaction {}: a={}, b={}, result={}",
-                        idx, txn.a, txn.b, txn.result
-                    );
-                }
-                panic!(
-                    "Expected to find transaction with a={}, b={}, result={}, but it was not found",
-                    i,
-                    i + 1,
-                    result
-                );
-            }
-
-            // Verify our transaction has correct values
-            let txn = our_transaction.unwrap();
-            assert_eq!(txn.a, i);
-            assert_eq!(txn.b, i + 1);
-            assert_eq!(txn.result, result);
+        assert_eq!(pending_transactions.len(), 1000);
+        
+        // Verify first 100 amounts to avoid too much verification overhead
+        let expected_amounts: Vec<i32> = (0..100).map(|i| i * 2 + 1).collect();
+        let mut found_amounts: Vec<i32> = pending_transactions
+            .iter()
+            .take(100)
+            .map(|t| t.amount)
+            .collect();
+        found_amounts.sort_unstable();
+        
+        // Check that all expected amounts are present (may not be in order)
+        for expected in expected_amounts {
+            assert!(
+                pending_transactions.iter().any(|t| t.amount == expected),
+                "Expected amount {} not found in pending transactions",
+                expected
+            );
         }
     }
 
@@ -351,29 +318,26 @@ mod performance_tests {
             .await
             .expect("Failed to create test database");
 
-        // Create a dataset with repeated results to test index efficiency
-        for i in 0..500 {
-            // Create transactions that all result in 1000
-            let a = i;
-            let b = 1000 - i;
-            store_arithmetic_transaction(&test_db.pool, a, b, 1000)
+        // Create a dataset with the same amount to test processing efficiency
+        for _ in 0..500 {
+            submit_transaction(&test_db.pool, 1000)
                 .await
-                .expect("Failed to store performance test transaction");
+                .expect("Failed to submit performance test transaction");
         }
 
         let start = Instant::now();
-        let transactions = get_transactions_by_result(&test_db.pool, 1000)
+        let pending_transactions = get_pending_transactions(&test_db.pool)
             .await
             .expect("Failed to retrieve performance test transactions");
         let duration = start.elapsed();
 
-        println!("Query for result 1000 took: {duration:?}");
-        assert_eq!(transactions.len(), 500);
+        println!("Query for pending transactions took: {duration:?}");
+        assert_eq!(pending_transactions.len(), 500);
 
-        // Verify all transactions have the correct result
-        for transaction in transactions {
-            assert_eq!(transaction.result, 1000);
-            assert_eq!(transaction.a + transaction.b, 1000);
+        // Verify all transactions have the correct amount
+        for transaction in pending_transactions {
+            assert_eq!(transaction.amount, 1000);
+            assert!(transaction.included_in_batch_id.is_none());
         }
     }
 }
@@ -390,29 +354,38 @@ mod edge_case_tests {
             .await
             .expect("Failed to create test database");
 
-        // Test edge cases for i32
-        let test_cases = vec![
-            (i32::MIN, 0, i32::MIN),
-            (i32::MAX, 0, i32::MAX),
-            (0, i32::MIN, i32::MIN),
-            (0, i32::MAX, i32::MAX),
-            (i32::MIN + 1, -1, i32::MIN),
-            (i32::MAX - 1, 1, i32::MAX),
+        // Test edge cases for i32 amounts
+        let test_amounts = vec![
+            i32::MIN,
+            i32::MAX,
+            i32::MIN + 1,
+            i32::MAX - 1,
+            0,
         ];
 
-        for (a, b, expected_result) in test_cases {
-            store_arithmetic_transaction(&test_db.pool, a, b, expected_result)
+        for amount in test_amounts {
+            let transaction = submit_transaction(&test_db.pool, amount)
                 .await
-                .expect("Failed to store boundary value transaction");
+                .expect("Failed to submit boundary value transaction");
 
-            let transactions = get_transactions_by_result(&test_db.pool, expected_result)
-                .await
-                .expect("Failed to retrieve boundary value transaction");
+            assert_eq!(transaction.amount, amount);
+            assert!(transaction.id > 0);
+        }
 
-            let found = transactions.iter().find(|t| t.a == a && t.b == b);
+        // Verify all boundary value transactions are pending
+        let pending_transactions = get_pending_transactions(&test_db.pool)
+            .await
+            .expect("Failed to retrieve boundary value transactions");
+
+        assert_eq!(pending_transactions.len(), 5);
+        
+        // Verify all amounts are present
+        let expected_amounts = vec![i32::MIN, i32::MIN + 1, 0, i32::MAX - 1, i32::MAX];
+        for expected in expected_amounts {
             assert!(
-                found.is_some(),
-                "Boundary value transaction not found: {a} + {b} = {expected_result}"
+                pending_transactions.iter().any(|t| t.amount == expected),
+                "Boundary value amount {} not found",
+                expected
             );
         }
     }
@@ -424,23 +397,24 @@ mod edge_case_tests {
             .await
             .expect("Failed to create test database");
 
-        let zero_cases = vec![(0, 0, 0), (5, -5, 0), (-10, 10, 0), (100, -100, 0)];
+        // Test zero and offsetting amounts
+        let zero_amounts = vec![0, 0, 0, 0]; // Submit multiple zero amounts
 
-        for (a, b, result) in zero_cases {
-            store_arithmetic_transaction(&test_db.pool, a, b, result)
+        for amount in zero_amounts {
+            submit_transaction(&test_db.pool, amount)
                 .await
-                .expect("Failed to store zero operation transaction");
+                .expect("Failed to submit zero operation transaction");
         }
 
-        let transactions = get_transactions_by_result(&test_db.pool, 0)
+        let pending_transactions = get_pending_transactions(&test_db.pool)
             .await
-            .expect("Failed to retrieve zero result transactions");
+            .expect("Failed to retrieve zero amount transactions");
 
-        assert_eq!(transactions.len(), 4);
+        assert_eq!(pending_transactions.len(), 4);
 
-        for transaction in &transactions {
-            assert_eq!(transaction.result, 0);
-            assert_eq!(transaction.a + transaction.b, 0);
+        for transaction in &pending_transactions {
+            assert_eq!(transaction.amount, 0);
+            assert!(transaction.included_in_batch_id.is_none());
         }
     }
 
@@ -451,31 +425,30 @@ mod edge_case_tests {
             .await
             .expect("Failed to create test database");
 
-        let negative_cases = vec![
-            (-5, -3, -8),
-            (-10, 5, -5),
-            (10, -15, -5),
-            (-100, -200, -300),
-        ];
+        let negative_amounts = vec![-8, -5, -5, -300];
 
-        for (a, b, expected_result) in negative_cases {
-            store_arithmetic_transaction(&test_db.pool, a, b, expected_result)
+        for amount in negative_amounts {
+            let transaction = submit_transaction(&test_db.pool, amount)
                 .await
-                .expect("Failed to store negative number transaction");
+                .expect("Failed to submit negative number transaction");
 
-            let transactions = get_transactions_by_result(&test_db.pool, expected_result)
-                .await
-                .expect("Failed to retrieve negative number transaction");
-
-            let found = transactions.iter().find(|t| t.a == a && t.b == b);
-            assert!(
-                found.is_some(),
-                "Negative number transaction not found: {a} + {b} = {expected_result}"
-            );
-
-            // Verify arithmetic correctness
-            assert_eq!(a + b, expected_result);
+            assert_eq!(transaction.amount, amount);
+            assert!(transaction.id > 0);
         }
+
+        let pending_transactions = get_pending_transactions(&test_db.pool)
+            .await
+            .expect("Failed to retrieve negative number transactions");
+
+        assert_eq!(pending_transactions.len(), 4);
+        
+        // Verify all negative amounts are present
+        let expected_amounts = vec![-300, -8, -5, -5];
+        let mut found_amounts: Vec<i32> = pending_transactions.iter().map(|t| t.amount).collect();
+        found_amounts.sort_unstable();
+        let mut expected_sorted = expected_amounts;
+        expected_sorted.sort_unstable();
+        assert_eq!(found_amounts, expected_sorted);
     }
 
     #[tokio::test]
@@ -485,42 +458,30 @@ mod edge_case_tests {
             .await
             .expect("Failed to create test database");
 
-        // Store transactions with intentionally incorrect results
-        // (This tests that our database stores what we give it, even if mathematically incorrect)
-        let incorrect_cases = vec![
-            (5, 10, 16), // Should be 15
-            (3, 7, 9),   // Should be 10
-            (-5, 3, 0),  // Should be -2
-        ];
+        // Test that we store transaction amounts as given
+        // (This tests our database stores what we submit)
+        let test_amounts = vec![16, 9, 0];
 
-        for (a, b, incorrect_result) in incorrect_cases {
-            store_arithmetic_transaction(&test_db.pool, a, b, incorrect_result)
+        for amount in test_amounts {
+            let transaction = submit_transaction(&test_db.pool, amount)
                 .await
-                .expect("Failed to store incorrect arithmetic transaction");
+                .expect("Failed to submit transaction");
 
-            let transactions = get_transactions_by_result(&test_db.pool, incorrect_result)
-                .await
-                .expect("Failed to retrieve incorrect arithmetic transaction");
-
-            let found = transactions.iter().find(|t| t.a == a && t.b == b);
-            assert!(
-                found.is_some(),
-                "Incorrect arithmetic transaction not found"
-            );
-
-            // Verify that what we stored is what we get back (even if mathematically wrong)
-            let transaction = found.unwrap();
-            assert_eq!(transaction.a, a);
-            assert_eq!(transaction.b, b);
-            assert_eq!(transaction.result, incorrect_result);
-
-            // But the arithmetic should NOT be correct
-            assert_ne!(
-                a + b,
-                incorrect_result,
-                "Arithmetic should be incorrect for test case"
-            );
+            assert_eq!(transaction.amount, amount);
+            assert!(transaction.id > 0);
         }
+
+        let pending_transactions = get_pending_transactions(&test_db.pool)
+            .await
+            .expect("Failed to retrieve transactions");
+
+        assert_eq!(pending_transactions.len(), 3);
+        
+        // Verify that what we submitted is what we get back
+        let expected_amounts = vec![0, 9, 16];
+        let mut found_amounts: Vec<i32> = pending_transactions.iter().map(|t| t.amount).collect();
+        found_amounts.sort_unstable();
+        assert_eq!(found_amounts, expected_amounts);
     }
 
     #[tokio::test]
@@ -530,32 +491,33 @@ mod edge_case_tests {
             .await
             .expect("Failed to create test database");
 
-        let a = 42;
-        let b = 58;
         let result = 100;
 
-        // Attempt to store the same transaction 100 times
+        // Attempt to submit the same amount 100 times (should create 100 transactions)
         for _ in 0..100 {
-            store_arithmetic_transaction(&test_db.pool, a, b, result)
+            submit_transaction(&test_db.pool, result)
                 .await
-                .expect("Failed to store duplicate stress test transaction");
+                .expect("Failed to submit duplicate stress test transaction");
         }
 
-        // Should still only have one transaction
-        let transactions = get_transactions_by_result(&test_db.pool, result)
+        // Should have 100 separate transactions with same amount
+        let pending_transactions = get_pending_transactions(&test_db.pool)
             .await
-            .expect("Failed to retrieve duplicate stress test transaction");
+            .expect("Failed to retrieve duplicate stress test transactions");
 
-        // Filter to our specific a,b combination (in case other tests added to result 100)
-        let our_transactions: Vec<_> = transactions
+        // Filter to our specific amount
+        let our_transactions: Vec<_> = pending_transactions
             .iter()
-            .filter(|t| t.a == a && t.b == b)
+            .filter(|t| t.amount == result)
             .collect();
 
-        assert_eq!(our_transactions.len(), 1);
-        assert_eq!(our_transactions[0].a, a);
-        assert_eq!(our_transactions[0].b, b);
-        assert_eq!(our_transactions[0].result, result);
+        assert_eq!(our_transactions.len(), 100);
+        
+        // Verify all have unique IDs
+        let mut ids: Vec<i32> = our_transactions.iter().map(|t| t.id).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), 100, "All transaction IDs should be unique");
     }
 }
 
@@ -572,33 +534,37 @@ mod integration_tests {
             .await
             .expect("Failed to create test database");
 
-        // Use the actual arithmetic library to compute results
+        // Use the actual arithmetic library to compute amounts for testing
         let test_cases = vec![(5, 10), (25, 75), (-10, 30), (0, 0), (i32::MAX / 2, 1000)];
+        let mut submitted_amounts = vec![];
 
         for (a, b) in test_cases {
-            // Use the actual arithmetic function from the lib
-            let computed_result = addition(a, b);
+            // Use the actual arithmetic function from the lib to compute amount
+            let computed_amount = addition(a, b);
+            submitted_amounts.push(computed_amount);
 
-            // Store the transaction with the computed result
-            store_arithmetic_transaction(&test_db.pool, a, b, computed_result)
+            // Submit the transaction with the computed amount
+            let transaction = submit_transaction(&test_db.pool, computed_amount)
                 .await
-                .expect("Failed to store integration test transaction");
+                .expect("Failed to submit integration test transaction");
 
-            // Verify retrieval
-            let transactions = get_transactions_by_result(&test_db.pool, computed_result)
-                .await
-                .expect("Failed to retrieve integration test transaction");
+            assert_eq!(transaction.amount, computed_amount);
+        }
 
-            let found = transactions.iter().find(|t| t.a == a && t.b == b);
+        // Verify retrieval of all submitted transactions
+        let pending_transactions = get_pending_transactions(&test_db.pool)
+            .await
+            .expect("Failed to retrieve integration test transactions");
+
+        assert_eq!(pending_transactions.len(), 5);
+        
+        // Verify all computed amounts are present
+        for expected_amount in submitted_amounts {
             assert!(
-                found.is_some(),
-                "Integration test transaction not found: {a} + {b} = {computed_result}"
+                pending_transactions.iter().any(|t| t.amount == expected_amount),
+                "Integration test transaction not found with amount: {}",
+                expected_amount
             );
-
-            // Verify the stored values match the library computation
-            let transaction = found.unwrap();
-            assert_eq!(transaction.result, computed_result);
-            assert_eq!(addition(transaction.a, transaction.b), transaction.result);
         }
     }
 
@@ -612,32 +578,33 @@ mod integration_tests {
         // Test that our database operations work with the PublicValuesStruct format
         let a = 15;
         let b = 25;
-        let result = addition(a, b);
+        let computed_amount = addition(a, b);
 
-        // Create a PublicValuesStruct like the zkVM would (only result is public)
-        let public_values = PublicValuesStruct { result };
+        // Create a PublicValuesStruct like the zkVM would (only final_balance is public)
+        let public_values = PublicValuesStruct {
+            initial_balance: 0,
+            final_balance: computed_amount,
+        };
 
-        // Store using computed values (a and b are private, not in PublicValuesStruct)
-        store_arithmetic_transaction(&test_db.pool, a, b, public_values.result)
+        // Submit using computed amount (a and b are private inputs, not stored)
+        let transaction = submit_transaction(&test_db.pool, public_values.final_balance)
             .await
-            .expect("Failed to store PublicValuesStruct transaction");
+            .expect("Failed to submit PublicValuesStruct transaction");
 
         // Retrieve and verify
-        let transactions = get_transactions_by_result(&test_db.pool, public_values.result)
+        let pending_transactions = get_pending_transactions(&test_db.pool)
             .await
             .expect("Failed to retrieve PublicValuesStruct transaction");
 
-        assert_eq!(transactions.len(), 1);
-        let stored_transaction = &transactions[0];
+        assert_eq!(pending_transactions.len(), 1);
+        let stored_transaction = &pending_transactions[0];
 
-        // Verify the result matches the PublicValuesStruct
-        assert_eq!(stored_transaction.result, public_values.result);
+        // Verify the amount matches the PublicValuesStruct final_balance
+        assert_eq!(stored_transaction.amount, public_values.final_balance);
+        assert_eq!(stored_transaction.id, transaction.id);
 
-        // Verify arithmetic correctness
-        assert_eq!(
-            stored_transaction.a + stored_transaction.b,
-            stored_transaction.result
-        );
+        // Verify the computation was correct
+        assert_eq!(addition(a, b), stored_transaction.amount);
     }
 
     #[tokio::test]
@@ -647,44 +614,45 @@ mod integration_tests {
             .await
             .expect("Failed to create test database");
 
-        // Simulate the full workflow: zkVM computes, script stores, later verification
+        // Simulate the full workflow: zkVM computes, system submits, later batch processing
         let zkvm_computations = vec![
             (7, 13),    // zkVM computes 7 + 13 = 20
             (100, 200), // zkVM computes 100 + 200 = 300
             (-50, 75),  // zkVM computes -50 + 75 = 25
         ];
 
-        // Phase 1: zkVM execution and storage (simulated)
-        for (a, b) in &zkvm_computations {
-            let result = addition(*a, *b); // Simulate zkVM computation
+        let mut expected_amounts = vec![];
 
-            // Script stores the result
-            store_arithmetic_transaction(&test_db.pool, *a, *b, result)
+        // Phase 1: zkVM execution and transaction submission (simulated)
+        for (a, b) in &zkvm_computations {
+            let amount = addition(*a, *b); // Simulate zkVM computation
+            expected_amounts.push(amount);
+
+            // System submits the transaction amount
+            submit_transaction(&test_db.pool, amount)
                 .await
-                .expect("Failed to store workflow simulation transaction");
+                .expect("Failed to submit workflow simulation transaction");
         }
 
-        // Phase 2: Later verification (simulated)
-        for (a, b) in zkvm_computations {
-            let expected_result = addition(a, b);
+        // Phase 2: Later batch processing verification (simulated)
+        let pending_transactions = get_pending_transactions(&test_db.pool)
+            .await
+            .expect("Failed to get pending transactions for workflow verification");
 
-            // Verify the computation was stored correctly
-            let value = get_value_by_result(&test_db.pool, expected_result)
-                .await
-                .expect("Failed to get value for workflow verification");
-
+        assert_eq!(pending_transactions.len(), 3);
+        
+        // Verify all computed amounts are present and ready for batching
+        for expected_amount in expected_amounts {
             assert!(
-                value.is_some(),
-                "Workflow verification failed: result {expected_result} not found"
+                pending_transactions.iter().any(|t| t.amount == expected_amount),
+                "Workflow verification failed: amount {} not found in pending transactions",
+                expected_amount
             );
-            let (stored_a, stored_b, _created_at) = value.unwrap();
-
-            // Verify the stored values match what we expect
-            assert_eq!(stored_a, a);
-            assert_eq!(stored_b, b);
-
-            // Verify arithmetic correctness
-            assert_eq!(addition(stored_a, stored_b), expected_result);
+        }
+        
+        // Verify all transactions are pending (not yet batched)
+        for transaction in &pending_transactions {
+            assert!(transaction.included_in_batch_id.is_none(), "Transaction should not be batched yet");
         }
     }
 }

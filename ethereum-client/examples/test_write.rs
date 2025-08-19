@@ -14,11 +14,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("✅ Client created successfully");
 
-    if !client.has_signer() {
-        println!("❌ No signer configured - cannot test write operations");
-        return Ok(());
-    }
-
     if let Some(signer) = &config.signer {
         println!("🔐 Signer: {}", signer.address);
         println!("📝 Contract: {}", config.contract.arithmetic_contract);

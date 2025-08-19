@@ -40,13 +40,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             println!("❌ Network connection failed: {e}");
                         }
                     }
-
-                    // Test if client has signer
-                    if client.has_signer() {
-                        println!("✅ Client has signing capability");
-                    } else {
-                        println!("⚠️  Client is read-only");
-                    }
                 }
                 Err(e) => {
                     println!("❌ Failed to create Ethereum client: {e}");

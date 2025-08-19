@@ -88,43 +88,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Test 5: Authorization Test (if signer available)
-    if client.has_signer() {
-        println!("\n5️⃣  Testing Write Authorization...");
-        println!("   ℹ️  This will test authorization, then fail on proof verification (expected)");
-
-        let test_state_id = FixedBytes::from([1u8; 32]);
-        let test_state_root = FixedBytes::from([2u8; 32]);
-        let test_proof = Bytes::from(vec![1, 2, 3, 4]);
-        let test_public_values = Bytes::from(vec![5, 6, 7, 8]);
-
-        match client
-            .update_state(
-                test_state_id,
-                test_state_root,
-                test_proof,
-                test_public_values,
-            )
-            .await
-        {
-            Ok(_) => {
-                println!("   ✅ Write operation successful (unexpected!)");
-            }
-            Err(e) => {
-                let error_str = format!("{e}");
-                if error_str.contains("0x7fcdd1f4") {
-                    println!("   ❌ Authorization failed - signer not authorized");
-                } else if error_str.contains("0xf208777e") {
-                    println!("   ✅ Authorization passed, proof verification failed (expected)");
-                } else {
-                    println!("   ⚠️  Unexpected error: {e}");
-                }
-            }
-        }
-    } else {
-        println!("\n5️⃣  Skipping Write Test - No Signer Configured");
-    }
-
     // Test 6: Contract Information
     println!("\n6️⃣  Contract Information Summary...");
     println!(

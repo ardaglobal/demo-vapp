@@ -18,7 +18,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("   Signer 1: {}", signer1.address);
     }
     println!("   Contract 1: {}", config1.contract.arithmetic_contract);
-    println!("   Has signer 1: {}", client1.has_signer());
 
     // Test 2: Replicate exact prove command flow
     println!("\n2️⃣  Testing prove command flow...");
@@ -29,7 +28,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("   Signer 2: {}", signer2.address);
     }
     println!("   Contract 2: {}", eth_config.contract.arithmetic_contract);
-    println!("   Has signer 2: {}", eth_client.has_signer());
 
     // Compare configurations
     println!("\n3️⃣  Configuration comparison...");

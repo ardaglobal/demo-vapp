@@ -76,12 +76,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!();
 
-    if !client.has_signer() {
-        println!("❌ No signer configured - cannot publish state");
-        println!("   Set ETHEREUM_WALLET_PRIVATE_KEY in your .env file");
-        return Ok(());
-    }
-
     // Publish the state
     println!("🚀 Publishing state to contract...");
 
