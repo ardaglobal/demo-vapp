@@ -14,6 +14,7 @@ alloy-primitives   = { version = "1.3.0", features = [ "serde" ] }
 alloy-sol-types    = { workspace = true }
 arithmetic-db      = { path = "../db" }
 arithmetic-lib     = { path = "../lib" }
+base64             = "0.21"
 clap               = { workspace = true, features = [ "derive", "env" ] }
 dotenv             = { workspace = true }
 ethereum-client    = { path = "../ethereum-client" }
@@ -23,6 +24,7 @@ serde              = { workspace = true }
 serde_json         = { workspace = true }
 sindri             = { version = "0.3.1", features = [ "sp1-v5" ] }
 sp1-sdk            = { workspace = true }
+sp1-zkvm           = { workspace = true }
 sqlx               = { workspace = true }
 termion            = { workspace = true }
 tokio              = { workspace = true }

@@ -1,14 +1,20 @@
 use crate::{
     config::Config,
-    contracts::{ContractAddresses, IArithmetic, IArithmeticInstance, ISP1Verifier, ITest},
+    contracts::{ContractAddresses, IArithmetic, IArithmeticInstance, ISP1Verifier},
     error::{EthereumError, Result},
     types::{
         BatchStateUpdate, InclusionProof, NetworkStats, ProofVerificationResult, StateHistory,
         StateResponse, StateUpdate,
     },
 };
-use alloy_primitives::{Bytes, FixedBytes, U256};
-use alloy_provider::{Provider, ProviderBuilder};
+use alloy_network::EthereumWallet;
+use alloy_primitives::{Address, Bytes, FixedBytes, U256};
+use alloy_provider::{
+    fillers::{
+        BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller, WalletFiller,
+    },
+    Identity, Provider, ProviderBuilder, RootProvider,
+};
 use alloy_rpc_types_eth::{Filter, TransactionReceipt};
 use alloy_signer_local::PrivateKeySigner;
 use alloy_sol_types::SolEvent;
@@ -16,21 +22,15 @@ use tokio::time::{sleep, Duration};
 use tracing::{debug, error, info, warn};
 
 // Use a simpler provider type that works with the current Alloy version
-type EthProvider = alloy_provider::fillers::FillProvider<
-    alloy_provider::fillers::JoinFill<
-        alloy_provider::Identity,
-        alloy_provider::fillers::JoinFill<
-            alloy_provider::fillers::GasFiller,
-            alloy_provider::fillers::JoinFill<
-                alloy_provider::fillers::BlobGasFiller,
-                alloy_provider::fillers::JoinFill<
-                    alloy_provider::fillers::NonceFiller,
-                    alloy_provider::fillers::ChainIdFiller,
-                >,
-            >,
+type EthProvider = FillProvider<
+    JoinFill<
+        JoinFill<
+            Identity,
+            JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
         >,
+        WalletFiller<EthereumWallet>,
     >,
-    alloy_provider::RootProvider,
+    RootProvider,
 >;
 
 #[cfg(feature = "database")]
@@ -48,7 +48,7 @@ pub struct EthereumClient {
     http_provider: EthProvider,
     #[allow(dead_code)]
     contracts: ContractAddresses,
-    signer: Option<PrivateKeySigner>,
+    signer: PrivateKeySigner,
 
     #[cfg(feature = "database")]
     cache: Option<EthereumCache>,
@@ -58,23 +58,27 @@ impl EthereumClient {
     pub async fn new(config: Config) -> Result<Self> {
         config.validate()?;
 
-        let http_provider = ProviderBuilder::new().connect_http(config.network.rpc_url.clone());
+        let signer_config = config
+            .signer
+            .as_ref()
+            .ok_or_else(|| EthereumError::Config("Signer required".to_string()))?;
+
+        let signer = PrivateKeySigner::from_bytes(&FixedBytes::<32>::try_from(
+            hex::decode(&signer_config.private_key)?.as_slice(),
+        )?)
+        .map_err(|e| EthereumError::Signer(e.to_string()))?;
+
+        let wallet = EthereumWallet::from(signer.clone());
+
+        // Create provider with wallet for signing
+        let http_provider = ProviderBuilder::new()
+            .wallet(wallet)
+            .connect_http(config.network.rpc_url.clone());
 
         let contracts = ContractAddresses::new(
             config.contract.arithmetic_contract,
             config.contract.verifier_contract,
         );
-
-        let signer = if let Some(signer_config) = &config.signer {
-            Some(
-                PrivateKeySigner::from_bytes(&FixedBytes::<32>::try_from(
-                    hex::decode(&signer_config.private_key)?.as_slice(),
-                )?)
-                .map_err(|e| EthereumError::Signer(e.to_string()))?,
-            )
-        } else {
-            None
-        };
 
         #[cfg(feature = "database")]
         let cache = if let Ok(database_url) = std::env::var("DATABASE_URL") {
@@ -99,7 +103,7 @@ impl EthereumClient {
         let contract = IArithmetic::new(self.contracts.arithmetic, &self.http_provider);
         let call_builder = contract
             .verifyArithmeticProof(public_values.clone(), proof.clone())
-            .from(self.signer.as_ref().unwrap().address());
+            .from(self.signer.address());
 
         let tx_result = call_builder.call().await.map_err(|e| {
             error!("Failed to send verify proof transaction: {e}");
@@ -116,28 +120,23 @@ impl EthereumClient {
         proof: Bytes,
         public_values: Bytes,
     ) -> Result<StateUpdate> {
-        let signer = self.signer.as_ref().ok_or_else(|| {
-            EthereumError::Config("Signer required for state updates".to_string())
-        })?;
-
         // Create contract instance
         let contract = IArithmetic::new(self.contracts.arithmetic, &self.http_provider);
 
-        // Build the transaction
-        let call_builder = contract
+        // Send transaction (wallet handles signing automatically)
+        let tx_result = contract
             .updateState(
                 state_id,
                 new_state_root,
                 proof.clone(),
                 public_values.clone(),
             )
-            .from(signer.address());
-
-        // Send the transaction
-        let tx_result = call_builder.send().await.map_err(|e| {
-            error!("Failed to send state update transaction: {e}");
-            EthereumError::Transaction(format!("Transaction failed: {e}"))
-        })?;
+            .send()
+            .await
+            .map_err(|e| {
+                error!("Failed to send state update transaction: {e}");
+                EthereumError::Transaction(format!("Transaction failed: {e}"))
+            })?;
 
         info!("State update transaction sent: {}", tx_result.tx_hash());
 
@@ -173,14 +172,21 @@ impl EthereumClient {
         Ok(state_update)
     }
 
+    pub async fn is_authorized(&self, account: Address) -> Result<bool> {
+        let contract = IArithmetic::new(self.contracts.arithmetic, &self.http_provider);
+        let call_builder = contract.isAuthorized(account).from(self.signer.address());
+        let tx_result = call_builder.call().await.map_err(|e| {
+            error!("Failed to send is authorized transaction: {e}");
+            EthereumError::Transaction(format!("Transaction failed: {e}"))
+        })?;
+
+        Ok(tx_result)
+    }
+
     pub async fn batch_update_states(
         &self,
         updates: Vec<(FixedBytes<32>, FixedBytes<32>, Bytes, Bytes)>,
     ) -> Result<BatchStateUpdate> {
-        let signer = self.signer.as_ref().ok_or_else(|| {
-            EthereumError::Config("Signer required for state updates".to_string())
-        })?;
-
         if updates.is_empty() {
             return Err(EthereumError::Config("No updates provided".to_string()));
         }
@@ -202,21 +208,20 @@ impl EthereumClient {
         // Create contract instance
         let contract = IArithmetic::new(self.contracts.arithmetic, &self.http_provider);
 
-        // Build the batch transaction
-        let call_builder = contract
+        // Send batch transaction (wallet handles signing automatically)
+        let tx_result = contract
             .batchUpdateStates(
                 state_ids.clone(),
                 new_state_roots.clone(),
                 proofs.clone(),
                 results.clone(),
             )
-            .from(signer.address());
-
-        // Send the transaction
-        let tx_result = call_builder.send().await.map_err(|e| {
-            error!("Failed to send batch update transaction: {e}");
-            EthereumError::Transaction(format!("Batch transaction failed: {e}"))
-        })?;
+            .send()
+            .await
+            .map_err(|e| {
+                error!("Failed to send batch update transaction: {e}");
+                EthereumError::Transaction(format!("Batch transaction failed: {e}"))
+            })?;
 
         info!("Batch update transaction sent: {}", tx_result.tx_hash());
 
@@ -787,11 +792,6 @@ impl EthereumClient {
         })?;
 
         Ok(version)
-    }
-
-    #[must_use]
-    pub const fn has_signer(&self) -> bool {
-        self.signer.is_some()
     }
 }
 

@@ -20,7 +20,7 @@
 //! RUST_LOG=info cargo run --release -- --execute --bg-one-shot
 //! ```
 
-use alloy_primitives::{Bytes, FixedBytes};
+use alloy_primitives::{Address, Bytes, FixedBytes};
 use alloy_sol_types::SolType;
 use arithmetic_db::db::{
     get_sindri_proof_by_result, get_value_by_result, init_db, store_arithmetic_transaction,
@@ -33,10 +33,11 @@ use ethereum_client::{Config as EthereumConfig, EthereumClient};
 use serde::{Deserialize, Serialize};
 use sindri::integrations::sp1_v5::SP1ProofInfo;
 use sindri::{client::SindriClient, JobStatus, ProofInfoResponse, ProofInput};
-use sp1_sdk::{include_elf, HashableKey, Prover, ProverClient, SP1Stdin};
+use sp1_sdk::{include_elf, HashableKey, Prover, ProverClient, SP1ProofWithPublicValues, SP1Stdin};
 use sqlx::PgPool;
 use std::io::{self, Write};
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::time::Duration;
 use tokio::task::JoinHandle;
 use tracing::info;
@@ -85,6 +86,8 @@ struct Args {
     prove: bool, // Run the program in prove mode
     #[arg(long)]
     verify: bool, // Run the program in verify mode
+    #[arg(long)]
+    generate: bool, // Run the program in generate mode
     #[arg(long)]
     vkey: bool, // Print the vkey for the program
 
@@ -168,51 +171,112 @@ async fn main() {
         run_interactive_execute(&client, &pool).await;
     }
 
+    if args.generate {
+        let a = 5u32;
+        let b = 10u32;
+
+        let mut stdin = SP1Stdin::new();
+        stdin.write(&a);
+        stdin.write(&b);
+        // Set up the pk and vk.
+        let client = ProverClient::from_env();
+        let (pk, vk) = client.setup(ARITHMETIC_ELF);
+        println!("vk: {:?}", vk.bytes32());
+        // Generate the Groth16 proof.
+        let proof = client.prove(&pk, &stdin).groth16().run().unwrap();
+        println!("generated proof");
+
+        // Get the public values as bytes.
+        let public_values = proof.public_values.as_slice();
+        println!("public values: 0x{}", hex::encode(public_values));
+
+        // Get the proof as bytes.
+        let solidity_proof = proof.bytes();
+        println!("proof: 0x{}", hex::encode(solidity_proof));
+
+        // Verify proof and public values
+        client.verify(&proof, &vk).expect("verification failed");
+
+        // Save the proof.
+        proof
+            .save("arithmetic-groth16.bin")
+            .expect("saving proof failed");
+
+        println!("successfully generated and verified proof for the program!");
+    }
+
     if args.prove {
         // Determine if we need database based on whether user provided a specific result to lookup
         // vs. using provided/default a and b values
-        let using_default_inputs = args.a == 1 && args.b == 1; // Default values from clap
-        let using_specific_result = args.result != 20; // Non-default result value
+        // let using_default_inputs = args.a == 1 && args.b == 1; // Default values from clap
+        // let using_specific_result = args.result != 20; // Non-default result value
 
-        let needs_database = using_specific_result && using_default_inputs;
+        // Set up the pk and vk.
+        let client = ProverClient::from_env();
+        let (_, vk) = client.setup(ARITHMETIC_ELF);
+        println!("vk: {:?}", vk.bytes32());
 
-        if needs_database {
-            // Need database to lookup inputs by result
-            println!(
-                "🔍 Looking up inputs for result = {} in database",
-                args.result
-            );
-            let pool = init_db().await.expect("Failed to initialize database - required to lookup inputs for the specified result");
-            run_prove_via_sindri(
-                &pool,
-                args.a,
-                args.b,
-                args.result,
-                args.system,
-                args.generate_fixture,
-                !args.skip_contract_submission,
-            )
-            .await;
-        } else {
-            // Have explicit inputs or using default calculation - no database needed
-            if using_specific_result && !using_default_inputs {
-                println!(
-                    "ℹ️  Using provided inputs (a={}, b={}) - ignoring --result parameter",
-                    args.a, args.b
-                );
-            } else {
-                println!("ℹ️  Using provided inputs - database not required for proving");
-            }
-            run_prove_via_sindri_no_db(
-                args.a,
-                args.b,
-                args.result,
-                args.system,
-                args.generate_fixture,
-                !args.skip_contract_submission,
-            )
-            .await;
-        }
+        // To load the proof from "arithmetic-groth16.bin" in the script directory
+        let proof = SP1ProofWithPublicValues::load("arithmetic-groth16.bin")
+            .expect("failed to load proof from file");
+
+        // Proof size
+        println!("proof size: {}", proof.bytes().len());
+
+        // Get the public values as bytes.
+        let public_values = proof.public_values.as_slice();
+        println!("public values: 0x{}", hex::encode(public_values));
+
+        // Get the proof as bytes.
+        let solidity_proof = proof.bytes();
+        println!("proof: 0x{}", hex::encode(solidity_proof));
+
+        // Verify proof and public values
+        client.verify(&proof, &vk).expect("verification failed");
+
+        println!("successfully verified proof for the program!");
+
+        submit_proof_to_contract(proof).await.unwrap();
+
+        // let needs_database = using_specific_result && using_default_inputs;
+
+        // if needs_database {
+        //     // Need database to lookup inputs by result
+        //     println!(
+        //         "🔍 Looking up inputs for result = {} in database",
+        //         args.result
+        //     );
+        //     let pool = init_db().await.expect("Failed to initialize database - required to lookup inputs for the specified result");
+        //     run_prove_via_sindri(
+        //         &pool,
+        //         args.a,
+        //         args.b,
+        //         args.result,
+        //         args.system,
+        //         args.generate_fixture,
+        //         !args.skip_contract_submission,
+        //     )
+        //     .await;
+        // } else {
+        //     // Have explicit inputs or using default calculation - no database needed
+        //     if using_specific_result && !using_default_inputs {
+        //         println!(
+        //             "ℹ️  Using provided inputs (a={}, b={}) - ignoring --result parameter",
+        //             args.a, args.b
+        //         );
+        //     } else {
+        //         println!("ℹ️  Using provided inputs - database not required for proving");
+        //     }
+        //     run_prove_via_sindri_no_db(
+        //         args.a,
+        //         args.b,
+        //         args.result,
+        //         args.system,
+        //         args.generate_fixture,
+        //         !args.skip_contract_submission,
+        //     )
+        //     .await;
+        // }
     }
 
     if args.verify {
@@ -642,9 +706,9 @@ async fn run_prove_via_sindri(
 
     // Submit to smart contract if requested
     if submit_to_contract {
-        if let Err(e) = submit_proof_to_contract(&proof_info, result).await {
-            println!("⚠️  Failed to submit proof to smart contract: {e}");
-        }
+        // if let Err(e) = submit_proof_to_contract(result).await {
+        //     println!("⚠️  Failed to submit proof to smart contract: {e}");
+        // }
     }
 
     // Store proof metadata by result for later verification
@@ -702,9 +766,9 @@ async fn run_prove_via_sindri_no_db(
 
     // Submit to smart contract if requested
     if submit_to_contract {
-        if let Err(e) = submit_proof_to_contract(&proof_info, result).await {
-            println!("⚠️  Failed to submit proof to smart contract: {e}");
-        }
+        // if let Err(e) = submit_proof_to_contract(result).await {
+        //     println!("⚠️  Failed to submit proof to smart contract: {e}");
+        // }
     }
 
     println!("ℹ️  Note: Proof metadata not stored (database-free mode)");
@@ -796,69 +860,46 @@ async fn create_evm_fixture_from_sindri(
 
 /// Submit proof to smart contract using ethereum client
 async fn submit_proof_to_contract(
-    proof_info: &ProofInfoResponse,
-    result: i32,
+    proof: SP1ProofWithPublicValues,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Submitting proof to smart contract...");
 
     // Create ethereum client configuration
     let eth_config = EthereumConfig::from_env()?;
 
+    println!("eth_config: {:?}", eth_config.clone());
     // Initialize ethereum client
-    let eth_client = EthereumClient::new(eth_config).await?;
+    let eth_client = EthereumClient::new(eth_config.clone()).await?;
 
-    // Check if client has signing capability
-    if !eth_client.has_signer() {
-        return Err("Ethereum client requires a signer for contract submission. Please set private key in environment.".into());
-    }
+    let is_authorized = eth_client
+        .is_authorized(eth_config.signer.unwrap().address)
+        .await?;
 
-    println!("✅ Ethereum client initialized successfully");
+    // let is_authorized = eth_client
+    //     .is_authorized(Address::from_str(
+    //         "0x0000000000000000000000000000000000000000",
+    //     )?)
+    //     .await?;
+    println!("is_authorized: {:?}", is_authorized);
 
-    // Extract SP1 proof and verification key
-    let sp1_proof = proof_info.to_sp1_proof_with_public()?;
-    let _verification_key = proof_info.get_sp1_verifying_key()?;
+    let proof_bytes = Bytes::from(proof.bytes());
+    let public_values = Bytes::from(proof.public_values.as_slice().to_vec());
 
-    // Convert SP1 proof to bytes for contract submission
-    let proof_bytes = Bytes::from(sp1_proof.bytes());
+    let state_id =
+        FixedBytes::from_slice(&alloy_primitives::keccak256(proof.public_values.as_slice())[..32]);
 
-    // Create public values (the arithmetic result as encoded bytes)
-    let public_values = Bytes::from(sp1_proof.public_values.as_slice().to_vec());
-
-    // Generate state ID (can be customized based on application logic)
-    let state_id = FixedBytes::from_slice(
-        &alloy_primitives::keccak256(format!("arithmetic_result_{result}").as_bytes())[..32],
-    );
-
-    // Generate new state root (for this demo, we'll use a simple hash of the result)
     let new_state_root =
-        FixedBytes::from_slice(&alloy_primitives::keccak256(result.to_be_bytes())[..32]);
+        FixedBytes::from_slice(&alloy_primitives::keccak256(proof.public_values.as_slice())[..32]);
 
-    println!("📊 Proof data prepared:");
-    println!("  State ID: 0x{}", hex::encode(state_id.as_slice()));
-    println!(
-        "  New State Root: 0x{}",
-        hex::encode(new_state_root.as_slice())
-    );
-    println!("  Proof size: {} bytes", proof_bytes.len());
-    println!("  Public values size: {} bytes", public_values.len());
-
-    // Submit to smart contract
-    let state_update = eth_client
+    let result = eth_client
         .update_state(state_id, new_state_root, proof_bytes, public_values)
         .await?;
 
     println!("✅ Proof submitted to smart contract successfully!");
     println!("🔗 Transaction details:");
-    if let Some(tx_hash) = state_update.transaction_hash {
-        println!("  Transaction hash: 0x{}", hex::encode(tx_hash.as_slice()));
-    }
-    if let Some(block_number) = state_update.block_number {
-        println!("  Block number: {block_number}");
-    }
-    println!(
-        "  State ID: 0x{}",
-        hex::encode(state_update.state_id.as_slice())
-    );
+    println!("  Transaction txn hash: {:?}", result.transaction_hash);
+    println!("  Transaction state id: {}", result.state_id);
+    println!("  Transaction new state root: {}", result.new_state_root);
 
     Ok(())
 }

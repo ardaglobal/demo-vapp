@@ -1,0 +1,13 @@
+[package]
+name = "sign-and-send-examples"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "sign_and_send_update_state"
+path = "sign_and_send_update_state.rs"
+
+[dependencies]
+alloy = { version = "0.6", features = ["full"] }
+tokio = { version = "1.0", features = ["full"] }
+hex = "0.4"
