@@ -42,7 +42,7 @@ up:
 ## up-dev: Start services (builds locally)
 .PHONY: up-dev
 up-dev:
-	docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+	docker-compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
 	@echo "✅ Services started with local build"
 	@echo "🌐 Server: http://localhost:8080"
 	@echo "🗄️  Database: localhost:5432"
@@ -50,12 +50,7 @@ up-dev:
 ## down: Stop all services
 .PHONY: down
 down:
-	docker-compose down
-
-## logs: View server logs
-.PHONY: logs
-logs:
-	docker-compose logs server -f
+	docker-compose down -v
 
 ## docker-build: Build image locally
 .PHONY: docker-build
