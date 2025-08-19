@@ -1,76 +1,59 @@
 # Demo vApp Makefile
 # Provides convenient shortcuts for common development tasks
 
-# Docker registry configuration
 REGISTRY ?= ghcr.io
 OWNER ?= ardaglobal
 IMAGE_NAME ?= demo-vapp
 DOCKER_TAG ?= $(shell whoami)-dev
 PLATFORM ?= linux/amd64
+APPNAME ?= demo-vapp
 
-.PHONY: help install deploy up up-dev down logs test clean run cli server docker-build docker-push
 
-# Default target
-help:
-	@echo "Demo vApp Development Commands:"
-	@echo ""
-	@echo "Setup:"
-	@echo "  make install     Install all dependencies"
-	@echo "  make deploy      Deploy circuit to Sindri"
-	@echo ""
-	@echo "Docker Operations:"
-	@echo "  make up          Start services (uses pre-built image)"
-	@echo "  make up-dev      Start services (builds locally)"
-	@echo "  make down        Stop all services"
-	@echo "  make logs        View server logs"
-	@echo "  make docker-build Build image locally"
-	@echo "  make docker-push Build and push image to GitHub registry"
-	@echo ""
-	@echo "Development:"
-	@echo "  make run         Local SP1 unit testing (fast ~3.5s Core proofs)"
-	@echo "  make cli         CLI client (requires API server running)"  
-	@echo "  make server      Start API server locally"
-	@echo "  make test        Run all tests"
-	@echo "  make clean       Clean up Docker resources"
-	@echo ""
-	@echo "Environment:"
-	@echo "  make env         Copy .env.example to .env"
-	@echo ""
-	@echo "Docker Configuration:"
-	@echo "  PLATFORM=linux/amd64  Build for x86_64 (default)"
-	@echo "  PLATFORM=linux/arm64  Build for ARM64"
-	@echo "  Example: make docker-push PLATFORM=linux/amd64"
+## help: Get more info on make commands.
+.PHONY: help
+help: Makefile
+	@echo " Choose a command to run in '$(APPNAME)':"
+	@sed -n 's/^##//p' $< | column -t -s ':' | sed -e 's/^/ /'
 
-# Setup commands
+## install: Install all dependencies
+.PHONY: install
 install:
 	./install-dependencies.sh
 
+## env: Copy .env.example to .env
+.PHONY: env
 env:
 	cp .env.example .env
 	@echo "✅ Environment file created. Edit .env to add your SINDRI_API_KEY"
 
+## deploy: Deploy circuit to Sindri
+.PHONY: deploy
 deploy:
 	./deploy-circuit.sh
 
-# Docker commands
+## up: Start services (uses pre-built image)
+.PHONY: up
 up:
 	docker-compose up -d
 	@echo "✅ Services started using pre-built image"
 	@echo "🌐 Server: http://localhost:8080"
 	@echo "🗄️  Database: localhost:5432"
 
+## up-dev: Start services (builds locally)
+.PHONY: up-dev
 up-dev:
-	docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+	docker-compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
 	@echo "✅ Services started with local build"
 	@echo "🌐 Server: http://localhost:8080"
 	@echo "🗄️  Database: localhost:5432"
 
+## down: Stop all services
+.PHONY: down
 down:
-	docker-compose down
+	docker-compose down -v
 
-logs:
-	docker-compose logs server -f
-
+## docker-build: Build image locally
+.PHONY: docker-build
 docker-build:
 	@echo "Building Docker image locally..."
 	@echo "Image: $(REGISTRY)/$(OWNER)/$(IMAGE_NAME):$(DOCKER_TAG)"
@@ -81,6 +64,12 @@ docker-build:
 	@echo "🐳 Image: $(REGISTRY)/$(OWNER)/$(IMAGE_NAME):$(DOCKER_TAG)"
 	@echo "🏗️  Platform: $(PLATFORM)"
 
+## docker-push: Build and push image to GitHub registry
+# Docker Configuration:
+#   PLATFORM=linux/amd64  Build for x86_64 (default)
+#   PLATFORM=linux/arm64  Build for ARM64
+#   Example: make docker-push PLATFORM=linux/amd64
+.PHONY: docker-push
 docker-push: docker-build
 	@echo "Pushing Docker image..."
 	@echo "Registry: $(REGISTRY)"
@@ -88,33 +77,37 @@ docker-push: docker-build
 	@echo "✅ Image pushed successfully!"
 	@echo "🚀 Published: $(REGISTRY)/$(OWNER)/$(IMAGE_NAME):$(DOCKER_TAG)"
 
-# Development commands
+## test: Run all tests
+.PHONY: test
 test:
 	cargo test
 
-# Development commands
+## run: Local SP1 unit testing (fast ~3.5s Core proofs)
+.PHONY: run
 run:
 	cargo run --release
 
+## cli: CLI client (requires API server running)
+.PHONY: cli
 cli:
-	@echo "CLI Usage Examples:"
-	@echo "  make cli ARGS='health-check'"
-	@echo "  make cli ARGS='store-transaction --a 5 --b 10'"  
-	@echo "  make cli ARGS='get-transaction --result 15'"
-	@echo ""
 	@cargo run --bin cli -- $(ARGS)
 
+## server: Start API server locally
+.PHONY: server
 server:
 	@echo "Starting API server locally (requires database)..."
 	@echo "💡 Tip: Run 'make up postgres' in another terminal first"
 	cargo run --bin server --release
 
+## clean: Clean up Docker resources
+.PHONY: clean
 clean:
 	docker-compose down -v
 	docker system prune -f
 	@echo "✅ Docker resources cleaned up"
 
-# Complete setup from scratch
+## setup: Complete setup from scratch
+.PHONY: setup
 setup: install env
 	@echo ""
 	@echo "🎉 Setup complete! Next steps:"

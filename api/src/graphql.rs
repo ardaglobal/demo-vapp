@@ -708,7 +708,7 @@ impl MutationRoot {
         );
 
         // Validate batch size
-        if input.values.len() > state.config.max_batch_size {
+        if input.values.len() > state.config.max_batch_size as usize {
             return Ok(OperationResult::Error(ErrorResult {
                 error_code: "BATCH_SIZE_EXCEEDED".to_string(),
                 message: format!(
