@@ -113,8 +113,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     };
 
     // Create API server
-    let server = ApiServer::with_pool(pool, server_config);
-    
+    let server = ApiServer::with_pool(pool, server_config).await;
+
     // Create router
     let app = server.create_router();
 
@@ -138,6 +138,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!();
     println!("🌟 Batch Processing API Server Running!");
     println!("📍 Server Address: http://{bind_address}");
+    println!("🔄 Background Batch Processing: ENABLED");
+    println!("   ⏰ Timer Trigger: Every 1 minute");
+    println!("   📊 Count Trigger: 10+ pending transactions");
+    println!("   🔧 Manual Trigger: Available via API");
     println!();
     println!("📚 Available Endpoints:");
     println!("   • POST   /api/v2/transactions           - Submit new transaction");
@@ -146,11 +150,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("   • GET    /api/v2/batches                - List historical batches");
     println!("   • GET    /api/v2/batches/:id            - Get specific batch");
     println!("   • POST   /api/v2/batches/:id/proof      - Update batch with ZK proof");
+    println!("   • POST   /api/v2/batches/trigger        - Manually trigger batch processing");
+    println!("   • GET    /api/v2/batches/stats          - Get batch processor statistics");
     println!("   • GET    /api/v2/state/current          - Get current counter state");
     println!("   • GET    /api/v2/state/:id/contract     - Get contract submission data");
     println!("   • GET    /api/v2/health                 - Health check");
     println!("   • GET    /health                        - Health check (legacy path)");
-    
+
     println!();
     println!("🔗 Example cURL Commands:");
     println!("   # Submit transaction");
@@ -165,6 +171,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!();
     println!("   # Health check");
     println!("   curl http://{bind_address}/api/v2/health");
+    println!();
+    println!("   # Manually trigger batch processing");
+    println!("   curl -X POST http://{bind_address}/api/v2/batches/trigger");
+    println!();
+    println!("   # Get batch processor statistics");
+    println!("   curl http://{bind_address}/api/v2/batches/stats");
     println!();
     println!("🎊 Server ready for requests!");
     println!();

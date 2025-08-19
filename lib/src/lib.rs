@@ -21,7 +21,7 @@ pub const fn addition(a: i32, b: i32) -> i32 {
 }
 
 /// Process a series of addition transactions starting from an initial balance.
-/// 
+///
 /// This function applies each transaction in sequence and returns the final balance.
 /// All intermediate steps remain private - only initial and final balances are exposed.
 #[must_use]

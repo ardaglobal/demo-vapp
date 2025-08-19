@@ -139,7 +139,10 @@ async fn main() -> Result<()> {
         Commands::GetCurrentState => {
             get_current_state(&client).await?;
         }
-        Commands::TriggerBatch { batch_size, verbose } => {
+        Commands::TriggerBatch {
+            batch_size,
+            verbose,
+        } => {
             trigger_batch(&client, batch_size, verbose).await?;
         }
         Commands::ListBatches => {
@@ -164,13 +167,13 @@ async fn main() -> Result<()> {
             verbose,
         } => {
             verify_proof_local(
-                proof_file, 
-                proof_data, 
-                public_values, 
-                verifying_key, 
+                proof_file,
+                proof_data,
+                public_values,
+                verifying_key,
                 expected_initial_balance,
-                expected_final_balance, 
-                verbose
+                expected_final_balance,
+                verbose,
             )?;
         }
     }
@@ -195,7 +198,7 @@ async fn submit_transaction(client: &BatchApiClient, amount: i32) -> Result<()> 
             eprintln!("❌ Failed to submit transaction: {}", e);
         }
     }
-    
+
     Ok(())
 }
 
@@ -212,21 +215,28 @@ async fn view_pending_transactions(client: &BatchApiClient) -> Result<()> {
                 println!("   Total Count: {}", response.total_count);
                 println!("   Total Amount: {}", response.total_amount);
                 println!();
-                
+
                 for (i, tx) in response.transactions.iter().enumerate() {
-                    println!("   {}. Transaction ID: {} | Amount: {} | Created: {}", 
-                        i + 1, tx.id, tx.amount, tx.created_at);
+                    println!(
+                        "   {}. Transaction ID: {} | Amount: {} | Created: {}",
+                        i + 1,
+                        tx.id,
+                        tx.amount,
+                        tx.created_at
+                    );
                 }
-                
+
                 println!();
-                println!("💡 Use 'cli trigger-batch' to batch these transactions and generate proof");
+                println!(
+                    "💡 Use 'cli trigger-batch' to batch these transactions and generate proof"
+                );
             }
         }
         Err(e) => {
             eprintln!("❌ Failed to get pending transactions: {}", e);
         }
     }
-    
+
     Ok(())
 }
 
@@ -236,17 +246,17 @@ async fn get_current_state(client: &BatchApiClient) -> Result<()> {
         Ok(response) => {
             println!("📊 Current Counter State:");
             println!("   Counter Value: {}", response.counter_value);
-            
+
             if response.has_merkle_root {
                 println!("   Merkle Root: Available (use get_contract_data for details)");
             } else {
                 println!("   Merkle Root: Not set (no batches processed yet)");
             }
-            
+
             if let Some(last_batch_id) = response.last_batch_id {
                 println!("   Last Batch ID: {}", last_batch_id);
             }
-            
+
             if let Some(last_proven_batch_id) = response.last_proven_batch_id {
                 println!("   Last Proven Batch ID: {}", last_proven_batch_id);
             }
@@ -255,14 +265,18 @@ async fn get_current_state(client: &BatchApiClient) -> Result<()> {
             eprintln!("❌ Failed to get current state: {}", e);
         }
     }
-    
+
     Ok(())
 }
 
 /// Trigger batch creation and get contract submission data
-async fn trigger_batch(client: &BatchApiClient, batch_size: Option<i32>, verbose: bool) -> Result<()> {
+async fn trigger_batch(
+    client: &BatchApiClient,
+    batch_size: Option<i32>,
+    verbose: bool,
+) -> Result<()> {
     println!("🔄 Creating batch from pending transactions...");
-    
+
     match client.create_batch(batch_size).await {
         Ok(response) => {
             println!("✅ Batch created successfully!");
@@ -271,7 +285,7 @@ async fn trigger_batch(client: &BatchApiClient, batch_size: Option<i32>, verbose
             println!("   Previous Counter: {}", response.previous_counter_value);
             println!("   Final Counter: {}", response.final_counter_value);
             println!("   Created: {}", response.created_at);
-            
+
             // Get contract submission data (dry run)
             match client.get_contract_data(response.batch_id).await {
                 Ok(Some(contract_data)) => {
@@ -279,20 +293,34 @@ async fn trigger_batch(client: &BatchApiClient, batch_size: Option<i32>, verbose
                     println!("📄 Contract Submission Data (Dry Run):");
                     println!();
                     println!("🔒 Public Information:");
-                    println!("   Previous Merkle Root: {}", contract_data.public.prev_merkle_root);
-                    println!("   New Merkle Root: {}", contract_data.public.new_merkle_root);
+                    println!(
+                        "   Previous Merkle Root: {}",
+                        contract_data.public.prev_merkle_root
+                    );
+                    println!(
+                        "   New Merkle Root: {}",
+                        contract_data.public.new_merkle_root
+                    );
                     println!("   ZK Proof ID: {}", contract_data.public.zk_proof);
-                    
+
                     if verbose {
                         println!();
                         println!("🔓 Private Information (for verification only):");
-                        println!("   Previous Counter Value: {}", contract_data.private.prev_counter_value);
-                        println!("   New Counter Value: {}", contract_data.private.new_counter_value);
+                        println!(
+                            "   Previous Counter Value: {}",
+                            contract_data.private.prev_counter_value
+                        );
+                        println!(
+                            "   New Counter Value: {}",
+                            contract_data.private.new_counter_value
+                        );
                         println!("   Transactions: {:?}", contract_data.private.transactions);
-                        
+
                         println!();
                         println!("🔍 Privacy Note:");
-                        println!("   • The private information above is shown for CLI verification");
+                        println!(
+                            "   • The private information above is shown for CLI verification"
+                        );
                         println!("   • On-chain, only the public information would be submitted");
                         println!("   • Individual transaction amounts remain private via ZK proof");
                     }
@@ -305,18 +333,24 @@ async fn trigger_batch(client: &BatchApiClient, batch_size: Option<i32>, verbose
                     eprintln!("⚠ Warning: Failed to get contract submission data: {}", e);
                 }
             }
-            
+
             println!();
             println!("💡 Next steps:");
             println!("   • ZK proof generation happens asynchronously");
-            println!("   • Use 'cli get-batch --batch-id {}' to check batch status", response.batch_id);
-            println!("   • Use 'cli download-proof --batch-id {}' once proof is ready", response.batch_id);
+            println!(
+                "   • Use 'cli get-batch --batch-id {}' to check batch status",
+                response.batch_id
+            );
+            println!(
+                "   • Use 'cli download-proof --batch-id {}' once proof is ready",
+                response.batch_id
+            );
         }
         Err(e) => {
             eprintln!("❌ Failed to create batch: {}", e);
         }
     }
-    
+
     Ok(())
 }
 
@@ -332,10 +366,13 @@ async fn list_batches(client: &BatchApiClient) -> Result<()> {
                 println!("📋 Historical Batches:");
                 println!("   Total Count: {}", response.total_count);
                 println!();
-                
+
                 for (i, batch) in response.batches.iter().enumerate() {
                     println!("   {}. Batch ID: {}", i + 1, batch.id);
-                    println!("      Counter: {} → {}", batch.previous_counter_value, batch.final_counter_value);
+                    println!(
+                        "      Counter: {} → {}",
+                        batch.previous_counter_value, batch.final_counter_value
+                    );
                     println!("      Transactions: {}", batch.transaction_count);
                     println!("      Status: {}", batch.proof_status);
                     if let Some(ref proof_id) = batch.sindri_proof_id {
@@ -353,7 +390,7 @@ async fn list_batches(client: &BatchApiClient) -> Result<()> {
             eprintln!("❌ Failed to get batches: {}", e);
         }
     }
-    
+
     Ok(())
 }
 
@@ -367,21 +404,27 @@ async fn get_batch(client: &BatchApiClient, batch_id: i32) -> Result<()> {
             println!("   Final Counter: {}", batch.final_counter_value);
             println!("   Transaction Count: {}", batch.transaction_count);
             println!("   Proof Status: {}", batch.proof_status);
-            
+
             if let Some(ref proof_id) = batch.sindri_proof_id {
                 println!("   Sindri Proof ID: {}", proof_id);
             }
-            
+
             println!("   Created: {}", batch.created_at);
             if let Some(ref proven_at) = batch.proven_at {
                 println!("   Proven: {}", proven_at);
             }
-            
+
             println!();
             if batch.proof_status == "completed" {
-                println!("💡 Proof is ready! Download using: cli download-proof --batch-id {}", batch_id);
+                println!(
+                    "💡 Proof is ready! Download using: cli download-proof --batch-id {}",
+                    batch_id
+                );
             } else {
-                println!("⏳ Proof is still being generated (status: {})", batch.proof_status);
+                println!(
+                    "⏳ Proof is still being generated (status: {})",
+                    batch.proof_status
+                );
             }
         }
         Ok(None) => {
@@ -391,7 +434,7 @@ async fn get_batch(client: &BatchApiClient, batch_id: i32) -> Result<()> {
             eprintln!("❌ Failed to get batch {}: {}", batch_id, e);
         }
     }
-    
+
     Ok(())
 }
 
@@ -405,19 +448,25 @@ async fn download_proof(
     match client.get_batch(batch_id).await {
         Ok(Some(batch)) => {
             if batch.proof_status != "completed" {
-                println!("❌ Batch {} proof is not ready yet (status: {})", batch_id, batch.proof_status);
-                println!("💡 Try again later or check status with: cli get-batch --batch-id {}", batch_id);
+                println!(
+                    "❌ Batch {} proof is not ready yet (status: {})",
+                    batch_id, batch.proof_status
+                );
+                println!(
+                    "💡 Try again later or check status with: cli get-batch --batch-id {}",
+                    batch_id
+                );
                 return Ok(());
             }
-            
+
             if batch.sindri_proof_id.is_none() {
                 println!("❌ Batch {} has no associated proof ID", batch_id);
                 return Ok(());
             }
-            
+
             let proof_id = batch.sindri_proof_id.unwrap();
             let filename = output.unwrap_or_else(|| format!("proof_batch_{}.json", batch_id));
-            
+
             // Create a placeholder download response structure
             // In a real implementation, you'd fetch this from Sindri API
             let download_data = serde_json::json!({
@@ -431,22 +480,31 @@ async fn download_proof(
                 "verifying_key": "0x...", // Would be actual verifying key
                 "note": "This is a placeholder structure. Real implementation would fetch from Sindri API."
             });
-            
+
             fs::write(&filename, serde_json::to_string_pretty(&download_data)?)?;
-            
+
             println!("✅ Proof data template downloaded!");
             println!("   File: {}", filename);
             println!("   Batch ID: {}", batch_id);
             println!("   Proof ID: {}", proof_id);
-            println!("   Balance: {} → {}", batch.previous_counter_value, batch.final_counter_value);
+            println!(
+                "   Balance: {} → {}",
+                batch.previous_counter_value, batch.final_counter_value
+            );
             println!();
             println!("⚠ Note: This is a template structure.");
             println!("   Real implementation would download actual proof data from Sindri.");
             println!();
             println!("💡 Once real proof data is available, verify with:");
             println!("   cli verify-proof --proof-file {} \\", filename);
-            println!("     --expected-initial-balance {} \\", batch.previous_counter_value);
-            println!("     --expected-final-balance {}", batch.final_counter_value);
+            println!(
+                "     --expected-initial-balance {} \\",
+                batch.previous_counter_value
+            );
+            println!(
+                "     --expected-final-balance {}",
+                batch.final_counter_value
+            );
         }
         Ok(None) => {
             println!("❌ Batch {} not found", batch_id);
@@ -455,20 +513,27 @@ async fn download_proof(
             eprintln!("❌ Failed to get batch {}: {}", batch_id, e);
         }
     }
-    
+
     Ok(())
 }
 
 /// Health check
 async fn health_check(client: &BatchApiClient) -> Result<()> {
     let start = Instant::now();
-    
+
     match client.health_check().await {
         Ok(response) => {
             let duration = start.elapsed();
             println!("✅ API server is healthy");
             println!("   Status: {}", response.status);
-            println!("   Database: {}", if response.database_connected { "Connected" } else { "Disconnected" });
+            println!(
+                "   Database: {}",
+                if response.database_connected {
+                    "Connected"
+                } else {
+                    "Disconnected"
+                }
+            );
             println!("   Response time: {:?}", duration);
             println!("   Timestamp: {}", response.timestamp);
         }
@@ -478,7 +543,7 @@ async fn health_check(client: &BatchApiClient) -> Result<()> {
             eprintln!("   Attempted in: {:?}", duration);
         }
     }
-    
+
     Ok(())
 }
 
@@ -495,41 +560,61 @@ fn verify_proof_local(
     let start_time = Instant::now();
 
     println!("🔍 Starting local proof verification...");
-    
-    let (proof_hex, public_values_hex, verifying_key_hex, batch_info) = if let Some(file_path) = proof_file {
-        // Load from file
-        let file_content = fs::read_to_string(&file_path)
-            .map_err(|e| eyre::eyre!("Failed to read proof file '{}': {}", file_path, e))?;
-        
-        let download_response: serde_json::Value = serde_json::from_str(&file_content)
-            .map_err(|e| eyre::eyre!("Failed to parse proof file: {}", e))?;
-        
-        let proof_data = download_response.get("proof_data")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| eyre::eyre!("Proof data not found in file"))?
-            .to_string();
-        let public_values = download_response.get("public_values")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| eyre::eyre!("Public values not found in file"))?
-            .to_string();
-        let verifying_key = download_response.get("verifying_key")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| eyre::eyre!("Verifying key not found in file"))?
-            .to_string();
-            
-        let batch_id = download_response.get("batch_id").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-        let initial_balance = download_response.get("initial_balance").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-        let final_balance = download_response.get("final_balance").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-            
-        (proof_data, public_values, verifying_key, (batch_id, initial_balance, final_balance))
-    } else {
-        // Use provided hex data
-        let proof_data = proof_data.ok_or_else(|| eyre::eyre!("Proof data is required"))?;
-        let public_values = public_values.ok_or_else(|| eyre::eyre!("Public values are required"))?;
-        let verifying_key = verifying_key.ok_or_else(|| eyre::eyre!("Verifying key is required"))?;
-        
-        (proof_data, public_values, verifying_key, (0, 0, 0))
-    };
+
+    let (proof_hex, public_values_hex, verifying_key_hex, batch_info) =
+        if let Some(file_path) = proof_file {
+            // Load from file
+            let file_content = fs::read_to_string(&file_path)
+                .map_err(|e| eyre::eyre!("Failed to read proof file '{}': {}", file_path, e))?;
+
+            let download_response: serde_json::Value = serde_json::from_str(&file_content)
+                .map_err(|e| eyre::eyre!("Failed to parse proof file: {}", e))?;
+
+            let proof_data = download_response
+                .get("proof_data")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| eyre::eyre!("Proof data not found in file"))?
+                .to_string();
+            let public_values = download_response
+                .get("public_values")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| eyre::eyre!("Public values not found in file"))?
+                .to_string();
+            let verifying_key = download_response
+                .get("verifying_key")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| eyre::eyre!("Verifying key not found in file"))?
+                .to_string();
+
+            let batch_id = download_response
+                .get("batch_id")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as i32;
+            let initial_balance = download_response
+                .get("initial_balance")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as i32;
+            let final_balance = download_response
+                .get("final_balance")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as i32;
+
+            (
+                proof_data,
+                public_values,
+                verifying_key,
+                (batch_id, initial_balance, final_balance),
+            )
+        } else {
+            // Use provided hex data
+            let proof_data = proof_data.ok_or_else(|| eyre::eyre!("Proof data is required"))?;
+            let public_values =
+                public_values.ok_or_else(|| eyre::eyre!("Public values are required"))?;
+            let verifying_key =
+                verifying_key.ok_or_else(|| eyre::eyre!("Verifying key is required"))?;
+
+            (proof_data, public_values, verifying_key, (0, 0, 0))
+        };
 
     if verbose {
         println!("📊 Verification Details:");
@@ -549,7 +634,7 @@ fn verify_proof_local(
     // For now, we'll validate the structure and expected values
     // In a real implementation, you'd verify the actual cryptographic proof
     println!("🔓 Validating proof structure and values...");
-    
+
     let balances_match = if batch_info.0 > 0 {
         // Compare with file data
         batch_info.1 == expected_initial_balance && batch_info.2 == expected_final_balance
@@ -557,33 +642,43 @@ fn verify_proof_local(
         // Can't validate without file data in this placeholder implementation
         true
     };
-    
+
     if balances_match {
         println!("   ✅ Balance transition matches expected values");
     } else {
         println!("   ❌ Balance transition mismatch");
         if batch_info.0 > 0 {
-            println!("      Expected: {} → {}", expected_initial_balance, expected_final_balance);
+            println!(
+                "      Expected: {} → {}",
+                expected_initial_balance, expected_final_balance
+            );
             println!("      File contains: {} → {}", batch_info.1, batch_info.2);
         }
     }
-    
+
     // Placeholder cryptographic verification
     println!();
     println!("🔒 Cryptographic verification...");
     println!("   ℹ Note: Full cryptographic proof verification requires SP1 verifier integration");
     println!("   ℹ For now, validating structure and balance transitions only");
-    
+
     let verification_time = start_time.elapsed();
     let overall_valid = balances_match;
-    
+
     println!();
     println!("📋 Verification Summary:");
-    println!("   Balance validation: {}", if balances_match { "✅ PASS" } else { "❌ FAIL" });
+    println!(
+        "   Balance validation: {}",
+        if balances_match {
+            "✅ PASS"
+        } else {
+            "❌ FAIL"
+        }
+    );
     println!("   Structure validation: ✅ PASS");
     println!("   Verification Time: {:?}", verification_time);
     println!();
-    
+
     if overall_valid {
         println!("🎉 Batch proof structure successfully verified!");
         println!("   • Privacy: Individual transaction amounts remain hidden");
@@ -597,6 +692,6 @@ fn verify_proof_local(
         error!("   • The proof does not match expected values");
         std::process::exit(1);
     }
-    
+
     Ok(())
 }

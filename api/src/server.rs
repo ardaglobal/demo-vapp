@@ -5,6 +5,7 @@ use axum::{
 };
 use std::time::Duration;
 
+use sqlx::PgPool;
 use tower_http::{
     compression::CompressionLayer,
     cors::{Any, CorsLayer},
@@ -13,8 +14,8 @@ use tower_http::{
     trace::TraceLayer,
 };
 use tracing::{info, instrument};
-use sqlx::PgPool;
 
+use crate::batch_processor::{create_batch_processor_config, start_batch_processor};
 use crate::rest::{ApiConfig, ApiState};
 use arithmetic_db::init_db;
 
@@ -95,10 +96,16 @@ impl ApiServer {
             init_db().await?
         };
 
+        // Start background batch processor
+        let batch_processor_config = create_batch_processor_config(&config.api_config);
+        let batch_processor_handle =
+            start_batch_processor(pool.clone(), batch_processor_config).await;
+
         // Create API state
         let state = ApiState {
             pool,
             config: config.api_config.clone(),
+            batch_processor: Some(batch_processor_handle),
         };
 
         let server = Self { config, state };
@@ -108,12 +115,18 @@ impl ApiServer {
     }
 
     /// Create new API server with existing database pool
-    pub fn with_pool(pool: PgPool, config: ApiServerConfig) -> Self {
+    pub async fn with_pool(pool: PgPool, config: ApiServerConfig) -> Self {
         info!("🚀 Creating API server with existing database pool");
+
+        // Start background batch processor
+        let batch_processor_config = create_batch_processor_config(&config.api_config);
+        let batch_processor_handle =
+            start_batch_processor(pool.clone(), batch_processor_config).await;
 
         let state = ApiState {
             pool,
             config: config.api_config.clone(),
+            batch_processor: Some(batch_processor_handle),
         };
 
         Self { config, state }
@@ -146,7 +159,9 @@ impl ApiServer {
     fn add_middleware_with_state(&self, router: Router) -> Router {
         let mut router = router
             .layer(TraceLayer::new_for_http())
-            .layer(RequestBodyLimitLayer::new(self.config.max_request_size_bytes))
+            .layer(RequestBodyLimitLayer::new(
+                self.config.max_request_size_bytes,
+            ))
             .layer(TimeoutLayer::new(Duration::from_secs(
                 self.config.request_timeout_seconds,
             )));
@@ -361,9 +376,8 @@ impl ApiServerBuilder {
     }
 
     /// Build the API server with an existing database pool
-    #[must_use]
-    pub fn build_with_pool(self, pool: PgPool) -> ApiServer {
-        ApiServer::with_pool(pool, self.config)
+    pub async fn build_with_pool(self, pool: PgPool) -> ApiServer {
+        ApiServer::with_pool(pool, self.config).await
     }
 }
 

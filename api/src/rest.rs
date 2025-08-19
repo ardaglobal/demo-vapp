@@ -7,12 +7,13 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
-use tracing::{error, info, instrument};
+use sqlx::{Error as SqlxError, PgPool};
+use tracing::{error, info, instrument, warn};
 
+use crate::batch_processor::BatchProcessorHandle;
 use arithmetic_db::{
-    submit_transaction, get_pending_transactions, create_batch, get_all_batches,
-    get_batch_by_id, get_current_state, store_ads_state_commit, get_contract_submission_data,
+    create_batch, get_all_batches, get_batch_by_id, get_contract_submission_data,
+    get_current_state, get_pending_transactions, store_ads_state_commit, submit_transaction,
     update_batch_proof, ContractSubmissionData,
 };
 
@@ -25,6 +26,7 @@ use arithmetic_db::{
 pub struct ApiState {
     pub pool: PgPool,
     pub config: ApiConfig,
+    pub batch_processor: Option<BatchProcessorHandle>,
 }
 
 /// Configuration for API server
@@ -132,7 +134,7 @@ pub struct CurrentStateResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateBatchProofRequest {
     pub sindri_proof_id: String,
-    pub status: String, // "proven", "failed"
+    pub status: String,              // "proven", "failed"
     pub merkle_root: Option<String>, // hex encoded
 }
 
@@ -166,6 +168,25 @@ pub struct HealthResponse {
     pub database_connected: bool,
 }
 
+/// Batch processor stats response
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BatchProcessorStatsResponse {
+    pub total_batches_created: u64,
+    pub total_transactions_processed: u64,
+    pub timer_triggers: u64,
+    pub count_triggers: u64,
+    pub manual_triggers: u64,
+    pub errors: u64,
+    pub last_batch_time: Option<String>,
+}
+
+/// Manual batch trigger response
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TriggerBatchResponse {
+    pub triggered: bool,
+    pub message: String,
+}
+
 // ============================================================================
 // ROUTER SETUP
 // ============================================================================
@@ -178,21 +199,31 @@ pub fn create_router(state: ApiState) -> Router {
         .route("/", get(api_info))
         .route("/api/v2/health", get(health_check))
         .route("/api/v2/info", get(api_info))
-        
         // Transaction operations
         .route("/api/v2/transactions", post(submit_transaction_endpoint))
-        .route("/api/v2/transactions/pending", get(get_pending_transactions_endpoint))
-        
+        .route(
+            "/api/v2/transactions/pending",
+            get(get_pending_transactions_endpoint),
+        )
         // Batch operations
         .route("/api/v2/batches", post(create_batch_endpoint))
         .route("/api/v2/batches", get(get_batches_endpoint))
-        .route("/api/v2/batches/{batch_id}", get(get_batch_endpoint))
-        .route("/api/v2/batches/{batch_id}/proof", post(update_batch_proof_endpoint))
-        
+        .route("/api/v2/batches/:batch_id", get(get_batch_endpoint))
+        .route(
+            "/api/v2/batches/:batch_id/proof",
+            post(update_batch_proof_endpoint),
+        )
+        .route("/api/v2/batches/trigger", post(trigger_batch_endpoint))
+        .route(
+            "/api/v2/batches/stats",
+            get(get_batch_processor_stats_endpoint),
+        )
         // State operations
         .route("/api/v2/state/current", get(get_current_state_endpoint))
-        .route("/api/v2/state/{batch_id}/contract", get(get_contract_data_endpoint))
-        
+        .route(
+            "/api/v2/state/:batch_id/contract",
+            get(get_contract_data_endpoint),
+        )
         .with_state(state)
 }
 
@@ -206,7 +237,7 @@ async fn health_check(
     State(state): State<ApiState>,
 ) -> Result<Json<HealthResponse>, (StatusCode, String)> {
     info!("🔍 API: Health check requested");
-    
+
     // Test database connection
     let db_connected = match sqlx::query("SELECT 1").fetch_one(&state.pool).await {
         Ok(_) => true,
@@ -215,29 +246,34 @@ async fn health_check(
             false
         }
     };
-    
+
     let response = HealthResponse {
-        status: if db_connected { "healthy".to_string() } else { "unhealthy".to_string() },
+        status: if db_connected {
+            "healthy".to_string()
+        } else {
+            "unhealthy".to_string()
+        },
         timestamp: Utc::now(),
         database_connected: db_connected,
     };
-    
+
     if db_connected {
         info!("✅ API: Health check passed");
         Ok(Json(response))
     } else {
         error!("❌ API: Health check failed - database not connected");
-        Err((StatusCode::SERVICE_UNAVAILABLE, "Database not available".to_string()))
+        Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Database not available".to_string(),
+        ))
     }
 }
 
-/// API information endpoint 
+/// API information endpoint
 #[instrument(skip(state), level = "info")]
-async fn api_info(
-    State(state): State<ApiState>,
-) -> Json<ApiInfoResponse> {
+async fn api_info(State(state): State<ApiState>) -> Json<ApiInfoResponse> {
     info!("📋 API: API info requested");
-    
+
     let endpoints = vec![
         EndpointInfo {
             method: "GET".to_string(),
@@ -266,12 +302,12 @@ async fn api_info(
         },
         EndpointInfo {
             method: "GET".to_string(),
-                            path: "/api/v2/batches/{batch_id}".to_string(),
+            path: "/api/v2/batches/:batch_id".to_string(),
             description: "Get specific batch details".to_string(),
         },
         EndpointInfo {
             method: "POST".to_string(),
-            path: "/api/v2/batches/{batch_id}/proof".to_string(),
+            path: "/api/v2/batches/:batch_id/proof".to_string(),
             description: "Update batch with ZK proof".to_string(),
         },
         EndpointInfo {
@@ -281,18 +317,18 @@ async fn api_info(
         },
         EndpointInfo {
             method: "GET".to_string(),
-            path: "/api/v2/state/{batch_id}/contract".to_string(),
+            path: "/api/v2/state/:batch_id/contract".to_string(),
             description: "Get contract submission data (dry run)".to_string(),
         },
     ];
-    
+
     let response = ApiInfoResponse {
         server_name: state.config.server_name.clone(),
         version: state.config.version.clone(),
         timestamp: Utc::now(),
         endpoints,
     };
-    
+
     info!("✅ API: API info returned");
     Json(response)
 }
@@ -304,7 +340,7 @@ async fn submit_transaction_endpoint(
     Json(request): Json<SubmitTransactionRequest>,
 ) -> Result<Json<SubmitTransactionResponse>, (StatusCode, String)> {
     info!("💰 API: Submitting transaction: amount={}", request.amount);
-    
+
     match submit_transaction(&state.pool, request.amount).await {
         Ok(transaction) => {
             let response = SubmitTransactionResponse {
@@ -313,7 +349,7 @@ async fn submit_transaction_endpoint(
                 status: "pending".to_string(),
                 created_at: transaction.created_at,
             };
-            
+
             info!("✅ API: Transaction submitted: id={}", transaction.id);
             Ok(Json(response))
         }
@@ -333,7 +369,7 @@ async fn get_pending_transactions_endpoint(
     State(state): State<ApiState>,
 ) -> Result<Json<PendingTransactionsResponse>, (StatusCode, String)> {
     info!("📋 API: Getting pending transactions");
-    
+
     match get_pending_transactions(&state.pool).await {
         Ok(transactions) => {
             let total_amount: i32 = transactions.iter().map(|t| t.amount).sum();
@@ -345,14 +381,17 @@ async fn get_pending_transactions_endpoint(
                     created_at: t.created_at,
                 })
                 .collect();
-            
+
             let response = PendingTransactionsResponse {
                 total_count: transaction_infos.len(),
                 total_amount,
                 transactions: transaction_infos,
             };
-            
-            info!("✅ API: Found {} pending transactions", response.total_count);
+
+            info!(
+                "✅ API: Found {} pending transactions",
+                response.total_count
+            );
             Ok(Json(response))
         }
         Err(e) => {
@@ -371,9 +410,15 @@ async fn create_batch_endpoint(
     State(state): State<ApiState>,
     Json(request): Json<CreateBatchRequest>,
 ) -> Result<Json<CreateBatchResponse>, (StatusCode, String)> {
-    let batch_size = request.batch_size.unwrap_or(state.config.max_batch_size as i32);
+    // Validate and clamp batch_size to ensure it's in the valid range [1, max_batch_size]
+    let requested_size = request
+        .batch_size
+        .unwrap_or(state.config.max_batch_size as i32);
+    let batch_size = requested_size
+        .max(1)
+        .min(state.config.max_batch_size as i32);
     info!("🔄 API: Creating batch with size: {}", batch_size);
-    
+
     match create_batch(&state.pool, Some(batch_size)).await {
         Ok(Some(batch)) => {
             let response = CreateBatchResponse {
@@ -384,9 +429,11 @@ async fn create_batch_endpoint(
                 proof_status: batch.proof_status.clone(),
                 created_at: batch.created_at,
             };
-            
-            info!("✅ API: Batch created: id={}, transactions={}", 
-                  batch.id, response.transaction_count);
+
+            info!(
+                "✅ API: Batch created: id={}, transactions={}",
+                batch.id, response.transaction_count
+            );
             Ok(Json(response))
         }
         Ok(None) => {
@@ -414,7 +461,7 @@ async fn get_batches_endpoint(
 ) -> Result<Json<BatchListResponse>, (StatusCode, String)> {
     let limit = params.limit.unwrap_or(20);
     info!("📋 API: Getting batches with limit: {}", limit);
-    
+
     match get_all_batches(&state.pool, Some(limit)).await {
         Ok(batches) => {
             let batch_infos: Vec<BatchInfo> = batches
@@ -430,12 +477,12 @@ async fn get_batches_endpoint(
                     proven_at: b.proven_at,
                 })
                 .collect();
-            
+
             let response = BatchListResponse {
                 total_count: batch_infos.len(),
                 batches: batch_infos,
             };
-            
+
             info!("✅ API: Found {} batches", response.total_count);
             Ok(Json(response))
         }
@@ -456,7 +503,7 @@ async fn get_batch_endpoint(
     Path(batch_id): Path<i32>,
 ) -> Result<Json<BatchInfo>, (StatusCode, String)> {
     info!("🔍 API: Getting batch: id={}", batch_id);
-    
+
     match get_batch_by_id(&state.pool, batch_id).await {
         Ok(batch) => {
             let batch_info = BatchInfo {
@@ -469,11 +516,11 @@ async fn get_batch_endpoint(
                 created_at: batch.created_at,
                 proven_at: batch.proven_at,
             };
-            
+
             info!("✅ API: Found batch: id={}", batch.id);
             Ok(Json(batch_info))
         }
-        Err(e) if e.to_string().contains("not found") => {
+        Err(SqlxError::RowNotFound) => {
             info!("❌ API: Batch not found: id={}", batch_id);
             Err((
                 StatusCode::NOT_FOUND,
@@ -497,23 +544,36 @@ async fn update_batch_proof_endpoint(
     Path(batch_id): Path<i32>,
     Json(request): Json<UpdateBatchProofRequest>,
 ) -> Result<Json<BatchInfo>, (StatusCode, String)> {
-    info!("🔐 API: Updating batch proof: id={}, proof={}", 
-          batch_id, request.sindri_proof_id);
-    
+    info!(
+        "🔐 API: Updating batch proof: id={}, proof={}",
+        batch_id, request.sindri_proof_id
+    );
+
     // Update batch with proof
-    match update_batch_proof(&state.pool, batch_id, &request.sindri_proof_id, &request.status).await {
+    match update_batch_proof(
+        &state.pool,
+        batch_id,
+        &request.sindri_proof_id,
+        &request.status,
+    )
+    .await
+    {
         Ok(()) => {
             // Store Merkle root if provided and status is "proven"
             if request.status == "proven" {
                 if let Some(merkle_root_hex) = &request.merkle_root {
                     // Decode hex string to bytes
                     let merkle_root = hex::decode(merkle_root_hex.trim_start_matches("0x"))
-                        .map_err(|e| (
-                            StatusCode::BAD_REQUEST,
-                            format!("Invalid merkle root hex: {}", e),
-                        ))?;
-                    
-                    if let Err(e) = store_ads_state_commit(&state.pool, batch_id, &merkle_root).await {
+                        .map_err(|e| {
+                            (
+                                StatusCode::BAD_REQUEST,
+                                format!("Invalid merkle root hex: {}", e),
+                            )
+                        })?;
+
+                    if let Err(e) =
+                        store_ads_state_commit(&state.pool, batch_id, &merkle_root).await
+                    {
                         error!("Failed to store ADS state commit: {}", e);
                         return Err((
                             StatusCode::INTERNAL_SERVER_ERROR,
@@ -522,7 +582,7 @@ async fn update_batch_proof_endpoint(
                     }
                 }
             }
-            
+
             // Return updated batch info
             match get_batch_by_id(&state.pool, batch_id).await {
                 Ok(batch) => {
@@ -536,7 +596,7 @@ async fn update_batch_proof_endpoint(
                         created_at: batch.created_at,
                         proven_at: batch.proven_at,
                     };
-                    
+
                     info!("✅ API: Batch proof updated: id={}", batch_id);
                     Ok(Json(batch_info))
                 }
@@ -565,7 +625,7 @@ async fn get_current_state_endpoint(
     State(state): State<ApiState>,
 ) -> Result<Json<CurrentStateResponse>, (StatusCode, String)> {
     info!("🎯 API: Getting current state");
-    
+
     match get_current_state(&state.pool).await {
         Ok(state_info) => {
             // Find last proven batch
@@ -574,16 +634,18 @@ async fn get_current_state_endpoint(
             } else {
                 None
             };
-            
+
             let response = CurrentStateResponse {
                 counter_value: state_info.counter_value,
                 has_merkle_root: state_info.merkle_root.is_some(),
                 last_batch_id: state_info.last_batch_id,
                 last_proven_batch_id,
             };
-            
-            info!("✅ API: Current state: counter={}, has_root={}", 
-                  response.counter_value, response.has_merkle_root);
+
+            info!(
+                "✅ API: Current state: counter={}, has_root={}",
+                response.counter_value, response.has_merkle_root
+            );
             Ok(Json(response))
         }
         Err(e) => {
@@ -603,13 +665,13 @@ async fn get_contract_data_endpoint(
     Path(batch_id): Path<i32>,
 ) -> Result<Json<ContractSubmissionData>, (StatusCode, String)> {
     info!("📄 API: Getting contract data for batch: id={}", batch_id);
-    
+
     match get_contract_submission_data(&state.pool, batch_id).await {
         Ok(contract_data) => {
             info!("✅ API: Contract data prepared for batch: id={}", batch_id);
             Ok(Json(contract_data))
         }
-        Err(e) if e.to_string().contains("not found") => {
+        Err(SqlxError::RowNotFound) => {
             info!("❌ API: Batch not found or not proven: id={}", batch_id);
             Err((
                 StatusCode::NOT_FOUND,
@@ -623,5 +685,71 @@ async fn get_contract_data_endpoint(
                 format!("Failed to get contract data: {}", e),
             ))
         }
+    }
+}
+
+/// Manually trigger batch processing
+#[instrument(skip(state), level = "info")]
+async fn trigger_batch_endpoint(
+    State(state): State<ApiState>,
+) -> Result<Json<TriggerBatchResponse>, (StatusCode, String)> {
+    info!("🔄 API: Manual batch trigger requested");
+
+    if let Some(batch_processor) = &state.batch_processor {
+        match batch_processor.trigger_batch().await {
+            Ok(()) => {
+                info!("✅ API: Batch trigger sent successfully");
+                Ok(Json(TriggerBatchResponse {
+                    triggered: true,
+                    message: "Batch processing triggered successfully".to_string(),
+                }))
+            }
+            Err(e) => {
+                error!("Failed to trigger batch processing: {}", e);
+                Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to trigger batch processing: {}", e),
+                ))
+            }
+        }
+    } else {
+        warn!("Batch processor is not available");
+        Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Background batch processor is not available".to_string(),
+        ))
+    }
+}
+
+/// Get batch processor statistics
+#[instrument(skip(state), level = "info")]
+async fn get_batch_processor_stats_endpoint(
+    State(state): State<ApiState>,
+) -> Result<Json<BatchProcessorStatsResponse>, (StatusCode, String)> {
+    info!("📊 API: Batch processor stats requested");
+
+    if let Some(batch_processor) = &state.batch_processor {
+        let stats = batch_processor.get_stats().await;
+
+        let response = BatchProcessorStatsResponse {
+            total_batches_created: stats.total_batches_created,
+            total_transactions_processed: stats.total_transactions_processed,
+            timer_triggers: stats.timer_triggers,
+            count_triggers: stats.count_triggers,
+            manual_triggers: stats.manual_triggers,
+            errors: stats.errors,
+            last_batch_time: stats
+                .last_batch_time
+                .map(|t| format!("{:.2?} ago", t.elapsed())),
+        };
+
+        info!("✅ API: Batch processor stats returned");
+        Ok(Json(response))
+    } else {
+        warn!("Batch processor is not available");
+        Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Background batch processor is not available".to_string(),
+        ))
     }
 }

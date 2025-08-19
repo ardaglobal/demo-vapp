@@ -74,9 +74,14 @@ fn main() -> Result<()> {
     // Verify the computation is correct
     if output.initial_balance == initial_balance && output.final_balance == expected_final_balance {
         info!("✅ Continuous balance tracking verified:");
-        info!("  Balance transition: {} -> {} (transactions: {:?})", 
-              output.initial_balance, output.final_balance, transactions);
-        info!("🎉 The individual transaction amounts ({:?}) remain private!", transactions);
+        info!(
+            "  Balance transition: {} -> {} (transactions: {:?})",
+            output.initial_balance, output.final_balance, transactions
+        );
+        info!(
+            "🎉 The individual transaction amounts ({:?}) remain private!",
+            transactions
+        );
         info!("🎉 Local SP1 continuous balance tracking test completed successfully!");
     } else {
         eyre::bail!(

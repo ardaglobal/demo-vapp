@@ -36,7 +36,7 @@
 // Core modules for batch processing functionality
 // Temporarily disabled legacy modules due to dropped database tables:
 // pub mod ads_service;
-// pub mod background_processor; 
+// pub mod background_processor;
 // pub mod merkle_tree;
 // pub mod merkle_tree_32;
 // pub mod vapp_integration;
@@ -46,24 +46,35 @@ pub mod error;
 
 // Re-export batch processing types and functions
 pub use db::{
-    // Types
-    AdsStateCommit, ContractPrivateData, ContractPublicData, ContractSubmissionData,
-    CounterState, IncomingTransaction, ProofBatch,
-    
-    // Database connection
-    init_db, init_db_with_url,
-    
-    // Transaction functions
-    submit_transaction, get_pending_transactions,
-    
-    // Batch functions  
-    create_batch, get_all_batches, get_batch_by_id, update_batch_proof,
-    
+    // Batch functions
+    create_batch,
+    get_all_batches,
+    get_batch_by_id,
+    get_contract_submission_data,
     // State functions
-    get_current_counter_value, get_current_state,
-    
+    get_current_counter_value,
+    get_current_state,
+
+    get_pending_transactions,
+
+    // Database connection
+    init_db,
+    init_db_with_url,
+
     // ADS/Merkle functions
-    store_ads_state_commit, get_contract_submission_data,
+    store_ads_state_commit,
+    // Transaction functions
+    submit_transaction,
+    update_batch_proof,
+
+    // Types
+    AdsStateCommit,
+    ContractPrivateData,
+    ContractPublicData,
+    ContractSubmissionData,
+    CounterState,
+    IncomingTransaction,
+    ProofBatch,
 };
 
 // Re-export essential error types

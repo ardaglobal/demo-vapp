@@ -166,7 +166,9 @@ pub async fn submit_transaction(
 ///
 /// # Errors
 /// Returns error if database operation fails
-pub async fn get_pending_transactions(pool: &PgPool) -> Result<Vec<IncomingTransaction>, sqlx::Error> {
+pub async fn get_pending_transactions(
+    pool: &PgPool,
+) -> Result<Vec<IncomingTransaction>, sqlx::Error> {
     debug!("Getting pending transactions");
 
     let rows = sqlx::query!(
@@ -197,7 +199,10 @@ pub async fn get_pending_transactions(pool: &PgPool) -> Result<Vec<IncomingTrans
 ///
 /// # Errors
 /// Returns error if database operation fails
-pub async fn create_batch(pool: &PgPool, batch_size: Option<i32>) -> Result<Option<ProofBatch>, sqlx::Error> {
+pub async fn create_batch(
+    pool: &PgPool,
+    batch_size: Option<i32>,
+) -> Result<Option<ProofBatch>, sqlx::Error> {
     let size = batch_size.unwrap_or(10);
     debug!("Creating batch with size: {size}");
 
@@ -245,7 +250,10 @@ pub async fn get_batch_by_id(pool: &PgPool, batch_id: i32) -> Result<ProofBatch,
         proven_at: row.proven_at,
     };
 
-    debug!("Found batch: id={}, status={}", batch.id, batch.proof_status);
+    debug!(
+        "Found batch: id={}, status={}",
+        batch.id, batch.proof_status
+    );
     Ok(batch)
 }
 
@@ -253,7 +261,10 @@ pub async fn get_batch_by_id(pool: &PgPool, batch_id: i32) -> Result<ProofBatch,
 ///
 /// # Errors
 /// Returns error if database operation fails
-pub async fn get_all_batches(pool: &PgPool, limit: Option<i32>) -> Result<Vec<ProofBatch>, sqlx::Error> {
+pub async fn get_all_batches(
+    pool: &PgPool,
+    limit: Option<i32>,
+) -> Result<Vec<ProofBatch>, sqlx::Error> {
     let limit_val = limit.unwrap_or(50);
     debug!("Getting batches with limit: {limit_val}");
 
@@ -378,7 +389,10 @@ pub async fn get_current_state(pool: &PgPool) -> Result<CounterState, sqlx::Erro
         last_batch_id,
     };
 
-    debug!("Current state: counter={}, batch_id={:?}", state.counter_value, state.last_batch_id);
+    debug!(
+        "Current state: counter={}, batch_id={:?}",
+        state.counter_value, state.last_batch_id
+    );
     Ok(state)
 }
 
@@ -455,7 +469,9 @@ pub async fn get_contract_submission_data(
 
         match prev_row {
             Some(row) => format!("0x{}", hex::encode(row.merkle_root)),
-            None => "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            None => {
+                "0x0000000000000000000000000000000000000000000000000000000000000000".to_string()
+            }
         }
     };
 
@@ -487,7 +503,9 @@ pub async fn get_contract_submission_data(
         public: ContractPublicData {
             prev_merkle_root: prev_root,
             new_merkle_root: new_root,
-            zk_proof: batch.sindri_proof_id.unwrap_or_else(|| "pending".to_string()),
+            zk_proof: batch
+                .sindri_proof_id
+                .unwrap_or_else(|| "pending".to_string()),
         },
         private: ContractPrivateData {
             prev_counter_value: batch.previous_counter_value,

@@ -273,7 +273,7 @@ pub async fn verify_sindri_proof(
 
     let actual_initial_balance = decoded.initial_balance;
     let actual_final_balance = decoded.final_balance;
-    let balances_match_expected = actual_initial_balance == request.expected_initial_balance 
+    let balances_match_expected = actual_initial_balance == request.expected_initial_balance
         && actual_final_balance == request.expected_final_balance;
     let is_valid = cryptographic_proof_valid && balances_match_expected;
 
@@ -285,8 +285,10 @@ pub async fn verify_sindri_proof(
     } else {
         format!(
             "❌ Balance transition verification failed: Expected {} -> {}, got {} -> {}",
-            request.expected_initial_balance, request.expected_final_balance,
-            actual_initial_balance, actual_final_balance
+            request.expected_initial_balance,
+            request.expected_final_balance,
+            actual_initial_balance,
+            actual_final_balance
         )
     };
 

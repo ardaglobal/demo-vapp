@@ -1,5 +1,5 @@
-//! A continuous balance tracking program that takes an initial balance and a list of addition 
-//! transactions as input, processes all transactions in sequence, and commits the initial and 
+//! A continuous balance tracking program that takes an initial balance and a list of addition
+//! transactions as input, processes all transactions in sequence, and commits the initial and
 //! final balances as public values while keeping individual transactions private.
 
 // These two lines are necessary for the program to properly compile.
@@ -15,7 +15,7 @@ use arithmetic_lib::{process_transactions, PublicValuesStruct};
 pub fn main() {
     // Read the initial balance from the prover.
     let initial_balance = sp1_zkvm::io::read::<i32>();
-    
+
     // Read the list of transactions from the prover.
     let transactions = sp1_zkvm::io::read::<Vec<i32>>();
 
@@ -27,7 +27,7 @@ pub fn main() {
     // Encode the public values of the program.
     // In true zero-knowledge fashion, we only commit the initial and final balances as public.
     // The individual transaction amounts remain private within the zkVM execution.
-    let bytes = PublicValuesStruct::abi_encode(&PublicValuesStruct { 
+    let bytes = PublicValuesStruct::abi_encode(&PublicValuesStruct {
         initial_balance,
         final_balance,
     });
