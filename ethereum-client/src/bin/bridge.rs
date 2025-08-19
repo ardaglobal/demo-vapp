@@ -158,7 +158,7 @@ async fn run_capability_test(client: &EthereumClient) -> Result<()> {
 
     test_verifier_key_retrieval(client).await;
     test_verifier_version_retrieval(client).await;
-    display_available_operations(client);
+    display_available_operations();
 
     Ok(())
 }
@@ -186,16 +186,13 @@ async fn test_verifier_version_retrieval(client: &EthereumClient) {
 }
 
 #[allow(clippy::cognitive_complexity)]
-fn display_available_operations(client: &EthereumClient) {
+fn display_available_operations() {
     info!("🎯 Available contract operations:");
     info!("  - Read verifier key: ✅");
     info!("  - Read verifier version: ✅");
     info!("  - Read state roots: ✅");
     info!("  - Read proof data: ✅");
-    info!(
-        "  - Submit state updates: {} (requires signer)",
-        if client.has_signer() { "✅" } else { "⚠️" }
-    );
+    info!("  - Submit state updates: ✅");
 }
 
 #[allow(clippy::cognitive_complexity)]
@@ -374,7 +371,6 @@ impl<'a> UnifiedBridge<'a> {
     }
 
     async fn submit_single_proof(&self, result: i32, proof_id: &str) -> Result<()> {
-        self.validate_signer()?;
         let proof_info = self.get_proof_from_sindri(proof_id).await?;
         let (proof_data, public_values) = Self::prepare_proof_data(&proof_info, result)?;
         let (state_id, new_state_root) = Self::generate_state_info(result, proof_id);
@@ -387,15 +383,6 @@ impl<'a> UnifiedBridge<'a> {
         self.update_submission_status(result, "Confirmed", state_update.transaction_hash.as_ref())
             .await?;
 
-        Ok(())
-    }
-
-    fn validate_signer(&self) -> Result<()> {
-        if !self.client.has_signer() {
-            return Err(ethereum_client::EthereumError::Config(
-                "Signer required for proof submission".to_string(),
-            ));
-        }
         Ok(())
     }
 

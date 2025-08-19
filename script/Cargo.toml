@@ -25,7 +25,7 @@ sp1-sdk = { workspace = true }
 alloy-sol-types    = { workspace = true }
 eyre               = { workspace = true }
 tracing            = { workspace = true }
-tracing-subscriber = "0.3"
+tracing-subscriber = { workspace = true }
 
 [build-dependencies]
 sp1-build = { workspace = true }

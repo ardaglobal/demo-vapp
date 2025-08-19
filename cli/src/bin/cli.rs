@@ -27,10 +27,15 @@
 //! cli health-check
 //! ```
 
+use alloy_primitives::Bytes;
+use alloy_primitives::FixedBytes;
 use clap::{Parser, Subcommand};
+use ethereum_client::Config;
+use ethereum_client::EthereumClient;
 use eyre::Result;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use sp1_sdk::SP1ProofWithPublicValues;
 use std::env;
 use std::fs;
 use std::time::Instant;
@@ -48,8 +53,8 @@ struct SimpleApiClient {
 }
 
 // Import API response types instead of redefining them
-use arithmetic_api::{ProofResponse, TransactionRequest, TransactionResponse};
 use arithmetic_api::rest::TransactionByResultResponse;
+use arithmetic_api::{ProofResponse, TransactionRequest, TransactionResponse};
 
 /// Response from downloading proof data (for API downloads)
 #[derive(Debug, Serialize, Deserialize)]
@@ -127,7 +132,7 @@ enum Commands {
         /// First operand
         #[arg(short, long)]
         a: i32,
-        /// Second operand  
+        /// Second operand
         #[arg(short, long)]
         b: i32,
         /// Generate zero-knowledge proof for this transaction
@@ -221,7 +226,14 @@ async fn main() -> Result<()> {
             expected_result,
             verbose,
         } => {
-            verify_proof_local(proof_file, proof_data, public_values, verifying_key, expected_result, verbose)?;
+            verify_proof_local(
+                proof_file,
+                proof_data,
+                public_values,
+                verifying_key,
+                expected_result,
+                verbose,
+            )?;
         }
     }
 
@@ -235,7 +247,6 @@ async fn store_transaction(
     b: i32,
     generate_proof: bool,
 ) -> Result<()> {
-
     let request = TransactionRequest {
         a,
         b,
@@ -248,8 +259,14 @@ async fn store_transaction(
             if let Ok(store_response) = response.json::<TransactionResponse>().await {
                 println!("✅ Transaction stored successfully!");
                 println!("   Transaction ID: {}", store_response.transaction_id);
-                println!("   Calculation: {} + {} = {}", store_response.a, store_response.b, store_response.result);
-                println!("   State: {} → {}", store_response.previous_state, store_response.new_state);
+                println!(
+                    "   Calculation: {} + {} = {}",
+                    store_response.a, store_response.b, store_response.result
+                );
+                println!(
+                    "   State: {} → {}",
+                    store_response.previous_state, store_response.new_state
+                );
                 if let Some(proof_id) = &store_response.proof_id {
                     println!("   Proof ID: {}", proof_id);
                     if let Some(status) = &store_response.proof_status {
@@ -282,7 +299,10 @@ async fn get_transaction(client: &SimpleApiClient, result: i32) -> Result<()> {
         Ok(response) if response.status().is_success() => {
             if let Ok(transaction) = response.json::<TransactionByResultResponse>().await {
                 println!("✅ Transaction found:");
-                println!("   Calculation: {} + {} = {}", transaction.a, transaction.b, transaction.result);
+                println!(
+                    "   Calculation: {} + {} = {}",
+                    transaction.a, transaction.b, transaction.result
+                );
                 if let Some(stored_at) = &transaction.metadata.stored_at {
                     println!("   Created: {}", stored_at.format("%Y-%m-%d %H:%M:%S UTC"));
                 }
@@ -343,12 +363,16 @@ async fn get_proof(client: &SimpleApiClient, proof_id: String) -> Result<()> {
                 println!("✅ Proof found:");
                 println!("   Proof ID: {}", proof_response.proof_id);
                 println!("   Status: {}", proof_response.status);
-                println!("   Circuit: {} ({})", proof_response.circuit_info.circuit_name, proof_response.circuit_info.proof_system);
-                
+                println!(
+                    "   Circuit: {} ({})",
+                    proof_response.circuit_info.circuit_name,
+                    proof_response.circuit_info.proof_system
+                );
+
                 if let Some(result) = proof_response.result {
                     println!("   Result: {}", result);
                 }
-                
+
                 if let Some(verification_data) = &proof_response.verification_data {
                     println!("   Verified: {}", verification_data.is_verified);
                     if verification_data.is_verified {
@@ -392,14 +416,12 @@ async fn download_proof(
             match response.json::<ProofDownloadResponse>().await {
                 Ok(proof_data) => {
                     // Determine output file path
-                    let file_path = output_path.unwrap_or_else(|| {
-                        format!("proof_{proof_id}.json")
-                    });
+                    let file_path = output_path.unwrap_or_else(|| format!("proof_{proof_id}.json"));
 
                     // Save proof data to file
                     let json_data = serde_json::to_string_pretty(&proof_data)?;
                     std::fs::write(&file_path, json_data)?;
-                    
+
                     println!("✅ Proof data downloaded successfully!");
                     println!("📁 Saved to: {}", file_path);
                     println!();
@@ -445,31 +467,42 @@ fn verify_proof_local(
     let start_time = Instant::now();
 
     // Extract proof data from either JSON file or direct arguments
-    let (proof_data_hex, public_values_hex, verifying_key_hex, proof_id) = if let Some(proof_file) = &proof_file {
+    let (proof_data_hex, public_values_hex, verifying_key_hex, proof_id) = if let Some(proof_file) =
+        &proof_file
+    {
         // Load from JSON file
         let json_content = fs::read_to_string(proof_file)?;
-        
+
         let proof_data: ProofDownloadData = serde_json::from_str(&json_content)?;
-        
+
         if proof_data.status != "ready" {
             error!("Proof status is '{}', expected 'ready'", proof_data.status);
             std::process::exit(1);
         }
-        
+
         println!("📁 Loading proof: {}", proof_data.proof_id);
-        println!("   Circuit: {} ({})", proof_data.circuit_info.circuit_name, proof_data.circuit_info.proof_system);
-        
+        println!(
+            "   Circuit: {} ({})",
+            proof_data.circuit_info.circuit_name, proof_data.circuit_info.proof_system
+        );
+
         (
             proof_data.proof_data.proof,
             proof_data.proof_data.public_values,
             proof_data.proof_data.verifying_key,
             Some(proof_data.proof_id),
         )
-    } else if let (Some(proof_data), Some(public_values), Some(verifying_key)) = 
-        (&proof_data, &public_values, &verifying_key) {
+    } else if let (Some(proof_data), Some(public_values), Some(verifying_key)) =
+        (&proof_data, &public_values, &verifying_key)
+    {
         // Use direct hex arguments
         println!("🔧 Using raw hex data");
-        (proof_data.clone(), public_values.clone(), verifying_key.clone(), None)
+        (
+            proof_data.clone(),
+            public_values.clone(),
+            verifying_key.clone(),
+            None,
+        )
     } else {
         error!("Must provide either --proof-file or all of --proof-data, --public-values, --verifying-key");
         std::process::exit(1);
@@ -477,15 +510,19 @@ fn verify_proof_local(
 
     // Decode hex inputs (handle optional 0x prefix)
     let proof_data_clean = proof_data_hex.strip_prefix("0x").unwrap_or(&proof_data_hex);
-    let public_values_clean = public_values_hex.strip_prefix("0x").unwrap_or(&public_values_hex);
-    let verifying_key_clean = verifying_key_hex.strip_prefix("0x").unwrap_or(&verifying_key_hex);
-    
+    let public_values_clean = public_values_hex
+        .strip_prefix("0x")
+        .unwrap_or(&public_values_hex);
+    let verifying_key_clean = verifying_key_hex
+        .strip_prefix("0x")
+        .unwrap_or(&verifying_key_hex);
+
     let _proof_bytes = hex::decode(proof_data_clean)?;
     let public_values_bytes = hex::decode(public_values_clean)?;
     let _vk_bytes = hex::decode(verifying_key_clean)?;
 
     println!("🔍 Verifying computation result...");
-    
+
     let decoded_values = PublicValuesStruct::abi_decode(&public_values_bytes)?;
 
     let actual_result = decoded_values.result;
@@ -508,14 +545,28 @@ fn verify_proof_local(
     if let Some(pid) = &proof_id {
         println!("Proof ID: {pid}");
     }
-    println!("Overall Status: {}", if overall_valid { "✅ VALID" } else { "❌ INVALID" });
+    println!(
+        "Overall Status: {}",
+        if overall_valid {
+            "✅ VALID"
+        } else {
+            "❌ INVALID"
+        }
+    );
     println!("Cryptographic Proof: ✅ VALID");
-    println!("Result Verification: {}", if result_matches { "✅ VALID" } else { "❌ INVALID" });
+    println!(
+        "Result Verification: {}",
+        if result_matches {
+            "✅ VALID"
+        } else {
+            "❌ INVALID"
+        }
+    );
     println!("Expected Result: {expected_result}");
     println!("Actual Result: {actual_result}");
     println!("Verification Time: {verification_time:?}");
     println!();
-    
+
     if overall_valid {
         println!("🎉 Zero-knowledge proof successfully verified!");
         println!("   • Privacy: Inputs remain hidden");
@@ -530,6 +581,48 @@ fn verify_proof_local(
     if !overall_valid {
         std::process::exit(1);
     }
+
+    Ok(())
+}
+
+/// Submit proof to smart contract using ethereum client
+async fn submit_proof_to_contract(
+    proof: SP1ProofWithPublicValues,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("🚀 Submitting proof to smart contract...");
+
+    // Create ethereum client configuration
+    let eth_config = Config::from_env()?;
+
+    // Initialize ethereum client
+    let eth_client = EthereumClient::new(eth_config.clone()).await?;
+
+    let is_authorized = eth_client
+        .is_authorized(eth_config.signer.unwrap().address)
+        .await?;
+
+    println!("is_authorized: {:?}", is_authorized);
+
+    let proof_bytes = Bytes::from(proof.bytes());
+    let public_values = Bytes::from(proof.public_values.as_slice().to_vec());
+
+    //#TODO: Get the actual state_id from the database
+    let state_id =
+        FixedBytes::from_slice(&alloy_primitives::keccak256(proof.public_values.as_slice())[..32]);
+
+    //#TODO: Get the actual new_state_root from the database
+    let new_state_root =
+        FixedBytes::from_slice(&alloy_primitives::keccak256(proof.public_values.as_slice())[..32]);
+
+    let result = eth_client
+        .update_state(state_id, new_state_root, proof_bytes, public_values)
+        .await?;
+
+    println!("✅ Proof submitted to smart contract successfully!");
+    println!("🔗 Transaction details:");
+    println!("  Transaction txn hash: {:?}", result.transaction_hash);
+    println!("  Transaction state id: {}", result.state_id);
+    println!("  Transaction new state root: {}", result.new_state_root);
 
     Ok(())
 }
