@@ -13,7 +13,7 @@ use sp1_sdk::{HashableKey, SP1Stdin};
 use std::path::PathBuf;
 use std::time::Duration;
 use thiserror::Error;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 /// Available EVM-compatible proof systems
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
@@ -161,26 +161,56 @@ pub async fn generate_batch_proof(
     );
 
     // Create SP1 inputs for batch processing and serialize for Sindri
+    info!("📝 Creating SP1 stdin with initial_balance={} and transactions={:?}", 
+          request.initial_balance, request.transactions);
     let mut stdin = SP1Stdin::new();
     stdin.write(&request.initial_balance);
     stdin.write(&request.transactions);
+    info!("✅ SP1 stdin created successfully");
 
+    info!("📝 Serializing SP1 stdin to JSON for Sindri");
     let stdin_json =
-        serde_json::to_string(&stdin).map_err(|e| ProofError::SerializationError(e.to_string()))?;
-    let proof_input = ProofInput::from(stdin_json);
+        serde_json::to_string(&stdin).map_err(|e| {
+            error!("❌ Failed to serialize SP1 stdin: {}", e);
+            ProofError::SerializationError(e.to_string())
+        })?;
+    info!("✅ SP1 stdin serialized, JSON length: {} chars", stdin_json.len());
+    
+    let proof_input = ProofInput::from(stdin_json.clone());
+    info!("✅ ProofInput created from JSON");
 
     // Get circuit name with configurable tag from environment
     let circuit_tag = std::env::var("SINDRI_CIRCUIT_TAG").unwrap_or_else(|_| "latest".to_string());
     let circuit_name = format!("demo-vapp:{}", circuit_tag);
 
     info!("📋 Using circuit: {} (tag: {})", circuit_name, circuit_tag);
+    info!("🔑 Checking SINDRI_API_KEY availability...");
+    
+    match std::env::var("SINDRI_API_KEY") {
+        Ok(key) => info!("✅ SINDRI_API_KEY is set (length: {} chars)", key.len()),
+        Err(_) => {
+            error!("❌ SINDRI_API_KEY is not set in environment!");
+            return Err(ProofError::ConfigError("SINDRI_API_KEY not set".to_string()));
+        }
+    }
 
+    info!("🌐 Creating Sindri client...");
     let client = SindriClient::default();
+    info!("✅ Sindri client created");
 
+    info!("🚀 Submitting proof request to Sindri circuit: {}", circuit_name);
+    info!("📊 Request details: stdin_json preview: {}...", &stdin_json[..std::cmp::min(100, stdin_json.len())]);
+    
     let proof_info = client
         .prove_circuit(&circuit_name, proof_input, None, None, None)
         .await
-        .map_err(|e| ProofError::SindriError(e.to_string()))?;
+        .map_err(|e| {
+            error!("❌ Sindri API call failed: {}", e);
+            ProofError::SindriError(e.to_string())
+        })?;
+    
+    info!("✅ Sindri API call successful! Proof ID: {}, Status: {:?}", 
+          proof_info.proof_id, proof_info.status);
 
     let status = match proof_info.status {
         JobStatus::Ready => "Ready".to_string(),

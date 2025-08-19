@@ -434,6 +434,23 @@ async fn create_batch_endpoint(
                 "✅ API: Batch created: id={}, transactions={}",
                 batch.id, response.transaction_count
             );
+
+            // Trigger proof generation for the newly created batch
+            if let Some(ref batch_processor) = state.batch_processor {
+                info!("🚀 Triggering proof generation for batch {}", batch.id);
+                tokio::spawn({
+                    let pool = state.pool.clone();
+                    let batch_id = batch.id;
+                    async move {
+                        if let Err(e) = crate::batch_processor::BackgroundBatchProcessor::generate_proof_for_batch(&pool, batch_id).await {
+                            error!("Failed to generate proof for manually created batch {}: {}", batch_id, e);
+                        }
+                    }
+                });
+            } else {
+                warn!("Batch processor not available - proof generation skipped");
+            }
+
             Ok(Json(response))
         }
         Ok(None) => {
