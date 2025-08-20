@@ -28,3 +28,4 @@ ADS/
 proof_*.json
 
 **.sqlx
+**/.sqlx
