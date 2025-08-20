@@ -13,10 +13,9 @@ use tracing::{error, info, instrument, warn};
 
 use crate::batch_processor::BatchProcessorHandle;
 use arithmetic_db::{
-    get_all_batches, get_batch_by_id, get_contract_submission_data,
-    get_current_state, get_pending_transactions, submit_transaction,
-    update_batch_proof, store_ads_state_commit, ContractSubmissionData,
-    IndexedMerkleTreeADS,
+    get_all_batches, get_batch_by_id, get_contract_submission_data, get_current_state,
+    get_pending_transactions, store_ads_state_commit, submit_transaction, update_batch_proof,
+    ContractSubmissionData, IndexedMerkleTreeADS,
 };
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -422,8 +421,11 @@ async fn create_batch_endpoint(
     let batch_size = requested_size
         .max(1)
         .min(state.config.max_batch_size as i32);
-    
-    info!("🔄 UNIFIED API: Creating batch with size: {} (using ADS integration)", batch_size);
+
+    info!(
+        "🔄 UNIFIED API: Creating batch with size: {} (using ADS integration)",
+        batch_size
+    );
 
     // Use unified batch service for consistent ADS integration
     let unified_service = crate::unified_batch_service::UnifiedBatchService::new(
@@ -432,7 +434,10 @@ async fn create_batch_endpoint(
         state.config.max_batch_size,
     );
 
-    match unified_service.create_batch_with_ads(Some(batch_size), "api").await {
+    match unified_service
+        .create_batch_with_ads(Some(batch_size), "api")
+        .await
+    {
         Ok(Some(result)) => {
             let response = CreateBatchResponse {
                 batch_id: result.batch_id,
@@ -445,7 +450,7 @@ async fn create_batch_endpoint(
 
             info!(
                 "✅ UNIFIED API: Batch created with ADS integration: id={}, transactions={}, nullifiers={}, merkle_root=0x{}",
-                result.batch_id, 
+                result.batch_id,
                 result.transaction_count,
                 result.nullifier_count,
                 hex::encode(&result.merkle_root[..8])
@@ -453,7 +458,10 @@ async fn create_batch_endpoint(
 
             // Trigger proof generation for the newly created batch
             if state.batch_processor.is_some() {
-                info!("🚀 Triggering proof generation for batch {}", result.batch_id);
+                info!(
+                    "🚀 Triggering proof generation for batch {}",
+                    result.batch_id
+                );
                 tokio::spawn({
                     let pool = state.pool.clone();
                     let batch_id = result.batch_id;

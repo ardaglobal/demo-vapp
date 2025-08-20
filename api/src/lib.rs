@@ -74,7 +74,7 @@ pub use rest::{
 
 pub use server::{ApiServer, ApiServerBuilder, ApiServerConfig};
 
-pub use unified_batch_service::{UnifiedBatchService, BatchCreationResult};
+pub use unified_batch_service::{BatchCreationResult, UnifiedBatchService};
 
 // Re-export database types that the API uses
 pub use arithmetic_db::{

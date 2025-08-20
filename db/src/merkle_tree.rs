@@ -748,13 +748,11 @@ impl IndexedMerkleTree {
 
         // Verify the nullifier chain integrity if we have nullifiers
         if state.total_nullifiers > 0 {
-            let chain_valid = sqlx::query_scalar!(
-                "SELECT validate_nullifier_chain()"
-            )
-            .fetch_one(&self.db.nullifiers.pool)
-            .await
-            .map_err(DbError::Database)?
-            .unwrap_or(false);
+            let chain_valid = sqlx::query_scalar!("SELECT validate_nullifier_chain()")
+                .fetch_one(&self.db.nullifiers.pool)
+                .await
+                .map_err(DbError::Database)?
+                .unwrap_or(false);
 
             if !chain_valid {
                 return Err(DbError::InvalidState(

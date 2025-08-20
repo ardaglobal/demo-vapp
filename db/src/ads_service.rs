@@ -295,14 +295,22 @@ impl IndexedMerkleTreeADS {
         info!("🚀 Initializing IndexedMerkleTreeADS service");
 
         let mut tree = IndexedMerkleTree::new(pool.clone());
-        
+
         // Recover state from database if it exists
-        if let Some(state) = tree.db.state.get_state(None).await.map_err(AdsError::Database)? {
+        if let Some(state) = tree
+            .db
+            .state
+            .get_state(None)
+            .await
+            .map_err(AdsError::Database)?
+        {
             info!(
                 "🔄 Found existing tree state with {} nullifiers, recovering...",
                 state.total_nullifiers
             );
-            tree.recover_state(state).await.map_err(AdsError::Database)?;
+            tree.recover_state(state)
+                .await
+                .map_err(AdsError::Database)?;
             info!("✅ Tree state recovered successfully");
         } else {
             info!("📝 No existing tree state found, starting with empty tree");
@@ -392,11 +400,11 @@ impl IndexedMerkleTreeADS {
 
         if !recent_commits.is_empty() {
             let mut cache = self.state_cache.write().await;
-            
+
             for commit in recent_commits {
                 let mut root_key = [0u8; 32];
                 root_key.copy_from_slice(&commit.merkle_root);
-                
+
                 let state_commitment = StateCommitment {
                     root_hash: root_key,
                     nullifier_count: 0, // We could query this if needed
@@ -410,10 +418,10 @@ impl IndexedMerkleTreeADS {
                         gas_price: 20_000_000_000, // 20 gwei
                     },
                 };
-                
+
                 cache.insert(root_key, state_commitment);
             }
-            
+
             info!(
                 "✅ Rebuilt state cache with {} entries from proven batches",
                 cache.len()

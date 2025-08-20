@@ -17,7 +17,7 @@ use tracing::{debug, error, info, instrument};
 use crate::rest::ApiConfig;
 use alloy_primitives::{Bytes, FixedBytes};
 use arithmetic_db::{
-    create_batch, get_batch_by_id, get_pending_transactions, get_proven_unposted_batches,
+    get_batch_by_id, get_pending_transactions, get_proven_unposted_batches,
     mark_batch_posted_to_contract, update_batch_proof, IndexedMerkleTreeADS,
 };
 use arithmetic_lib::proof::{generate_batch_proof, BatchProofGenerationRequest, ProofSystem};
@@ -159,7 +159,7 @@ impl BatchProcessorHandle {
 impl BackgroundBatchProcessor {
     /// Create a new background batch processor
     pub fn new(
-        pool: PgPool, 
+        pool: PgPool,
         config: BatchProcessorConfig,
         ads_service: Arc<RwLock<IndexedMerkleTreeADS>>,
     ) -> (Self, BatchProcessorHandle) {
@@ -322,7 +322,10 @@ impl BackgroundBatchProcessor {
     /// Process a batch of transactions using unified ADS-integrated service
     #[instrument(skip(self), level = "info")]
     async fn process_batch(&self, trigger_type: &str) -> Result<Option<i32>, String> {
-        info!("🔄 UNIFIED: Processing batch via {} trigger (using unified service)", trigger_type);
+        info!(
+            "🔄 UNIFIED: Processing batch via {} trigger (using unified service)",
+            trigger_type
+        );
 
         // Use unified batch service for consistent ADS integration
         let unified_service = crate::unified_batch_service::UnifiedBatchService::new(
@@ -331,19 +334,23 @@ impl BackgroundBatchProcessor {
             self.config.max_batch_size,
         );
 
-        match unified_service.create_batch_with_ads(None, trigger_type).await {
+        match unified_service
+            .create_batch_with_ads(None, trigger_type)
+            .await
+        {
             Ok(Some(result)) => {
                 info!(
                     "✅ UNIFIED: Batch processed successfully via {}: id={}, transactions={}, nullifiers={}, merkle_root=0x{}",
                     trigger_type,
-                    result.batch_id, 
+                    result.batch_id,
                     result.transaction_count,
                     result.nullifier_count,
                     hex::encode(&result.merkle_root[..8])
                 );
 
                 // Update statistics
-                self.update_stats(result.batch_id, result.transaction_count).await;
+                self.update_stats(result.batch_id, result.transaction_count)
+                    .await;
 
                 // Trigger proof generation asynchronously
                 self.trigger_proof_generation(result.batch_id);
@@ -355,7 +362,10 @@ impl BackgroundBatchProcessor {
                 Ok(None)
             }
             Err(e) => {
-                error!("UNIFIED: Failed to process batch via {}: {}", trigger_type, e);
+                error!(
+                    "UNIFIED: Failed to process batch via {}: {}",
+                    trigger_type, e
+                );
                 Err(e)
             }
         }

@@ -11,8 +11,8 @@ use tokio::sync::RwLock;
 use tracing::{debug, error, info, instrument};
 
 use arithmetic_db::{
-    get_pending_transactions, store_ads_state_commit, IndexedMerkleTreeADS, 
-    AuthenticatedDataStructure, IncomingTransaction, ProofBatch
+    get_pending_transactions, store_ads_state_commit, AuthenticatedDataStructure,
+    IncomingTransaction, IndexedMerkleTreeADS, ProofBatch,
 };
 
 // ============================================================================
@@ -52,7 +52,7 @@ impl UnifiedBatchService {
     }
 
     /// Create a batch with full ADS integration
-    /// 
+    ///
     /// This is the ONLY way batches should be created - all triggers use this method
     #[instrument(skip(self), level = "info")]
     pub async fn create_batch_with_ads(
@@ -60,10 +60,7 @@ impl UnifiedBatchService {
         requested_batch_size: Option<i32>,
         trigger_source: &str,
     ) -> Result<Option<BatchCreationResult>, String> {
-        info!(
-            "🔄 UNIFIED: Creating batch via {} trigger",
-            trigger_source
-        );
+        info!("🔄 UNIFIED: Creating batch via {} trigger", trigger_source);
 
         // Step 1: Get pending transactions
         let pending_transactions = match get_pending_transactions(&self.pool).await {
@@ -90,8 +87,11 @@ impl UnifiedBatchService {
             batch_size
         );
 
-        // Step 3: Start atomic database transaction  
-        let db_tx = self.pool.begin().await
+        // Step 3: Start atomic database transaction
+        let db_tx = self
+            .pool
+            .begin()
+            .await
             .map_err(|e| format!("Failed to begin database transaction: {}", e))?;
 
         // Step 4: Create batch entry (using existing logic for now)
@@ -110,13 +110,16 @@ impl UnifiedBatchService {
             }
         };
 
-        info!("✅ UNIFIED: Batch entry created: id={}, transactions={}", 
-              batch.id, batch_transactions.len());
+        info!(
+            "✅ UNIFIED: Batch entry created: id={}, transactions={}",
+            batch.id,
+            batch_transactions.len()
+        );
 
         // Step 5: Process transactions through ADS
         info!("🔐 UNIFIED: Processing transactions through ADS service");
         let mut ads_guard = self.ads_service.write().await;
-        
+
         // Convert transactions to nullifiers
         let mut nullifiers = Vec::new();
         for tx in batch_transactions {
@@ -127,8 +130,10 @@ impl UnifiedBatchService {
         // Insert nullifiers through ADS
         let state_transitions = match ads_guard.batch_insert(&nullifiers).await {
             Ok(transitions) => {
-                info!("✅ UNIFIED: Successfully processed {} nullifiers through ADS", 
-                      nullifiers.len());
+                info!(
+                    "✅ UNIFIED: Successfully processed {} nullifiers through ADS",
+                    nullifiers.len()
+                );
                 transitions
             }
             Err(e) => {
@@ -157,10 +162,16 @@ impl UnifiedBatchService {
         info!("💾 UNIFIED: Storing merkle root for batch {}", batch.id);
         match store_ads_state_commit(&self.pool, batch.id, &merkle_root).await {
             Ok(_) => {
-                info!("✅ UNIFIED: Merkle root stored successfully for batch {}", batch.id);
+                info!(
+                    "✅ UNIFIED: Merkle root stored successfully for batch {}",
+                    batch.id
+                );
             }
             Err(e) => {
-                error!("UNIFIED: Failed to store merkle root for batch {}: {}", batch.id, e);
+                error!(
+                    "UNIFIED: Failed to store merkle root for batch {}: {}",
+                    batch.id, e
+                );
                 db_tx.rollback().await.ok();
                 return Err(format!("Failed to store merkle root: {}", e));
             }
@@ -208,25 +219,34 @@ impl UnifiedBatchService {
         // Create a deterministic nullifier from the transaction data using blake3
         // This ensures the same transaction always produces the same nullifier across deployments
         let mut hasher = blake3::Hasher::new();
-        
+
         // Hash each field as its little-endian byte representation for deterministic results
         hasher.update(&transaction.id.to_le_bytes());
         hasher.update(&transaction.amount.to_le_bytes());
         hasher.update(&transaction.created_at.timestamp().to_le_bytes());
-        
+
         // Get the first 8 bytes of the digest as a u64 (little-endian)
         let digest = hasher.finalize();
         let hash_bytes = digest.as_bytes();
         let hash_u64 = u64::from_le_bytes([
-            hash_bytes[0], hash_bytes[1], hash_bytes[2], hash_bytes[3],
-            hash_bytes[4], hash_bytes[5], hash_bytes[6], hash_bytes[7],
+            hash_bytes[0],
+            hash_bytes[1],
+            hash_bytes[2],
+            hash_bytes[3],
+            hash_bytes[4],
+            hash_bytes[5],
+            hash_bytes[6],
+            hash_bytes[7],
         ]);
-        
+
         // Convert to positive i64 (IMT requires positive nullifiers)
         // Take modulo to ensure we stay in positive range, then add 1 to avoid zero
         let nullifier = ((hash_u64 % (i64::MAX as u64)) as i64) + 1;
 
-        debug!("Transaction {} -> nullifier {} (from hash {})", transaction.id, nullifier, hash_u64);
+        debug!(
+            "Transaction {} -> nullifier {} (from hash {})",
+            transaction.id, nullifier, hash_u64
+        );
         nullifier
     }
 
@@ -234,7 +254,7 @@ impl UnifiedBatchService {
     pub async fn health_check(&self) -> Result<String, String> {
         // Check database connectivity
         match sqlx::query("SELECT 1").fetch_one(&self.pool).await {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => return Err(format!("Database health check failed: {}", e)),
         }
 

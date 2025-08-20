@@ -122,7 +122,10 @@ impl ApiServer {
     }
 
     /// Create new API server with existing database pool
-    pub async fn with_pool(pool: PgPool, config: ApiServerConfig) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn with_pool(
+        pool: PgPool,
+        config: ApiServerConfig,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         info!("🚀 Creating API server with existing database pool");
 
         // Initialize ADS service with recovery from database
@@ -150,7 +153,7 @@ impl ApiServer {
         pool: PgPool,
     ) -> Result<Arc<RwLock<IndexedMerkleTreeADS>>, Box<dyn std::error::Error + Send + Sync>> {
         info!("🔐 Creating ADS service configuration");
-        
+
         // Create ADS configuration for production use
         let ads_config = AdsConfig {
             settlement_contract: "0x742d35cc6640CA5AaAaB2AAD9d8e7f2B6E37b5D1".to_string(),
@@ -164,13 +167,15 @@ impl ApiServer {
 
         info!("🏭 Creating ADS service factory");
         let factory = AdsServiceFactory::with_config(pool.clone(), ads_config);
-        
+
         info!("🌳 Initializing IndexedMerkleTreeADS (with database recovery)");
-        let ads_service = factory.create_indexed_merkle_tree().await
+        let ads_service = factory
+            .create_indexed_merkle_tree()
+            .await
             .map_err(|e| format!("Failed to create ADS service: {}", e))?;
 
         let ads_service = Arc::new(RwLock::new(ads_service));
-        
+
         info!("✅ ADS service initialized successfully with database recovery");
         Ok(ads_service)
     }
@@ -419,7 +424,10 @@ impl ApiServerBuilder {
     }
 
     /// Build the API server with an existing database pool
-    pub async fn build_with_pool(self, pool: PgPool) -> Result<ApiServer, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn build_with_pool(
+        self,
+        pool: PgPool,
+    ) -> Result<ApiServer, Box<dyn std::error::Error + Send + Sync>> {
         ApiServer::with_pool(pool, self.config).await
     }
 }

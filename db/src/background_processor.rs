@@ -157,19 +157,25 @@ impl BackgroundProcessor {
         // Create a deterministic nullifier from the transaction data using blake3
         // This ensures the same transaction always produces the same nullifier across deployments
         let mut hasher = blake3::Hasher::new();
-        
+
         // Hash each field as its little-endian byte representation for deterministic results
         hasher.update(&transaction.amount.to_le_bytes());
         hasher.update(&transaction.id.to_le_bytes());
-        
+
         // Get the first 8 bytes of the digest as a u64 (little-endian)
         let digest = hasher.finalize();
         let hash_bytes = digest.as_bytes();
         let hash_u64 = u64::from_le_bytes([
-            hash_bytes[0], hash_bytes[1], hash_bytes[2], hash_bytes[3],
-            hash_bytes[4], hash_bytes[5], hash_bytes[6], hash_bytes[7],
+            hash_bytes[0],
+            hash_bytes[1],
+            hash_bytes[2],
+            hash_bytes[3],
+            hash_bytes[4],
+            hash_bytes[5],
+            hash_bytes[6],
+            hash_bytes[7],
         ]);
-        
+
         // Convert to positive i64 (IMT requires positive nullifiers)
         // Take modulo to ensure we stay in positive range, then add 1 to avoid zero
         ((hash_u64 % (i64::MAX as u64)) as i64) + 1
@@ -235,8 +241,6 @@ impl BackgroundProcessor {
         Ok(())
     }
 }
-
-
 
 /// Builder for background processor
 pub struct ProcessorBuilder {
