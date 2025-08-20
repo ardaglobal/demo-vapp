@@ -196,6 +196,32 @@ impl EthereumClient {
         let listener_config = EventListenerConfig::default();
         let last_processed_block = Arc::new(RwLock::new(0));
 
+        // Create a temporary client instance to validate verification key
+        let temp_client = Self {
+            config: config.clone(),
+            http_provider: http_provider.clone(),
+            contracts: contracts.clone(),
+            signer: signer.clone(),
+
+            #[cfg(feature = "database")]
+            cache: cache.clone(),
+
+            event_callbacks: Arc::clone(&event_callbacks),
+            event_broadcaster: event_broadcaster.clone(),
+            event_receiver: event_receiver.resubscribe(),
+            listener_config: listener_config.clone(),
+            last_processed_block: Arc::clone(&last_processed_block),
+        };
+
+        // Validate verification key compatibility on startup
+        if let Err(e) = temp_client.validate_verification_key_compatibility().await {
+            error!(
+                "Verification key validation failed during client initialization: {}",
+                e
+            );
+            return Err(e);
+        }
+
         Ok(Self {
             config,
             http_provider,
@@ -305,6 +331,174 @@ impl EthereumClient {
             EthereumError::from_contract_error(&format!("Transaction failed: {e}"))
         })?;
         Ok(tx_result)
+    }
+
+    /// Validate that the local verification key is compatible with the deployed contract
+    #[allow(clippy::cognitive_complexity)]
+    pub async fn validate_verification_key_compatibility(&self) -> Result<()> {
+        info!("🔍 Validating verification key compatibility with smart contract...");
+
+        // First, get the contract's verification key
+        let contract = IArithmetic::new(self.contracts.arithmetic, &self.http_provider);
+        let contract_vkey = contract
+            .getProgramVerificationKey()
+            .call()
+            .await
+            .map_err(|e| {
+                error!("Failed to query contract verification key: {e}");
+                EthereumError::from_contract_error(&format!("Failed to get contract vkey: {e}"))
+            })?;
+
+        info!(
+            "📍 Smart contract verification key: 0x{}",
+            hex::encode(contract_vkey)
+        );
+
+        // Get the local verification key from vk.json if it exists
+        let local_vkey = match Self::load_local_verification_key() {
+            Ok(vkey) => {
+                info!(
+                    "📁 Local verification key (from vk.json): 0x{}",
+                    hex::encode(vkey)
+                );
+                Some(vkey)
+            }
+            Err(e) => {
+                warn!("⚠️ Could not load local verification key: {}", e);
+                warn!("   This is optional - will skip local key validation");
+                None
+            }
+        };
+
+        // If we have a local key, validate compatibility
+        if let Some(local_vkey) = local_vkey {
+            if contract_vkey != local_vkey {
+                let error_msg = format!(
+                    "Verification key mismatch!\n\
+                    Smart Contract VKey: 0x{}\n\
+                    Local VKey (vk.json): 0x{}\n\
+                    \n\
+                    This means proofs generated with your current circuit will be REJECTED by the smart contract.\n\
+                    \n\
+                    Solutions:\n\
+                    1. Deploy a new contract with the correct verification key: 0x{}\n\
+                    2. Use a circuit that matches the contract's verification key: 0x{}",
+                    hex::encode(contract_vkey),
+                    hex::encode(local_vkey),
+                    hex::encode(local_vkey),
+                    hex::encode(contract_vkey)
+                );
+
+                error!("❌ {}", error_msg);
+                return Err(EthereumError::Config(error_msg));
+            }
+
+            info!("✅ Verification keys match! Proofs will be compatible with the smart contract.");
+        }
+
+        // Test the contract's validation function with a mock proof
+        match self.test_contract_validation_function(contract_vkey).await {
+            Ok(()) => {
+                info!("✅ Smart contract validation functions are working correctly");
+            }
+            Err(e) => {
+                warn!(
+                    "⚠️ Contract validation test failed (this is non-critical): {}",
+                    e
+                );
+            }
+        }
+
+        info!("🎉 Verification key validation completed successfully!");
+        Ok(())
+    }
+
+    /// Load verification key from local vk.json file
+    fn load_local_verification_key() -> Result<FixedBytes<32>> {
+        use serde_json::Value;
+
+        let vk_path = std::path::Path::new("vk.json");
+        if !vk_path.exists() {
+            return Err(EthereumError::Config("vk.json file not found".to_string()));
+        }
+
+        let vk_content = std::fs::read_to_string(vk_path)
+            .map_err(|e| EthereumError::Config(format!("Failed to read vk.json: {e}")))?;
+
+        let vk_data: Value = serde_json::from_str(&vk_content)
+            .map_err(|e| EthereumError::Config(format!("Failed to parse vk.json: {e}")))?;
+
+        // Extract the commit value array (8 32-bit integers)
+        let commit_values = vk_data
+            .get("vk")
+            .and_then(|vk| vk.get("commit"))
+            .and_then(|commit| commit.get("value"))
+            .and_then(|value| value.as_array())
+            .ok_or_else(|| {
+                EthereumError::Config("Invalid vk.json format: missing vk.commit.value".to_string())
+            })?;
+
+        if commit_values.len() != 8 {
+            return Err(EthereumError::Config(format!(
+                "Invalid vk.json format: expected 8 values, got {}",
+                commit_values.len()
+            )));
+        }
+
+        // Convert each 32-bit integer to 4 bytes in little-endian format
+        let mut bytes = Vec::with_capacity(32);
+        for value in commit_values {
+            let u64_value = value
+                .as_u64()
+                .ok_or_else(|| EthereumError::Config("Invalid integer in vk.json".to_string()))?;
+
+            if u64_value > u64::from(u32::MAX) {
+                return Err(EthereumError::Config(
+                    "Integer value in vk.json exceeds u32::MAX".to_string(),
+                ));
+            }
+
+            let int32 = u32::try_from(u64_value).map_err(|_| {
+                EthereumError::Config("Integer value in vk.json exceeds u32::MAX".to_string())
+            })?;
+
+            // Convert to little-endian bytes
+            bytes.extend_from_slice(&int32.to_le_bytes());
+        }
+
+        // Convert to FixedBytes<32>
+        let vkey_bytes: [u8; 32] = bytes
+            .try_into()
+            .map_err(|_| EthereumError::Config("Failed to convert vkey to 32 bytes".to_string()))?;
+
+        Ok(FixedBytes::from(vkey_bytes))
+    }
+
+    /// Test the contract's validation function with mock data
+    async fn test_contract_validation_function(&self, contract_vkey: FixedBytes<32>) -> Result<()> {
+        let contract = IArithmetic::new(self.contracts.arithmetic, &self.http_provider);
+
+        let mock_proof = Bytes::from(vec![0x12, 0x34, 0x56, 0x78]);
+        let mock_public_values = Bytes::from(vec![0xab, 0xcd, 0xef]);
+
+        let validation_result = contract
+            .validateProofCompatibility(contract_vkey, mock_public_values, mock_proof)
+            .call()
+            .await
+            .map_err(|e| {
+                EthereumError::from_contract_error(&format!("Contract validation call failed: {e}"))
+            })?;
+
+        let is_valid = validation_result.isValid;
+        let message = validation_result.message;
+
+        if is_valid {
+            info!("✅ Contract validation test passed: {}", message);
+        } else {
+            warn!("⚠️ Contract validation test returned false: {}", message);
+        }
+
+        Ok(())
     }
 
     pub async fn batch_update_states(
@@ -1057,6 +1251,80 @@ impl EthereumClient {
 
         Ok(version)
     }
+
+    /// Create new ethereum client without validation (for CLI use)
+    pub async fn new_without_validation(config: Config) -> Result<Self> {
+        let signer_config = config
+            .signer
+            .as_ref()
+            .ok_or_else(|| EthereumError::Config("Signer required".to_string()))?;
+
+        let signer = PrivateKeySigner::from_bytes(&FixedBytes::<32>::try_from(
+            hex::decode(&signer_config.private_key)?.as_slice(),
+        )?)
+        .map_err(|e| EthereumError::Signer(e.to_string()))?;
+
+        let wallet = EthereumWallet::from(signer.clone());
+
+        // Create provider with wallet for signing
+        let http_provider = ProviderBuilder::new()
+            .wallet(wallet)
+            .connect_http(config.network.rpc_url.clone());
+
+        let contracts = ContractAddresses::new(
+            config.contract.arithmetic_contract,
+            config.contract.verifier_contract,
+        );
+
+        #[cfg(feature = "database")]
+        let cache = if let Ok(database_url) = std::env::var("DATABASE_URL") {
+            let pool = sqlx::PgPool::connect(&database_url).await?;
+            Some(EthereumCache::new(pool))
+        } else {
+            None
+        };
+
+        // Initialize event system
+        let (event_broadcaster, event_receiver) = broadcast::channel(1000);
+        let event_callbacks = Arc::new(RwLock::new(HashMap::new()));
+        let listener_config = EventListenerConfig::default();
+        let last_processed_block = Arc::new(RwLock::new(0));
+
+        Ok(Self {
+            config,
+            http_provider,
+            contracts,
+            signer,
+
+            #[cfg(feature = "database")]
+            cache,
+
+            event_callbacks,
+            event_broadcaster,
+            event_receiver,
+            listener_config,
+            last_processed_block,
+        })
+    }
+
+    /// Query the contract's current verification key and verifier address
+    pub async fn query_contract_verification_key(&self) -> Result<(FixedBytes<32>, Address)> {
+        let contract = IArithmetic::new(self.contracts.arithmetic, &self.http_provider);
+
+        let verification_key = contract
+            .getProgramVerificationKey()
+            .call()
+            .await
+            .map_err(|e| {
+                EthereumError::from_contract_error(&format!("Failed to get contract vkey: {e}"))
+            })?;
+
+        let verifier_address = contract.verifier().call().await.map_err(|e| {
+            EthereumError::from_contract_error(&format!("Failed to get verifier address: {e}"))
+        })?;
+
+        Ok((verification_key, verifier_address))
+    }
 }
 
 pub type Receipt = TransactionReceipt;
@@ -1324,6 +1592,7 @@ mod tests {
             ("0xe55fb509", "InvalidLimit"),
             ("0x63df8171", "InvalidIndex"),
             ("0xb8cdb9bd", "ProofAlreadyExists"),
+            ("0x7fcdd1f4", "ProofInvalid"),
         ];
 
         for (sig, expected_error) in signatures {
@@ -1338,6 +1607,7 @@ mod tests {
                 EthereumError::InvalidLimit => "InvalidLimit",
                 EthereumError::InvalidIndex => "InvalidIndex",
                 EthereumError::ProofAlreadyExists => "ProofAlreadyExists",
+                EthereumError::ProofInvalid => "ProofInvalid",
                 _ => "Unknown",
             };
 
@@ -1377,5 +1647,10 @@ mod tests {
         let index_error_msg = "Array access error: index out of bounds 0x63df8171";
         let error = EthereumError::from_contract_error(index_error_msg);
         assert!(matches!(error, EthereumError::InvalidIndex));
+
+        // Scenario: Invalid proof submission (common SP1 verifier error)
+        let proof_invalid_msg = "Transaction failed: server returned an error response: error code 3: execution reverted, data: \"0x7fcdd1f4\"";
+        let error = EthereumError::from_contract_error(proof_invalid_msg);
+        assert!(matches!(error, EthereumError::ProofInvalid));
     }
 }

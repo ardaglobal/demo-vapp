@@ -96,6 +96,9 @@ pub enum EthereumError {
 
     #[error("Proof already exists: A proof with this ID already exists")]
     ProofAlreadyExists,
+
+    #[error("Proof invalid: The provided proof is invalid or verification failed")]
+    ProofInvalid,
 }
 
 impl EthereumError {
@@ -115,6 +118,7 @@ impl EthereumError {
                     "0xe55fb509" => return Self::InvalidLimit,
                     "0x63df8171" => return Self::InvalidIndex,
                     "0xb8cdb9bd" => return Self::ProofAlreadyExists,
+                    "0x7fcdd1f4" => return Self::ProofInvalid,
                     _ => {} // Unknown signature, fall through to generic error
                 }
             }
@@ -203,6 +207,40 @@ mod tests {
             super::EthereumError::ProofAlreadyExists => {}
             _ => panic!("Expected ProofAlreadyExists error, got: {parsed_error:?}"),
         }
+    }
+
+    #[test]
+    fn test_parse_proof_invalid_error() {
+        let error_msg = "Transaction failed: server returned an error response: error code 3: execution reverted, data: \"0x7fcdd1f4\"";
+        let parsed_error = super::EthereumError::from_contract_error(error_msg);
+
+        match parsed_error {
+            super::EthereumError::ProofInvalid => {}
+            _ => panic!("Expected ProofInvalid error, got: {parsed_error:?}"),
+        }
+    }
+
+    #[test]
+    fn test_proof_invalid_error_message_transformation() {
+        // Demonstrate the improvement: before we would see hex codes, now we see readable errors
+        let raw_error_msg = "Transaction failed: server returned an error response: error code 3: execution reverted, data: \"0x7fcdd1f4\"";
+        let parsed_error = super::EthereumError::from_contract_error(raw_error_msg);
+
+        // The formatted error message should be human readable
+        let formatted_message = format!("{parsed_error}");
+
+        // Should NOT contain the hex code
+        assert!(!formatted_message.contains("0x7fcdd1f4"));
+
+        // Should contain readable error description
+        assert!(formatted_message.contains("Proof invalid"));
+        assert!(formatted_message.contains("verification failed"));
+
+        // Demonstrate the exact message users will now see
+        assert_eq!(
+            formatted_message,
+            "Proof invalid: The provided proof is invalid or verification failed"
+        );
     }
 
     #[test]

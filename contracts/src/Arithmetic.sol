@@ -5,13 +5,14 @@ import {ISP1Verifier} from "@sp1-contracts/ISP1Verifier.sol";
 import {EventHelpers} from "./EventHelpers.sol";
 
 struct PublicValuesStruct {
-    int32 result;
+    int32 initial_balance;
+    int32 final_balance;
 }
 
 /// @title Arithmetic.
 /// @author Arda Global
-/// @notice This contract implements a simple example of verifying the proof of a computing a
-///         arithmetic operation.
+/// @notice This contract implements verification of batch processing proofs with continuous balance tracking.
+///         Individual transactions remain private while only initial and final balances are public.
 contract Arithmetic is EventHelpers {
     /// @notice The address of the SP1 verifier contract.
     /// @dev This can either be a specific SP1Verifier for a specific version, or the
@@ -207,9 +208,9 @@ contract Arithmetic is EventHelpers {
         emit AuthorizationChanged(msg.sender, true);
     }
 
-    /// @notice The entrypoint for verifying the proof of an arithmetic operation.
+    /// @notice The entrypoint for verifying the proof of a batch processing operation.
     /// @param _proofBytes The encoded proof.
-    /// @param _publicValues The encoded public values.
+    /// @param _publicValues The encoded public values containing initial and final balance.
     function verifyArithmeticProof(
         bytes calldata _publicValues,
         bytes calldata _proofBytes
@@ -223,7 +224,7 @@ contract Arithmetic is EventHelpers {
             _publicValues,
             (PublicValuesStruct)
         );
-        return publicValues.result;
+        return publicValues.final_balance;
     }
 
     /// @notice Update state with ZK proof verification.
@@ -907,5 +908,79 @@ contract Arithmetic is EventHelpers {
         for (uint256 day = startDay; day <= endDay; day++) {
             totalEvents += dailyEventCounts[day];
         }
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    VERIFICATION KEY UTILITIES
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Get the current program verification key used by this contract.
+    /// @return vKey The 32-byte verification key for the arithmetic program.
+    function getProgramVerificationKey() external view returns (bytes32 vKey) {
+        return arithmeticProgramVKey;
+    }
+
+    /// @notice Check if a given verification key matches the contract's program vkey.
+    /// @param vKey The verification key to check against the contract's vkey.
+    /// @return matches True if the provided vkey matches the contract's vkey.
+    function isValidProgramVerificationKey(bytes32 vKey) external view returns (bool matches) {
+        return vKey == arithmeticProgramVKey;
+    }
+
+    /// @notice Get verification key information for debugging.
+    /// @return contractVKey The contract's verification key.
+    /// @return verifierAddress The SP1 verifier contract address.
+    function getVerificationInfo() external view returns (
+        bytes32 contractVKey,
+        address verifierAddress
+    ) {
+        return (arithmeticProgramVKey, verifier);
+    }
+
+    /// @notice Validate that a proof would be accepted by this contract (without executing).
+    /// @dev This is a view function that checks vkey compatibility without state changes.
+    /// @param expectedVKey The verification key you expect to use.
+    /// @param publicValues The public values for the proof.
+    /// @param proof The proof bytes.
+    /// @return isValid True if the proof format is compatible with this contract.
+    /// @return message Human-readable validation message.
+    function validateProofCompatibility(
+        bytes32 expectedVKey,
+        bytes calldata publicValues,
+        bytes calldata proof
+    ) external view returns (bool isValid, string memory message) {
+        // Check if the verification key matches
+        if (expectedVKey != arithmeticProgramVKey) {
+            return (false, string(abi.encodePacked(
+                "Verification key mismatch. Expected: 0x",
+                _bytes32ToHex(arithmeticProgramVKey),
+                ", Got: 0x",
+                _bytes32ToHex(expectedVKey)
+            )));
+        }
+
+        // Check if proof and public values are non-empty
+        if (proof.length == 0) {
+            return (false, "Proof is empty");
+        }
+
+        if (publicValues.length == 0) {
+            return (false, "Public values are empty");
+        }
+
+        return (true, "Proof format is compatible with this contract");
+    }
+
+    /// @notice Internal helper to convert bytes32 to hex string.
+    function _bytes32ToHex(bytes32 data) internal pure returns (string memory) {
+        bytes memory alphabet = "0123456789abcdef";
+        bytes memory str = new bytes(64);
+        
+        for (uint256 i = 0; i < 32; i++) {
+            str[i * 2] = alphabet[uint8(data[i] >> 4)];
+            str[1 + i * 2] = alphabet[uint8(data[i] & 0x0f)];
+        }
+        
+        return string(str);
     }
 }

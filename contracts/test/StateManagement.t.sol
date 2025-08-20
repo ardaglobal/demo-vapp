@@ -19,9 +19,8 @@ contract StateManagementTest is Test {
 
     // Test data from fixtures
     struct FixtureData {
-        uint256 a;
-        uint256 b;
-        uint256 n;
+        int32 initial_balance;
+        int32 final_balance;
         bytes32 vkey;
         bytes publicValues;
         bytes proof;
@@ -104,9 +103,8 @@ contract StateManagementTest is Test {
             "src/fixtures/groth16-fixture.json"
         );
         groth16Fixture = FixtureData({
-            a: groth16Json.readUint(".a"),
-            b: groth16Json.readUint(".b"),
-            n: groth16Json.readUint(".n"),
+            initial_balance: int32(int256(groth16Json.readUint(".initial_balance"))),
+            final_balance: int32(int256(groth16Json.readUint(".final_balance"))),
             vkey: bytes32(groth16Json.readBytes(".vkey")),
             publicValues: groth16Json.readBytes(".publicValues"),
             proof: groth16Json.readBytes(".proof")
@@ -117,9 +115,8 @@ contract StateManagementTest is Test {
             "src/fixtures/plonk-fixture.json"
         );
         plonkFixture = FixtureData({
-            a: plonkJson.readUint(".a"),
-            b: plonkJson.readUint(".b"),
-            n: plonkJson.readUint(".n"),
+            initial_balance: int32(int256(plonkJson.readUint(".initial_balance"))),
+            final_balance: int32(int256(plonkJson.readUint(".final_balance"))),
             vkey: bytes32(plonkJson.readBytes(".vkey")),
             publicValues: plonkJson.readBytes(".publicValues"),
             proof: plonkJson.readBytes(".proof")

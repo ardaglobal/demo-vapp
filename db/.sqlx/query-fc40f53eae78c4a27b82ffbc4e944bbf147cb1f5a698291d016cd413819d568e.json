@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE nullifiers\n                SET next_index = $1, next_value = $2\n                WHERE value = $3 AND is_active = true\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fc40f53eae78c4a27b82ffbc4e944bbf147cb1f5a698291d016cd413819d568e"
+}
