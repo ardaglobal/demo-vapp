@@ -359,6 +359,14 @@ impl IndexedMerkleTreeADS {
         // Rebuild state cache from persisted commitments if we have recovered data
         service.rebuild_state_cache().await?;
 
+        // CRITICAL: Ensure tree_state consistency on startup to prevent "low nullifier" errors
+        info!("🔧 Ensuring tree state consistency on startup");
+        if let Err(e) = service.ensure_tree_state_consistency().await {
+            warn!("Failed to fix tree state consistency, but continuing: {}", e);
+        } else {
+            info!("✅ Tree state consistency verified on startup");
+        }
+
         info!("✅ IndexedMerkleTreeADS service initialized successfully");
         Ok(service)
     }
@@ -374,6 +382,21 @@ impl IndexedMerkleTreeADS {
             .map_err(|e| AdsError::Database(DbError::Database(e)))?;
 
         debug!("📝 Audit storage initialized");
+        Ok(())
+    }
+
+    /// Ensure tree_state table consistency with actual nullifier data
+    /// This prevents "duplicate key" and "low nullifier not found" errors
+    #[instrument(skip(self), level = "info")]
+    async fn ensure_tree_state_consistency(&self) -> Result<(), AdsError> {
+        info!("🔧 Checking and fixing tree_state consistency");
+        
+        sqlx::query!("SELECT fix_tree_state_consistency()")
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| AdsError::Database(DbError::Database(e)))?;
+
+        info!("✅ Tree state consistency verified");
         Ok(())
     }
 
