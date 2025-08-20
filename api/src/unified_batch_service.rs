@@ -205,23 +205,28 @@ impl UnifiedBatchService {
 
     /// Convert a transaction to a nullifier value (deterministic hash)
     fn transaction_to_nullifier(&self, transaction: &IncomingTransaction) -> i64 {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let mut hasher = DefaultHasher::new();
+        // Create a deterministic nullifier from the transaction data using blake3
+        // This ensures the same transaction always produces the same nullifier across deployments
+        let mut hasher = blake3::Hasher::new();
         
-        // Hash transaction data to create deterministic nullifier
-        transaction.id.hash(&mut hasher);
-        transaction.amount.hash(&mut hasher);
-        transaction.created_at.timestamp().hash(&mut hasher);
+        // Hash each field as its little-endian byte representation for deterministic results
+        hasher.update(&transaction.id.to_le_bytes());
+        hasher.update(&transaction.amount.to_le_bytes());
+        hasher.update(&transaction.created_at.timestamp().to_le_bytes());
         
-        let hash = hasher.finish();
+        // Get the first 8 bytes of the digest as a u64 (little-endian)
+        let digest = hasher.finalize();
+        let hash_bytes = digest.as_bytes();
+        let hash_u64 = u64::from_le_bytes([
+            hash_bytes[0], hash_bytes[1], hash_bytes[2], hash_bytes[3],
+            hash_bytes[4], hash_bytes[5], hash_bytes[6], hash_bytes[7],
+        ]);
         
         // Convert to positive i64 (IMT requires positive nullifiers)
         // Take modulo to ensure we stay in positive range, then add 1 to avoid zero
-        let nullifier = ((hash % (i64::MAX as u64)) as i64) + 1;
+        let nullifier = ((hash_u64 % (i64::MAX as u64)) as i64) + 1;
 
-        debug!("Transaction {} -> nullifier {} (from hash {})", transaction.id, nullifier, hash);
+        debug!("Transaction {} -> nullifier {} (from hash {})", transaction.id, nullifier, hash_u64);
         nullifier
     }
 

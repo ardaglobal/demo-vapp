@@ -145,24 +145,23 @@ impl NullifierDb {
             }
             None => {
                 debug!("No low nullifier found - checking if tree is empty");
-                
+
                 // Check if this is an empty tree (first insertion)
-                let nullifier_count = sqlx::query_scalar!(
-                    "SELECT COUNT(*) FROM nullifiers WHERE is_active = true"
-                )
-                .fetch_one(&self.pool)
-                .await
-                .map_err(DbError::Database)?
-                .unwrap_or(0);
-                
+                let nullifier_count =
+                    sqlx::query_scalar!("SELECT COUNT(*) FROM nullifiers WHERE is_active = true")
+                        .fetch_one(&self.pool)
+                        .await
+                        .map_err(DbError::Database)?
+                        .unwrap_or(0);
+
                 if nullifier_count == 0 {
                     // Empty tree: create virtual low nullifier for first insertion
                     debug!("Tree is empty - creating virtual low nullifier for first insertion");
                     let virtual_low_nullifier = LowNullifier {
-                        value: 0,           // Virtual minimum value
-                        next_index: None,   // No next nullifier yet
-                        next_value: 0,      // Virtual maximum (first insertion will be max)
-                        tree_index: 0,      // Virtual tree index
+                        value: 0,         // Virtual minimum value
+                        next_index: None, // No next nullifier yet
+                        next_value: 0,    // Virtual maximum (first insertion will be max)
+                        tree_index: 0,    // Virtual tree index
                     };
                     Ok(Some(virtual_low_nullifier))
                 } else {
@@ -762,7 +761,7 @@ impl IndexedMerkleTree {
 
         // STEP 2: Membership check (skip for empty tree/virtual low nullifier)
         let is_empty_tree_insertion = low_nullifier.value == 0 && low_nullifier.tree_index == 0;
-        
+
         if !is_empty_tree_insertion {
             metrics.database_rounds += 1;
             if !self.db.nullifiers.exists(low_nullifier.value).await? {
@@ -796,13 +795,19 @@ impl IndexedMerkleTree {
             // Empty tree: just validate that nullifier is positive
             metrics.range_checks += 1;
             if new_nullifier <= 0 {
-                error!("Range check failed: first nullifier must be positive, got {}", new_nullifier);
+                error!(
+                    "Range check failed: first nullifier must be positive, got {}",
+                    new_nullifier
+                );
                 return Err(DbError::InvalidNullifierValue(format!(
                     "First nullifier must be positive, got {}",
                     new_nullifier
                 )));
             }
-            info!("📝 Empty tree range check passed for value {}", new_nullifier);
+            info!(
+                "📝 Empty tree range check passed for value {}",
+                new_nullifier
+            );
         }
         debug!(
             "✓ Range check 1 passed: {} > {}",
