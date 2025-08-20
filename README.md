@@ -54,9 +54,12 @@ make up       # Start services
 make initDB   # Start DB, run migrations, generate SQLx cache, then stop DB
 ```
 
+## Running the vApp
+
 ### 1. Install Dependencies
 ```sh
-./install-dependencies.sh
+make setup
+# This calls ./install-dependencies.sh
 ```
 
 ### 2. Set Environment Variables
@@ -69,19 +72,9 @@ cp .env.example .env
 
 ### 3. Deploy Circuit to Sindri (Required for Proof Generation)
 ```sh
-# Deploy the circuit (uses 'latest' tag by default)
-./deploy-circuit.sh
-
-# Or deploy with a specific tag
-./deploy-circuit.sh "dev-v1.0"
-
-# Or set SINDRI_CIRCUIT_TAG in your .env
-# SINDRI_CIRCUIT_TAG=dev-v1.0
-
-# Or deploy manually:
-# sindri lint
-# sindri deploy                    # Uses 'latest' tag
-# sindri deploy --tag "custom-tag" # Uses specific tag
+# Set the SINDRI_CIRCUIT_TAG in the .env file
+make deploy
+# This calls ./deploy-circuit.sh
 ```
 
 **Note**: This step is required for proof generation. Without deploying the circuit, you can still run the server and submit transactions, but proof generation will fail.
@@ -89,7 +82,7 @@ cp .env.example .env
 ### 4. Start the Full Stack
 ```sh
 # Start database + API server (uses pre-built image from GitHub Container Registry)
-docker-compose up -d
+make up
 
 # Verify services are running
 docker-compose ps
@@ -100,8 +93,8 @@ curl http://localhost:8080/api/v2/health
 
 **For Local Development**: If you're actively developing and want to build the Docker image locally for faster iteration:
 ```sh
-# Option 1: Use the development compose file
-docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# Option 1: Use the development compose file, this will re-build the server dockerfile
+make up-dev
 
 # Option 2: Run API server locally (requires PostgreSQL running)
 docker-compose up postgres -d
@@ -172,18 +165,17 @@ cargo run --bin cli -- verify-proof \
 
 ### 6. Local SP1 Development
 
-For fast local SP1 unit testing of batch processing during development:
+For fast local SP1 unit testing during zkVM program development:
+
 ```sh
-# Quick SP1 batch processing test (generates Core proof in ~3.5 seconds)
-# Tests: initial_balance=10 + [5, 7] → final_balance=22
+# Quick SP1 batch processing test from root directory
 cargo run --release
 
-# Equivalent explicit command:
-# cargo run --bin main --release
+# This tests: initial_balance=10 + [5, 7] → final_balance=22
+# Generates Core proof in ~8 seconds without database dependencies
 ```
 
-This provides a fast feedback loop for batch processing SP1 development without database or Sindri dependencies.
-The local test proves that a batch of transactions `[5, 7]` correctly transitions the balance from `10` to `22` while keeping individual amounts private.
+This provides a fast feedback loop for SP1 development, testing that a batch of transactions `[5, 7]` correctly transitions the balance from `10` to `22` while keeping individual amounts private.
 
 ---
 
@@ -241,153 +233,103 @@ The cache files in `.sqlx/` are committed to version control, so most developers
 - ✅ **Developer productivity** - Work on application logic without database setup
 - ✅ **Offline development** - Code and compile anywhere
 
-## Proofs
+## Makefile Commands
 
-To verify that results are stored in the database:
+The project includes a comprehensive `Makefile` with convenient shortcuts for common tasks:
 
+### Setup & Installation
+- `make help` - Show all available commands with descriptions
+- `make install` - Install all dependencies via `./install-dependencies.sh`
+- `make env` - Copy `.env.example` to `.env` 
+- `make setup` - Complete setup: install dependencies, copy .env, initialize database
+- `make initDB` - Initialize database (start, migrate, generate SQLx cache, stop)
+
+### Development
+- `make run` - Local SP1 unit testing (~8s Core proofs, no database needed)
+- `make cli ARGS="..."` - Run CLI client (e.g., `make cli ARGS="health-check"`)
+- `make server` - Start API server locally (requires database)
+- `make test` - Run all tests
+
+### Services
+- `make up` - Start services using pre-built Docker image
+- `make up-dev` - Start services with local Docker build
+- `make down` - Stop all services
+- `make deploy` - Deploy circuit to Sindri
+
+### Docker Operations
+- `make docker-build` - Build Docker image locally
+- `make docker-push` - Build and push image to GitHub registry
+
+### Cleanup
+- `make clean-docker` - Clean up Docker resources
+- `make clean-sqlx` - Remove `.sqlx/` cache directory
+- `make clean-builds` - Remove `target/`, `build/`, `ADS/` directories
+- `make clean` - Clean up all resources (docker, sqlx, builds)
+
+### Usage Examples
 ```sh
-cd script
-cargo run --release -- --verify
+# Complete setup from scratch
+make setup
+
+# Quick SP1 test
+make run
+
+# Start production services
+make up
+
+# CLI examples
+make cli ARGS="submit-transaction --amount 5"
+make cli ARGS="list-batches"
+make cli ARGS="health-check"
 ```
 
-This will start an interactive CLI where you can:
-- Enter a result value (e.g., 15)
-- See what values of 'a' and 'b' were added to get that result
-- Continue looking up different results until you press 'q' to quit
+## Production Batch Processing & Proof Verification
 
-You can also verify a specific result non-interactively:
+For full batch processing with database and ZK proof generation:
 
+### 1. Start the Full Stack
 ```sh
-cargo run --release -- --verify --result 15
+# Start database + API server  
+make up
+
+# Verify services
+curl http://localhost:8080/api/v2/health
 ```
 
-### Generate Zero-Knowledge Proofs via Sindri (Local Development)
-
-**Note**: This section covers local SP1 testing in the `script/` directory. For production batch processing with automated smart contract posting, see the [Smart Contract Integration](#smart-contract-integration) section.
-
-**All proofs are now EVM-compatible by default** using Sindri's cloud infrastructure:
-
+### 2. Submit Transactions and Create Batches
 ```sh
-cd script
-# Generate Groth16 proof for specific values (default)
-cargo run --release -- --prove --a 5 --b 10
+# Submit individual transactions
+cargo run --bin cli -- submit-transaction --amount 5
+cargo run --bin cli -- submit-transaction --amount 7
 
-# Generate PLONK proof for specific values
-cargo run --release -- --prove --a 5 --b 10 --system plonk
+# View pending transactions
+cargo run --bin cli -- view-pending
 
-# Generate proof for a previously computed result stored in database
-cargo run --release -- --prove --result 15
+# Create batch and trigger ZK proof generation
+cargo run --bin cli -- trigger-batch --verbose
 
-# Generate proof with Solidity test fixtures and submit to contract
-cargo run --release -- --prove --a 5 --b 10 --generate-fixture
-
-# Generate proof only (skip smart contract submission)
-cargo run --release -- --prove --a 5 --b 10 --skip-contract-submission
+# Monitor batch status
+cargo run --bin cli -- list-batches
+cargo run --bin cli -- get-batch --batch-id 1
 ```
 
-**Command Options:**
-- `--system groth16|plonk`: Choose EVM-compatible proof system (default: groth16)
-- `--generate-fixture`: Create Solidity test fixtures in `contracts/src/fixtures/`
-- `--skip-contract-submission`: Skip automatic smart contract submission (smart contract submission is enabled by default)
-- `--a` and `--b`: Direct input values for computation
-- `--result`: Look up stored transaction inputs by result value
-
-The `--prove` command will:
-1. Create SP1 inputs and serialize them for Sindri
-2. Generate EVM-compatible proofs (Groth16 or PLONK)
-3. Submit proof request to Sindri using the `demo-vapp` circuit
-4. Automatically submit proof to smart contract (unless `--skip-contract-submission` is used)
-5. Store proof metadata in PostgreSQL (database mode) or run standalone
-6. Display proof ID for external verification
-
-### Verify Sindri Proofs
-
-There are two ways to verify proofs generated via Sindri:
-
-#### External Verification (Recommended for sharing proofs)
-
-Use the proof ID printed during the prove flow:
-
+### 3. Download and Verify Batch Proofs
 ```sh
-cd script
-# Verify using proof ID (no database required)
-cargo run --release -- --verify --proof-id <PROOF_ID> --result <EXPECTED_RESULT>
+# Download proof data when ready
+cargo run --bin cli -- download-proof --batch-id 1
 
-# Example:
-cargo run --release -- --verify --proof-id "proof_abc123def456" --result 15
+# Verify locally (no network dependencies)
+cargo run --bin cli -- verify-proof \
+  --proof-file proof_batch_1.json \
+  --expected-initial-balance 0 \
+  --expected-final-balance 12
 ```
 
-This method:
-- ✅ Works for external users without database access
-- ✅ Only requires the proof ID and expected result
-- ✅ Performs full cryptographic verification using Sindri's verification key
-- ✅ Demonstrates true zero-knowledge properties
-
-#### Database Verification (Internal use)
-
-For internal use with database access:
-
-```sh
-cd script
-# Interactive verification mode
-cargo run --release -- --verify
-
-# Verify specific result
-cargo run --release -- --verify --result 15
-```
-
-This method:
-1. Looks up the stored Sindri proof metadata by result
-2. Queries Sindri's API to get the current proof status
-3. Displays verification results and updates the stored status
-
-### Generate EVM-Compatible Proofs via Sindri
-
-All proofs generated through the main CLI are now EVM-compatible by default, using Sindri's cloud infrastructure. This provides scalable, production-ready proof generation without requiring local GPU resources.
-
-To generate a Groth16 proof (default):
-
-```sh
-cd script
-# Using specific inputs
-cargo run --release -- --prove --a 5 --b 10 --system groth16
-
-# Using database lookup by result
-cargo run --release -- --prove --result 15 --system groth16
-```
-
-To generate a PLONK proof:
-
-```sh
-cd script
-# Using specific inputs
-cargo run --release -- --prove --a 5 --b 10 --system plonk
-
-# Using database lookup by result
-cargo run --release -- --prove --result 15 --system plonk
-```
-
-To generate Solidity test fixtures for on-chain verification:
-
-```sh
-cd script
-# Generate proof with EVM fixture files
-cargo run --release -- --prove --a 5 --b 10 --system groth16 --generate-fixture
-```
-
-These commands will:
-1. Generate EVM-compatible proofs (Groth16/PLONK) via Sindri
-2. Optionally create fixtures for Solidity contract testing (with `--generate-fixture`)
-3. Provide proof IDs for external verification
-4. Store proof metadata for later verification (database mode only)
-
-### Retrieve the Verification Key
-
-To retrieve your `programVKey` for your on-chain contract, run the following command in `script`:
-
-```sh
-cargo run --release -- --vkey
-```
+### Benefits of Batch Proof Verification
+- **Privacy**: Individual transaction amounts `[5, 7]` remain hidden  
+- **Correctness**: Balance transition cryptographically verified
+- **Trustless**: External parties can verify without database access
+- **Offline**: Works without network once proof data is downloaded
 
 ## Smart Contract Integration
 
@@ -402,33 +344,12 @@ The project features **automated smart contract posting** for proven batches. Af
 4. **Smart Contract Posting**: Background process automatically posts state roots to contract
 5. **Status Tracking**: Database tracks posting status and timestamps
 
-### Quick Deployment
-
-```bash
-# 1. Apply database migration (adds contract posting tracking)
-cd db && sqlx migrate run
-
-# 2. Start API server with automated background processing
-cargo run -p api --bin server
-```
-
 ### Usage Examples
 
-```bash
-# Submit transactions and create batch
-cargo run --bin cli -- submit-transaction --amount 5
-cargo run --bin cli -- submit-transaction --amount 7
-cargo run --bin cli -- trigger-batch --verbose
-
-# The background process automatically handles:
-# ✅ ZK proof generation via Sindri
-# ✅ Smart contract posting when proof is ready  
-# ✅ Database status updates with timestamps
-
-# Monitor batch progress
-cargo run --bin cli -- list-batches
-cargo run --bin cli -- get-batch --batch-id 1
-```
+The CLI workflow is the same as described in [Production Batch Processing](#production-batch-processing--proof-verification). The background process automatically handles:
+- ✅ ZK proof generation via Sindri
+- ✅ Smart contract posting when proof is ready  
+- ✅ Database status updates with timestamps
 
 ### Environment Setup
 
@@ -474,14 +395,7 @@ This project integrates with [Sindri](https://sindri.app) for serverless zero-kn
 
 ### Setup
 
-1. **Get your Sindri API key:**
-   - Sign up at [sindri.app](https://sindri.app)
-   - Create an API key from your account dashboard
-
-2. **Set your API key as an environment variable:**
-   ```bash
-   export SINDRI_API_KEY=your_api_key_here
-   ```
+For Sindri API key setup, see the [Environment Variables](#2-set-environment-variables) section in Quick Start.
 The proof generation process:
 1. Creates SP1 inputs and serializes them for Sindri
 2. Generates EVM-compatible proofs (Groth16 by default)
@@ -499,14 +413,7 @@ The batch proof generation process:
 6. Associates Merkle root with the proven state transition
 7. Returns batch ID and contract submission data (public/private split)
 
-3. **For Smart Contract Integration (Optional):**
-   ```bash
-   # Required for --submit-to-contract flag
-   export ETHEREUM_RPC_URL=https://eth-mainnet.alchemyapi.io/v2/demo
-   export ETHEREUM_CONTRACT_ADDRESS=0x1234567890123456789012345678901234567890
-   export ETHEREUM_WALLET_PRIVATE_KEY=your_private_key_without_0x_prefix
-   export ETHEREUM_DEPLOYER_ADDRESS=0x1234567890123456789012345678901234567890
-   ```
+For Smart Contract Integration environment variables, see the [Environment Setup](#environment-setup) section under Smart Contract Integration.
 
 ### Continuous Integration
 
@@ -606,64 +513,14 @@ The API server will start on `http://localhost:8080` by default.
 
 ### Usage Examples
 
-**Note**: `curl` is installed by the dependency script and ready for API testing.
-
-```sh
-# Submit transactions to batch processing queue
-curl -X POST http://localhost:8080/api/v2/transactions \
-  -H 'Content-Type: application/json' \
-  -d '{"amount": 5}'
-
-curl -X POST http://localhost:8080/api/v2/transactions \
-  -H 'Content-Type: application/json' \
-  -d '{"amount": 7}'
-
-# View pending transactions
-curl http://localhost:8080/api/v2/transactions/pending
-
-# Create batch and get contract submission data (public/private split)
-curl -X POST http://localhost:8080/api/v2/batches \
-  -H 'Content-Type: application/json' \
-  -d '{}'
-
-# Get current counter state and Merkle root
-curl http://localhost:8080/api/v2/state/current
-
-# List all batches
-curl http://localhost:8080/api/v2/batches
-
-# Get specific batch details
-curl http://localhost:8080/api/v2/batches/1
-
-# Get contract submission data for batch
-curl http://localhost:8080/api/v2/state/1/contract
-
-# Health check
-curl http://localhost:8080/api/v2/health
-```
+For complete usage examples with curl commands, see the [Quick Start](#quick-start-zero-to-running-server) section's "Option A: Direct HTTP API".
 
 ### Local Verification Workflow
 
 The system provides a clean separation between batch proof generation (via the API server) and proof verification (done locally):
 
 #### 1. Submit Transactions and Create Batch
-```sh
-# Submit transactions to batch queue
-curl -X POST http://localhost:8080/api/v2/transactions \
-  -H 'Content-Type: application/json' \
-  -d '{"amount": 5}'
-
-curl -X POST http://localhost:8080/api/v2/transactions \
-  -H 'Content-Type: application/json' \
-  -d '{"amount": 7}'
-
-# Create batch (triggers ZK proof generation)
-curl -X POST http://localhost:8080/api/v2/batches \
-  -H 'Content-Type: application/json' \
-  -d '{}'
-
-# Response includes batch_id for later verification
-```
+Use the CLI or HTTP API as described in the [Quick Start](#quick-start-zero-to-running-server) section to submit transactions and create batches. The response includes `batch_id` for later verification.
 
 #### 2. Download Batch Proof Data
 ```sh
