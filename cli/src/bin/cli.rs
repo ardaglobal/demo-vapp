@@ -454,6 +454,7 @@ async fn get_batch(client: &BatchApiClient, batch_id: i32) -> Result<()> {
 }
 
 /// Download proof data for local verification
+#[allow(clippy::too_many_lines)]
 async fn download_proof(
     client: &BatchApiClient,
     batch_id: i32,
@@ -848,10 +849,8 @@ async fn query_verification_key(verbose: bool) -> Result<()> {
                 } else {
                     println!("⚠️ Found vk.json but couldn't parse it");
                 }
-            } else {
-                if verbose {
-                    println!("ℹ️ No local vk.json file found for comparison");
-                }
+            } else if verbose {
+                println!("ℹ️ No local vk.json file found for comparison");
             }
 
             println!();
@@ -891,7 +890,9 @@ fn parse_local_vkey(content: &str) -> Result<[u8; 32]> {
             .as_u64()
             .ok_or_else(|| eyre::eyre!("Commit value {} is not a valid number", i))?;
 
-        let bytes = (commit_value as u32).to_le_bytes();
+        let bytes = u32::try_from(commit_value)
+            .map_err(|_| eyre::eyre!("Commit value {} is not a valid number", i))?
+            .to_le_bytes();
         vkey_bytes[i * 4..(i + 1) * 4].copy_from_slice(&bytes);
     }
 

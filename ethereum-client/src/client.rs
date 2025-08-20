@@ -334,6 +334,7 @@ impl EthereumClient {
     }
 
     /// Validate that the local verification key is compatible with the deployed contract
+    #[allow(clippy::cognitive_complexity)]
     pub async fn validate_verification_key_compatibility(&self) -> Result<()> {
         info!("🔍 Validating verification key compatibility with smart contract...");
 
@@ -354,7 +355,7 @@ impl EthereumClient {
         );
 
         // Get the local verification key from vk.json if it exists
-        let local_vkey = match self.load_local_verification_key() {
+        let local_vkey = match Self::load_local_verification_key() {
             Ok(vkey) => {
                 info!(
                     "📁 Local verification key (from vk.json): 0x{}",
@@ -390,9 +391,9 @@ impl EthereumClient {
 
                 error!("❌ {}", error_msg);
                 return Err(EthereumError::Config(error_msg));
-            } else {
-                info!("✅ Verification keys match! Proofs will be compatible with the smart contract.");
             }
+
+            info!("✅ Verification keys match! Proofs will be compatible with the smart contract.");
         }
 
         // Test the contract's validation function with a mock proof
@@ -413,7 +414,7 @@ impl EthereumClient {
     }
 
     /// Load verification key from local vk.json file
-    fn load_local_verification_key(&self) -> Result<FixedBytes<32>> {
+    fn load_local_verification_key() -> Result<FixedBytes<32>> {
         use serde_json::Value;
 
         let vk_path = std::path::Path::new("vk.json");
@@ -422,10 +423,10 @@ impl EthereumClient {
         }
 
         let vk_content = std::fs::read_to_string(vk_path)
-            .map_err(|e| EthereumError::Config(format!("Failed to read vk.json: {}", e)))?;
+            .map_err(|e| EthereumError::Config(format!("Failed to read vk.json: {e}")))?;
 
         let vk_data: Value = serde_json::from_str(&vk_content)
-            .map_err(|e| EthereumError::Config(format!("Failed to parse vk.json: {}", e)))?;
+            .map_err(|e| EthereumError::Config(format!("Failed to parse vk.json: {e}")))?;
 
         // Extract the commit value array (8 32-bit integers)
         let commit_values = vk_data
@@ -447,10 +448,19 @@ impl EthereumClient {
         // Convert each 32-bit integer to 4 bytes in little-endian format
         let mut bytes = Vec::with_capacity(32);
         for value in commit_values {
-            let int32 = value
+            let u64_value = value
                 .as_u64()
-                .ok_or_else(|| EthereumError::Config("Invalid integer in vk.json".to_string()))?
-                as u32;
+                .ok_or_else(|| EthereumError::Config("Invalid integer in vk.json".to_string()))?;
+
+            if u64_value > u64::from(u32::MAX) {
+                return Err(EthereumError::Config(
+                    "Integer value in vk.json exceeds u32::MAX".to_string(),
+                ));
+            }
+
+            let int32 = u32::try_from(u64_value).map_err(|_| {
+                EthereumError::Config("Integer value in vk.json exceeds u32::MAX".to_string())
+            })?;
 
             // Convert to little-endian bytes
             bytes.extend_from_slice(&int32.to_le_bytes());

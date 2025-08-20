@@ -227,7 +227,7 @@ mod tests {
         let parsed_error = super::EthereumError::from_contract_error(raw_error_msg);
 
         // The formatted error message should be human readable
-        let formatted_message = format!("{}", parsed_error);
+        let formatted_message = format!("{parsed_error}");
 
         // Should NOT contain the hex code
         assert!(!formatted_message.contains("0x7fcdd1f4"));
