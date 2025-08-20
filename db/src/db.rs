@@ -17,7 +17,7 @@ static GLOBAL: Jemalloc = Jemalloc;
 // ============================================================================
 
 /// Incoming transaction waiting to be batched
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::FromRow)]
 pub struct IncomingTransaction {
     pub id: i32,
     pub amount: i32,

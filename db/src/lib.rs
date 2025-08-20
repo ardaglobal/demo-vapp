@@ -34,12 +34,11 @@
 #![allow(clippy::suboptimal_flops)]
 
 // Core modules for batch processing functionality
-// Temporarily disabled legacy modules due to dropped database tables:
-// pub mod ads_service;
-// pub mod background_processor;
-// pub mod merkle_tree;
-// pub mod merkle_tree_32;
-// pub mod vapp_integration;
+pub mod ads_service;
+pub mod background_processor;
+pub mod merkle_tree;
+pub mod merkle_tree_32;
+pub mod vapp_integration;
 
 pub mod db;
 pub mod error;
@@ -82,8 +81,7 @@ pub use db::{
 // Re-export essential error types
 pub use error::{DbError, DbResult};
 
-// Legacy modules temporarily disabled due to dropped database tables:
-/*
+// Re-export ADS and related types
 pub use ads_service::{
     AdsConfig, AdsError, AdsMetrics, AdsServiceFactory, AuditEvent, AuditEventType, AuditTrail,
     AuthenticatedDataStructure, ComplianceStatus, IndexedMerkleTreeADS, MembershipProof,
@@ -102,7 +100,6 @@ pub use vapp_integration::{
     SettlementResult, VAppAdsIntegration, VAppBatchResponse, VAppConfig, VAppError,
     VAppInsertionResponse, VAppProofResponse, ZkProof,
 };
-*/
 
 #[cfg(test)]
 mod test_utils;

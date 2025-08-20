@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT get_next_tree_index()",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "get_next_tree_index",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c9e31f6f625a77a1ecc56504debc01e6cce3972d16b48638548db183f8980cd8"
+}

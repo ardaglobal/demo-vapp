@@ -32,3 +32,6 @@ ADS/
 
 # Downloaded proofs
 proof_*.json
+
+# SQLx cache files are intentionally committed for offline development
+# See README "Offline Development" section

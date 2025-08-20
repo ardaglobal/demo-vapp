@@ -785,6 +785,7 @@ dependencies = [
  "async-trait",
  "axum 0.8.4",
  "axum-test",
+ "blake3",
  "chrono",
  "clap",
  "db",
@@ -2548,6 +2549,7 @@ version = "0.1.0"
 dependencies = [
  "alloy-sol-types",
  "async-trait",
+ "blake3",
  "chrono",
  "hex",
  "io-uring",

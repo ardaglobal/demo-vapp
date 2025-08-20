@@ -17,8 +17,8 @@ use tracing::{debug, error, info, instrument};
 use crate::rest::ApiConfig;
 use alloy_primitives::{Bytes, FixedBytes};
 use arithmetic_db::{
-    create_batch, get_batch_by_id, get_pending_transactions, get_proven_unposted_batches,
-    mark_batch_posted_to_contract, update_batch_proof,
+    get_batch_by_id, get_pending_transactions, get_proven_unposted_batches,
+    mark_batch_posted_to_contract, update_batch_proof, IndexedMerkleTreeADS,
 };
 use arithmetic_lib::proof::{generate_batch_proof, BatchProofGenerationRequest, ProofSystem};
 use ethereum_client::{Config as EthConfig, EthereumClient};
@@ -118,6 +118,7 @@ pub struct BackgroundBatchProcessor {
     pool: PgPool,
     command_rx: mpsc::UnboundedReceiver<BatchProcessorCommand>,
     stats: Arc<RwLock<BatchProcessorStats>>,
+    ads_service: Arc<RwLock<IndexedMerkleTreeADS>>,
 }
 
 /// Handle for communicating with the background batch processor
@@ -157,7 +158,11 @@ impl BatchProcessorHandle {
 
 impl BackgroundBatchProcessor {
     /// Create a new background batch processor
-    pub fn new(pool: PgPool, config: BatchProcessorConfig) -> (Self, BatchProcessorHandle) {
+    pub fn new(
+        pool: PgPool,
+        config: BatchProcessorConfig,
+        ads_service: Arc<RwLock<IndexedMerkleTreeADS>>,
+    ) -> (Self, BatchProcessorHandle) {
         let (command_tx, command_rx) = mpsc::unbounded_channel();
         let stats = Arc::new(RwLock::new(BatchProcessorStats::default()));
 
@@ -166,6 +171,7 @@ impl BackgroundBatchProcessor {
             pool,
             command_rx,
             stats: stats.clone(),
+            ads_service,
         };
 
         let handle = BatchProcessorHandle { command_tx, stats };
@@ -313,51 +319,54 @@ impl BackgroundBatchProcessor {
         }
     }
 
-    /// Process a batch of transactions
+    /// Process a batch of transactions using unified ADS-integrated service
     #[instrument(skip(self), level = "info")]
     async fn process_batch(&self, trigger_type: &str) -> Result<Option<i32>, String> {
-        info!("🔄 Processing batch (trigger: {})", trigger_type);
-
-        // First check if there are any pending transactions
-        let pending_count = match get_pending_transactions(&self.pool).await {
-            Ok(transactions) => transactions.len(),
-            Err(e) => return Err(format!("Failed to check pending transactions: {}", e)),
-        };
-
-        if pending_count == 0 {
-            debug!("No pending transactions to batch");
-            return Ok(None);
-        }
-
         info!(
-            "📦 Creating batch from {} pending transactions",
-            pending_count
+            "🔄 UNIFIED: Processing batch via {} trigger (using unified service)",
+            trigger_type
         );
 
-        // Create batch with configured max size
-        match create_batch(&self.pool, Some(self.config.max_batch_size as i32)).await {
-            Ok(Some(batch)) => {
-                let transaction_count = batch.transaction_ids.len();
+        // Use unified batch service for consistent ADS integration
+        let unified_service = crate::unified_batch_service::UnifiedBatchService::new(
+            self.pool.clone(),
+            self.ads_service.clone(),
+            self.config.max_batch_size,
+        );
+
+        match unified_service
+            .create_batch_with_ads(None, trigger_type)
+            .await
+        {
+            Ok(Some(result)) => {
                 info!(
-                    "✅ Batch created successfully: id={}, transactions={}",
-                    batch.id, transaction_count
+                    "✅ UNIFIED: Batch processed successfully via {}: id={}, transactions={}, nullifiers={}, merkle_root=0x{}",
+                    trigger_type,
+                    result.batch_id,
+                    result.transaction_count,
+                    result.nullifier_count,
+                    hex::encode(&result.merkle_root[..8])
                 );
 
                 // Update statistics
-                self.update_stats(batch.id, transaction_count).await;
+                self.update_stats(result.batch_id, result.transaction_count)
+                    .await;
 
                 // Trigger proof generation asynchronously
-                self.trigger_proof_generation(batch.id);
+                self.trigger_proof_generation(result.batch_id);
 
-                Ok(Some(batch.id))
+                Ok(Some(result.batch_id))
             }
             Ok(None) => {
-                debug!("No transactions were available for batching");
+                debug!("UNIFIED: No transactions available to batch");
                 Ok(None)
             }
             Err(e) => {
-                error!("Failed to create batch: {}", e);
-                Err(format!("Failed to create batch: {}", e))
+                error!(
+                    "UNIFIED: Failed to process batch via {}: {}",
+                    trigger_type, e
+                );
+                Err(e)
             }
         }
     }
@@ -931,8 +940,9 @@ impl BackgroundBatchProcessor {
 pub async fn start_batch_processor(
     pool: PgPool,
     config: BatchProcessorConfig,
+    ads_service: Arc<RwLock<IndexedMerkleTreeADS>>,
 ) -> BatchProcessorHandle {
-    let (processor, handle) = BackgroundBatchProcessor::new(pool, config);
+    let (processor, handle) = BackgroundBatchProcessor::new(pool, config, ads_service);
 
     // Spawn the processor in the background
     tokio::spawn(async move {
