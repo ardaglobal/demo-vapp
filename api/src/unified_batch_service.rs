@@ -96,7 +96,7 @@ impl UnifiedBatchService {
 
         // Step 4: Create batch entry (using existing logic for now)
         info!("📋 UNIFIED: Creating batch entry in database");
-        let batch = match self.create_batch_entry(&batch_transactions).await {
+        let batch = match self.create_batch_entry(batch_transactions).await {
             Ok(Some(batch)) => batch,
             Ok(None) => {
                 debug!("Failed to create batch entry");
@@ -146,7 +146,7 @@ impl UnifiedBatchService {
 
         // Step 6: Get the final merkle root
         let merkle_root = if let Some(last_transition) = state_transitions.last() {
-            last_transition.new_root.clone()
+            last_transition.new_root
         } else {
             error!("UNIFIED: No state transitions returned from ADS batch insert");
             drop(ads_guard);

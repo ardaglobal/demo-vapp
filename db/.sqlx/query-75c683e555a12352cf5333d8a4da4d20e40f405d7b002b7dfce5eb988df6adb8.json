@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, previous_counter_value, final_counter_value, transaction_ids,\n               sindri_proof_id, proof_status, created_at, proven_at\n        FROM proof_batches \n        ORDER BY id DESC \n        LIMIT $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "previous_counter_value",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "final_counter_value",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "transaction_ids",
+        "type_info": "Int4Array"
+      },
+      {
+        "ordinal": 4,
+        "name": "sindri_proof_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "proof_status",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "proven_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "75c683e555a12352cf5333d8a4da4d20e40f405d7b002b7dfce5eb988df6adb8"
+}

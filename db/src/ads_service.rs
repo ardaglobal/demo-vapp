@@ -424,7 +424,9 @@ impl IndexedMerkleTreeADS {
         .await
         .map_err(|e| AdsError::Database(crate::error::DbError::Database(e)))?;
 
-        if !recent_commits.is_empty() {
+        if recent_commits.is_empty() {
+            info!("📝 No proven batches found, state cache remains empty");
+        } else {
             let mut cache = self.state_cache.write().await;
 
             for commit in recent_commits {
@@ -452,8 +454,6 @@ impl IndexedMerkleTreeADS {
                 "✅ Rebuilt state cache with {} entries from proven batches",
                 cache.len()
             );
-        } else {
-            info!("📝 No proven batches found, state cache remains empty");
         }
 
         Ok(())
