@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT ads.batch_id, ads.merkle_root, ads.created_at,\n                   pb.previous_counter_value, pb.final_counter_value\n            FROM ads_state_commits ads\n            JOIN proof_batches pb ON ads.batch_id = pb.id\n            WHERE pb.proof_status = 'proven'\n            ORDER BY ads.created_at DESC\n            LIMIT 100\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "batch_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "merkle_root",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 2,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "previous_counter_value",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "final_counter_value",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "93d544bf8fbd59ea347a78878b4f98813f2370c205f5840d451f8602e106e9db"
+}

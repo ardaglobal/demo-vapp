@@ -195,6 +195,47 @@ That's it! 🎉 You now have a running zero-knowledge arithmetic server with mul
 
 **Installed Tools**: The script installs all necessary development tools including Rust toolchain, SP1, Foundry, Docker, Node.js, PostgreSQL client tools, sqlx-cli for database migrations, and other utilities.
 
+## Offline Development (No Database Required)
+
+For developers who want to run `cargo check` or work on non-database code without starting PostgreSQL, this project supports **SQLx offline mode**:
+
+### Quick Start - Offline Mode
+```sh
+# Set offline mode and run cargo check
+export SQLX_OFFLINE=true
+cargo check --workspace
+
+# This works without any database connection!
+```
+
+### How It Works
+The project includes pre-generated SQLx query cache files (`.sqlx/` directory) that contain compile-time query metadata. This allows SQLx macros to validate SQL queries during compilation without connecting to a live database.
+
+### When to Regenerate the Cache
+You need to regenerate the SQLx cache when:
+- Database schema changes (new tables, columns, migrations)
+- SQL queries in the code are modified
+- You encounter compilation errors about missing query metadata
+
+### Regenerating the Cache
+```sh
+# Easy way: Use the provided script
+./regenerate-sqlx-cache.sh
+
+# Manual way: 
+docker-compose up postgres -d
+cd db && sqlx migrate run && cd ..
+cargo sqlx prepare --workspace
+```
+
+The cache files in `.sqlx/` are committed to version control, so most developers won't need to regenerate them unless they're working on database-related changes.
+
+### Benefits
+- ✅ **Fast compilation** - No database connection required for `cargo check`
+- ✅ **CI/CD friendly** - Works in environments without PostgreSQL
+- ✅ **Developer productivity** - Work on application logic without database setup
+- ✅ **Offline development** - Code and compile anywhere
+
 ## Proofs
 
 To verify that results are stored in the database:

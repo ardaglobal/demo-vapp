@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT get_current_counter_value()",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "get_current_counter_value",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "f577798670b22148414e4b3b56e443824a3e723d089c4142d8812b9e05615a29"
+}

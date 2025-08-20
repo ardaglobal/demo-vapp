@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE proof_batches \n        SET sindri_proof_id = $1, proof_status = $2, proven_at = $3\n        WHERE id = $4\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Timestamptz",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "afde44315dd0a93df25f93fd130f9a4033232268c4b13a96d08b7d934264b5d2"
+}
