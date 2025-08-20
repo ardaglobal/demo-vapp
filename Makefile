@@ -103,7 +103,7 @@ server:
 .PHONY: clean-docker
 clean-docker:
 	docker-compose down -v
-	docker system prune -f
+	docker system prune -f -a
 	@echo "✅ Docker resources cleaned up"
 
 ## clean-sqlx: Clean up SQLx resources
@@ -125,9 +125,52 @@ clean-builds:
 clean: clean-docker clean-sqlx clean-builds
 	@echo "✅ All resources cleaned up"
 
+## initDB: Initialize database (start, migrate, generate cache, stop)
+.PHONY: initDB
+initDB:
+	@echo "🔧 Initializing database with SQLx offline mode support..."
+	@echo ""
+	@# Check if DATABASE_URL is set, use default if not
+	@if [ -z "$$DATABASE_URL" ]; then \
+		echo "ℹ️  DATABASE_URL not set, using default..."; \
+		export DATABASE_URL="postgresql://postgres:password@localhost:5432/arithmetic_db"; \
+	fi
+	@echo "📍 Using database: $$DATABASE_URL"
+	@echo ""
+	@# Start PostgreSQL database
+	@echo "🚀 Starting PostgreSQL database..."
+	@docker-compose up postgres -d
+	@echo ""
+	@# Wait for PostgreSQL to be ready
+	@echo "⏳ Waiting for PostgreSQL to be ready..."
+	@sleep 8
+	@# Check database connectivity  
+	@echo "🏥 Checking database connectivity..."
+	@if ! pg_isready -h localhost -p 5432 -U postgres >/dev/null 2>&1; then \
+		echo "❌ PostgreSQL is not ready. Please check if it's running and accessible."; \
+		exit 1; \
+	fi
+	@echo ""
+	@# Run database migrations
+	@echo "📦 Running database migrations..."
+	@cd db && DATABASE_URL="postgresql://postgres:password@localhost:5432/arithmetic_db" sqlx migrate run
+	@echo ""
+	@# Generate SQLx cache
+	@echo "💾 Generating SQLx cache for offline mode..."
+	@DATABASE_URL="postgresql://postgres:password@localhost:5432/arithmetic_db" cargo sqlx prepare --workspace
+	@echo ""
+	@# Stop PostgreSQL database
+	@echo "🛑 Stopping PostgreSQL database..."
+	@docker-compose down postgres
+	@echo ""
+	@echo "✅ Database initialization complete!"
+	@echo ""
+	@echo "💡 You can now use 'SQLX_OFFLINE=true cargo check' without a database connection."
+	@echo "📝 The .sqlx/ directory has been updated and should be committed to version control."
+
 ## setup: Complete setup from scratch
 .PHONY: setup
-setup: install env
+setup: install env initDB
 	@echo ""
 	@echo "🎉 Setup complete! Next steps:"
 	@echo "1. Edit .env and add your SINDRI_API_KEY"

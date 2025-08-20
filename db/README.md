@@ -43,19 +43,24 @@ PostgreSQL integration for arithmetic computation storage and ADS (Authenticated
 
 Before running tests or operations:
 
-1. **PostgreSQL Server**: Running instance (see `docker-compose.yml`)
+1. **Quick Setup**: Use the automated make command (from project root):
    ```bash
-   docker compose up postgres -d
+   make initDB  # Starts DB, runs migrations, generates cache, stops DB
    ```
 
-2. **Database URL**: Set environment variable:
-   ```bash
-   export DATABASE_URL="postgres://postgres:password@localhost:5432/arithmetic_db"
-   ```
-   Or use `.env` file:
-   ```
-   DATABASE_URL=postgres://postgres:password@localhost:5432/arithmetic_db
-   ```
+2. **Manual Setup**: 
+   - **PostgreSQL Server**: Running instance (see `docker-compose.yml`)
+     ```bash
+     docker compose up postgres -d
+     ```
+   - **Database URL**: Set environment variable:
+     ```bash
+     export DATABASE_URL="postgres://postgres:password@localhost:5432/arithmetic_db"
+     ```
+     Or use `.env` file:
+     ```
+     DATABASE_URL=postgres://postgres:password@localhost:5432/arithmetic_db
+     ```
 
 ## Testing
 

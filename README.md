@@ -43,10 +43,15 @@ New balance: 22
 
 **💡 Pro Tip**: Use the included `Makefile` for even simpler commands:
 ```sh
-make setup    # Install dependencies + copy .env
+make setup    # Install dependencies + copy .env + initialize database
 # Update .env file with needed env vars
 make deploy   # Deploy circuit to Sindri
 make up       # Start services
+```
+
+**Database Initialization**: If you just need to set up the database for offline development:
+```sh
+make initDB   # Start DB, run migrations, generate SQLx cache, then stop DB
 ```
 
 ### 1. Install Dependencies
@@ -219,7 +224,10 @@ You need to regenerate the SQLx cache when:
 
 ### Regenerating the Cache
 ```sh
-# Easy way: Use the provided script
+# Easiest way: Use the make command (fully automated)
+make initDB
+
+# Interactive way: Use the provided script
 ./regenerate-sqlx-cache.sh
 
 # Manual way: 
