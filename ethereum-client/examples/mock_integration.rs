@@ -1,0 +1,145 @@
+use alloy_primitives::Address;
+use ethereum_client::{
+    config::{ContractConfig, MonitoringConfig, NetworkConfig, RpcConfig},
+    Config,
+};
+use url::Url;
+
+/// Example of setting up a mock configuration for testing without real network access
+#[tokio::main]
+async fn main() -> ethereum_client::Result<()> {
+    println!("Setting up mock integration test...");
+
+    // Create a mock configuration that doesn't require real API keys
+    let mock_config = Config {
+        network: NetworkConfig {
+            name: "mock-sepolia".to_string(),
+            chain_id: 11_155_111,
+            rpc_url: Url::parse("https://eth-sepolia.g.alchemy.com/v2/mock-key").unwrap(),
+            ws_url: None,
+            explorer_url: Url::parse("https://sepolia.etherscan.io").ok(),
+            is_testnet: true,
+        },
+        contract: ContractConfig {
+            arithmetic_contract: Address::from_slice(&[0; 20]),
+            verifier_contract: Address::from_slice(&[0; 20]),
+            deployment_block: Some(1_000_000),
+        },
+        rpc: RpcConfig {
+            notify_addresses: vec![Address::from_slice(&[0; 20])],
+            rate_limit_per_second: 10, // Low rate limit for testing
+        },
+        signer: None, // No signer for mock testing
+        monitoring: MonitoringConfig {
+            enable_event_monitoring: false, // Disable for mock testing
+            polling_interval_seconds: 60,
+            max_block_range: 100,
+            retry_attempts: 1,
+            timeout_seconds: 10,
+        },
+    };
+
+    // Validate configuration
+    match mock_config.validate() {
+        Ok(()) => println!("✓ Mock configuration is valid"),
+        Err(e) => {
+            println!("✗ Mock configuration is invalid: {e}");
+            return Err(e);
+        }
+    }
+
+    // Test configuration serialization
+    let json = serde_json::to_string_pretty(&mock_config)?;
+    println!("✓ Configuration serialization successful");
+    println!("Mock config JSON:\n{json}");
+
+    // Test deserialization
+    let _deserialized: Config = serde_json::from_str(&json)?;
+    println!("✓ Configuration deserialization successful");
+
+    // Test error handling
+    test_error_scenarios();
+
+    // Test type conversions
+    test_type_conversions();
+
+    println!("✓ All mock integration tests passed!");
+
+    Ok(())
+}
+
+fn test_error_scenarios() {
+    use ethereum_client::EthereumError;
+
+    println!("Testing error scenarios...");
+
+    // Test configuration errors
+    let mut invalid_config = Config::default();
+    assert!(invalid_config.validate().is_err());
+
+    invalid_config.network.rpc_url = Url::parse("https://test.example.com").unwrap();
+    assert!(invalid_config.validate().is_err()); // Still missing contracts
+
+    invalid_config.contract.arithmetic_contract = Address::from_slice(&[0; 20]);
+    invalid_config.contract.verifier_contract = Address::from_slice(&[0; 20]);
+    assert!(invalid_config.validate().is_ok()); // Now should be valid
+
+    // Test error display
+    let config_error = EthereumError::Config("test error".to_string());
+    let error_msg = format!("{config_error}");
+    assert!(error_msg.contains("Configuration error"));
+
+    println!("✓ Error handling tests passed");
+}
+
+fn test_type_conversions() {
+    use alloy_primitives::{Address, Bytes, FixedBytes, U256};
+    use ethereum_client::types::{ProofSubmission, StateUpdate};
+
+    println!("Testing type conversions...");
+
+    // Test state update
+    let state_update = StateUpdate {
+        state_id: FixedBytes::from_slice(&[0; 32]),
+        new_state_root: FixedBytes::from_slice(&[0; 32]),
+        proof: Bytes::from(vec![1, 2, 3]),
+        public_values: Bytes::from(vec![4, 5, 6]),
+        block_number: Some(12345),
+        transaction_hash: Some(FixedBytes::from_slice(&[0; 32])),
+    };
+
+    // Test serialization roundtrip
+    let json = serde_json::to_string(&state_update).unwrap();
+    let restored: StateUpdate = serde_json::from_str(&json).unwrap();
+    assert_eq!(state_update.state_id, restored.state_id);
+
+    // Test proof submission
+    let proof_submission = ProofSubmission {
+        proof_id: FixedBytes::from_slice(&[0; 32]),
+        state_id: FixedBytes::from_slice(&[0; 32]),
+        proof: Bytes::from(vec![7, 8, 9]),
+        result: Bytes::from(vec![10, 11, 12]),
+        submitter: Address::from_slice(&[0; 20]),
+        block_number: 54321,
+        transaction_hash: FixedBytes::from_slice(&[0; 32]),
+        gas_used: U256::from(100_000),
+    };
+
+    let json = serde_json::to_string(&proof_submission).unwrap();
+    let restored: ProofSubmission = serde_json::from_str(&json).unwrap();
+    assert_eq!(proof_submission.proof_id, restored.proof_id);
+
+    println!("✓ Type conversion tests passed");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_mock_setup() {
+        // This test ensures our mock setup works
+        let result = main().await;
+        assert!(result.is_ok());
+    }
+}

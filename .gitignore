@@ -24,6 +24,12 @@ ADS/
 # Builds
 **/build
 
+# Backup files
+*.bak
+
+# Generated proof
+*.bin
+
 # Downloaded proofs
 proof_*.json
 

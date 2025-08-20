@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id FROM proof_batches\n             WHERE sindri_proof_id IS NULL\n                OR sindri_proof_id = ''\n                OR sindri_proof_id LIKE 'failed_%'\n                OR sindri_proof_id LIKE 'error_%'\n             ORDER BY id ASC\n             LIMIT 5",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2d3cc217b50ea313fb63ab1d15fb53948039b797740d137e0a9fd43d66fc878e"
+}

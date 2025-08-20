@@ -10,25 +10,26 @@ path = "src/bin/cli.rs"
 
 [dependencies]
 # Simple HTTP client (avoid full API server dependencies)
-reqwest    = { version = "0.11", features = [ "json" ] }
-serde      = { workspace = true }
-serde_json = { workspace = true }
+ethereum-client = { path = "../ethereum-client", package = "ethereum-client" }
+reqwest         = { workspace = true, features = [ "json" ] }
+serde           = { workspace = true }
+serde_json      = { workspace = true }
+sp1-sdk         = { workspace = true }
 
-# CLI functionality  
+# CLI functionality
 clap = { workspace = true, features = [ "derive", "env" ] }
 eyre = { workspace = true }
 
 # Runtime and utilities
 tokio              = { workspace = true }
 tracing            = { workspace = true }
-tracing-subscriber = { version = "0.3", features = [ "env-filter" ] }
+tracing-subscriber = { workspace = true, features = [ "env-filter" ] }
 
 # Local verification dependencies
-alloy-sol-types = { workspace = true }
-arithmetic-lib  = { path = "../lib", package = "lib" }
-hex             = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-sol-types  = { workspace = true }
+arithmetic-lib   = { path = "../lib", package = "lib" }
+hex              = { workspace = true }
 
 # API types for consistent response parsing
 arithmetic-api = { path = "../api", package = "api", default-features = false }
-
-# No build dependencies needed for CLI

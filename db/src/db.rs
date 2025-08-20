@@ -517,3 +517,78 @@ pub async fn get_contract_submission_data(
     debug!("Contract submission data prepared for batch {batch_id}");
     Ok(data)
 }
+
+/// Get proven batches that haven't been posted to the smart contract yet
+///
+/// # Errors
+/// Returns error if database operation fails
+pub async fn get_proven_unposted_batches(
+    pool: &PgPool,
+    limit: Option<i32>,
+) -> Result<Vec<ProofBatch>, sqlx::Error> {
+    let limit = limit.unwrap_or(10);
+    debug!("Getting proven unposted batches with limit: {limit}");
+
+    let rows = sqlx::query!(
+        r"
+        SELECT id, previous_counter_value, final_counter_value, transaction_ids,
+               sindri_proof_id, proof_status, created_at, proven_at
+        FROM proof_batches
+        WHERE proof_status = 'proven' 
+          AND posted_to_contract = FALSE
+          AND sindri_proof_id IS NOT NULL
+        ORDER BY id ASC
+        LIMIT $1
+        ",
+        limit as i64
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let batches: Vec<ProofBatch> = rows
+        .into_iter()
+        .map(|row| ProofBatch {
+            id: row.id,
+            previous_counter_value: row.previous_counter_value,
+            final_counter_value: row.final_counter_value,
+            transaction_ids: row.transaction_ids,
+            sindri_proof_id: row.sindri_proof_id,
+            proof_status: row.proof_status.unwrap_or_else(|| "pending".to_string()),
+            created_at: row.created_at.unwrap_or_else(|| Utc::now()),
+            proven_at: row.proven_at,
+        })
+        .collect();
+
+    debug!("Found {} proven unposted batches", batches.len());
+    Ok(batches)
+}
+
+/// Mark a batch as posted to the smart contract
+///
+/// # Errors
+/// Returns error if database operation fails
+pub async fn mark_batch_posted_to_contract(
+    pool: &PgPool,
+    batch_id: i32,
+) -> Result<(), sqlx::Error> {
+    debug!("Marking batch {batch_id} as posted to contract");
+
+    let result = sqlx::query!(
+        r"
+        UPDATE proof_batches
+        SET posted_to_contract = TRUE,
+            posted_to_contract_at = NOW()
+        WHERE id = $1 AND posted_to_contract = FALSE
+        ",
+        batch_id
+    )
+    .execute(pool)
+    .await?;
+
+    if result.rows_affected() != 1 {
+        return Err(sqlx::Error::RowNotFound);
+    }
+
+    debug!("Successfully marked batch {batch_id} as posted to contract");
+    Ok(())
+}
