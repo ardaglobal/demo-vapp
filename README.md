@@ -224,11 +224,8 @@ You need to regenerate the SQLx cache when:
 
 ### Regenerating the Cache
 ```sh
-# Easiest way: Use the make command (fully automated)
+# Recommended way: Use the make command (fully automated)
 make initDB
-
-# Interactive way: Use the provided script
-./regenerate-sqlx-cache.sh
 
 # Manual way: 
 docker-compose up postgres -d

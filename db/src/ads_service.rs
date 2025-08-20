@@ -362,7 +362,10 @@ impl IndexedMerkleTreeADS {
         // CRITICAL: Ensure tree_state consistency on startup to prevent "low nullifier" errors
         info!("🔧 Ensuring tree state consistency on startup");
         if let Err(e) = service.ensure_tree_state_consistency().await {
-            warn!("Failed to fix tree state consistency, but continuing: {}", e);
+            warn!(
+                "Failed to fix tree state consistency, but continuing: {}",
+                e
+            );
         } else {
             info!("✅ Tree state consistency verified on startup");
         }
@@ -390,7 +393,7 @@ impl IndexedMerkleTreeADS {
     #[instrument(skip(self), level = "info")]
     async fn ensure_tree_state_consistency(&self) -> Result<(), AdsError> {
         info!("🔧 Checking and fixing tree_state consistency");
-        
+
         sqlx::query!("SELECT fix_tree_state_consistency()")
             .fetch_optional(&self.pool)
             .await
