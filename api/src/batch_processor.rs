@@ -855,7 +855,32 @@ impl BackgroundBatchProcessor {
     ) -> Result<(), String> {
         info!("🚀 Submitting batch {} to smart contract", batch.id);
 
-        // For now, use a random 32-byte hash as mentioned in the user's request
+        // Get the Sindri proof ID from the batch
+        let sindri_proof_id = batch
+            .sindri_proof_id
+            .as_ref()
+            .ok_or_else(|| "Batch has no Sindri proof ID".to_string())?;
+
+        // Fetch actual proof data from Sindri
+        info!(
+            "📥 Fetching real proof data from Sindri for proof ID: {}",
+            sindri_proof_id
+        );
+        let proof_data = match arithmetic_lib::proof::get_sindri_proof_data(sindri_proof_id).await {
+            Ok(data) => {
+                info!("✅ Successfully retrieved proof data from Sindri");
+                info!("   Proof size: {} bytes", data.proof_bytes.len());
+                info!("   Public values size: {} bytes", data.public_values.len());
+                info!("   Verifying key size: {} bytes", data.verifying_key.len());
+                data
+            }
+            Err(e) => {
+                error!("❌ Failed to retrieve proof data from Sindri: {}", e);
+                return Err(format!("Failed to fetch proof data from Sindri: {}", e));
+            }
+        };
+
+        // For now, use a random 32-byte hash for state management
         // until the ADS state root issue is fixed
         let state_id = FixedBytes::from_slice(
             &alloy_primitives::keccak256(format!("batch_{}", batch.id).as_bytes())[..32],
@@ -866,15 +891,13 @@ impl BackgroundBatchProcessor {
             )[..32],
         );
 
-        // Create dummy proof data (will be replaced with actual Sindri proof data later)
-        let proof_bytes = Bytes::from(vec![0u8; 128]); // Dummy proof
-        let public_values = Bytes::from(
-            [
-                (batch.previous_counter_value as u32).to_le_bytes(),
-                (batch.final_counter_value as u32).to_le_bytes(),
-            ]
-            .concat(),
-        );
+        // Use real proof data from Sindri
+        let proof_bytes = Bytes::from(proof_data.proof_bytes);
+        let public_values = Bytes::from(proof_data.public_values);
+
+        info!("🔐 Submitting real SP1 proof to smart contract");
+        info!("   State ID: {}", state_id);
+        info!("   New state root: {}", new_state_root);
 
         // Submit to smart contract
         match eth_client
@@ -882,10 +905,14 @@ impl BackgroundBatchProcessor {
             .await
         {
             Ok(result) => {
-                info!("✅ Batch {} submitted to contract successfully!", batch.id);
+                info!(
+                    "✅ Batch {} submitted to contract successfully with REAL proof data!",
+                    batch.id
+                );
                 info!("   Transaction hash: {:?}", result.transaction_hash);
                 info!("   State ID: {}", result.state_id);
                 info!("   New state root: {}", result.new_state_root);
+                info!("   Used Sindri proof ID: {}", sindri_proof_id);
                 Ok(())
             }
             Err(e) => {

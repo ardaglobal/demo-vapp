@@ -169,6 +169,17 @@ sol! {
             string queryType,
             uint256 timestamp
         );
+
+        // Verification key utilities
+        function getProgramVerificationKey() external view returns (bytes32 vKey);
+
+        function isValidProgramVerificationKey(bytes32 vKey) external view returns (bool matches);
+
+        function validateProofCompatibility(
+            bytes32 expectedVKey,
+            bytes calldata publicValues,
+            bytes calldata proof
+        ) external view returns (bool isValid, string memory message);
     }
 }
 

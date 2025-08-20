@@ -21,6 +21,9 @@
 //! cli download-proof --batch-id 1
 //! cli verify-proof --proof-file proof_batch_1.json --expected-initial-balance 10 --expected-final-balance 22
 //!
+//! # Query smart contract verification key
+//! cli query-verification-key --verbose
+//!
 //! # Check API health
 //! cli health-check
 //! ```
@@ -34,6 +37,7 @@ use tracing::error;
 
 // Import new batch processing API types
 use arithmetic_api::BatchApiClient;
+use ethereum_client::{config::Config, EthereumClient};
 
 #[derive(Parser)]
 #[command(name = "cli")]
@@ -116,6 +120,12 @@ enum Commands {
         #[arg(short, long)]
         verbose: bool,
     },
+    /// Query the current verification key from the smart contract
+    QueryVerificationKey {
+        /// Show detailed verification key information
+        #[arg(short, long)]
+        verbose: bool,
+    },
 }
 
 #[tokio::main]
@@ -177,6 +187,9 @@ async fn main() -> Result<()> {
                 expected_final_balance,
                 verbose,
             )?;
+        }
+        Commands::QueryVerificationKey { verbose } => {
+            query_verification_key(verbose).await?;
         }
     }
 
@@ -469,34 +482,77 @@ async fn download_proof(
             let proof_id = batch.sindri_proof_id.unwrap();
             let filename = output.unwrap_or_else(|| format!("proof_batch_{}.json", batch_id));
 
-            // Create a placeholder download response structure
-            // In a real implementation, you'd fetch this from Sindri API
-            let download_data = serde_json::json!({
-                "batch_id": batch_id,
-                "proof_id": proof_id,
-                "initial_balance": batch.previous_counter_value,
-                "final_balance": batch.final_counter_value,
-                "status": "proven",
-                "proof_data": "0x...", // Would be actual proof data from Sindri
-                "public_values": "0x...", // Would be actual public values
-                "verifying_key": "0x...", // Would be actual verifying key
-                "note": "This is a placeholder structure. Real implementation would fetch from Sindri API."
-            });
-
-            fs::write(&filename, serde_json::to_string_pretty(&download_data)?)?;
-
-            println!("✅ Proof data template downloaded!");
-            println!("   File: {}", filename);
-            println!("   Batch ID: {}", batch_id);
+            println!("🔄 Downloading real proof data from Sindri...");
             println!("   Proof ID: {}", proof_id);
-            println!(
-                "   Balance: {} → {}",
-                batch.previous_counter_value, batch.final_counter_value
-            );
-            println!();
-            println!("⚠ Note: This is a template structure.");
-            println!("   Real implementation would download actual proof data from Sindri.");
-            println!();
+
+            // Fetch actual proof data from Sindri
+            match arithmetic_lib::proof::get_sindri_proof_data(&proof_id).await {
+                Ok(proof_data) => {
+                    let download_data = serde_json::json!({
+                        "batch_id": batch_id,
+                        "proof_id": proof_data.proof_id,
+                        "initial_balance": batch.previous_counter_value,
+                        "final_balance": batch.final_counter_value,
+                        "status": "proven",
+                        "proof_data": format!("0x{}", hex::encode(&proof_data.proof_bytes)),
+                        "public_values": format!("0x{}", hex::encode(&proof_data.public_values)),
+                        "verifying_key": format!("0x{}", hex::encode(&proof_data.verifying_key)),
+                        "note": "Real proof data retrieved from Sindri API"
+                    });
+
+                    fs::write(&filename, serde_json::to_string_pretty(&download_data)?)?;
+
+                    println!("✅ Real proof data downloaded!");
+                    println!("   File: {}", filename);
+                    println!("   Batch ID: {}", batch_id);
+                    println!("   Proof ID: {}", proof_data.proof_id);
+                    println!(
+                        "   Balance: {} → {}",
+                        batch.previous_counter_value, batch.final_counter_value
+                    );
+                    println!("   Proof Size: {} bytes", proof_data.proof_bytes.len());
+                    println!(
+                        "   Public Values Size: {} bytes",
+                        proof_data.public_values.len()
+                    );
+                    println!(
+                        "   Verifying Key Size: {} bytes",
+                        proof_data.verifying_key.len()
+                    );
+                    println!();
+                }
+                Err(e) => {
+                    println!("❌ Failed to download proof data from Sindri: {}", e);
+                    println!("💡 This might be because:");
+                    println!("   • Proof is still being generated");
+                    println!("   • Network connectivity issues");
+                    println!("   • Sindri API error");
+                    println!();
+                    println!("⚠ Falling back to placeholder template...");
+
+                    // Fallback to placeholder
+                    let download_data = serde_json::json!({
+                        "batch_id": batch_id,
+                        "proof_id": proof_id,
+                        "initial_balance": batch.previous_counter_value,
+                        "final_balance": batch.final_counter_value,
+                        "status": "proven",
+                        "proof_data": "0x...",
+                        "public_values": "0x...",
+                        "verifying_key": "0x...",
+                        "error": format!("Failed to fetch real data: {}", e),
+                        "note": "Placeholder data - real proof fetch failed"
+                    });
+
+                    fs::write(&filename, serde_json::to_string_pretty(&download_data)?)?;
+
+                    println!("✅ Placeholder proof data saved!");
+                    println!("   File: {}", filename);
+                    println!("   Batch ID: {}", batch_id);
+                    println!("   Proof ID: {}", proof_id);
+                    println!();
+                }
+            }
             println!("💡 Once real proof data is available, verify with:");
             println!("   cli verify-proof --proof-file {} \\", filename);
             println!(
@@ -706,4 +762,138 @@ fn verify_proof_local(
     }
 
     Ok(())
+}
+
+/// Query the current verification key from the smart contract
+async fn query_verification_key(verbose: bool) -> Result<()> {
+    println!("🔍 Querying verification key from smart contract...");
+
+    // Load environment configuration
+    // Note: Environment variables should be set by the user or loaded via .env by the parent process
+
+    // Create ethereum client from environment config
+    let ethereum_config = match Config::from_env() {
+        Ok(config) => {
+            println!("✅ Ethereum configuration loaded");
+            config
+        }
+        Err(e) => {
+            println!("❌ Failed to load Ethereum configuration: {}", e);
+            println!("   Please check your .env file contains:");
+            println!("   - ETHEREUM_RPC_URL");
+            println!("   - ETHEREUM_CONTRACT_ADDRESS");
+            println!("   - ETHEREUM_WALLET_PRIVATE_KEY");
+            println!("   - ETHEREUM_DEPLOYER_ADDRESS");
+            return Ok(());
+        }
+    };
+
+    if verbose {
+        println!(
+            "📍 Contract address: {}",
+            ethereum_config.contract.arithmetic_contract
+        );
+        println!("📡 RPC URL: {}", ethereum_config.network.rpc_url);
+    }
+
+    // Initialize ethereum client (without validation to avoid circular dependency)
+    let ethereum_client = match EthereumClient::new_without_validation(ethereum_config).await {
+        Ok(client) => {
+            println!("✅ Connected to Ethereum network");
+            client
+        }
+        Err(e) => {
+            println!("❌ Failed to connect to Ethereum network: {}", e);
+            return Ok(());
+        }
+    };
+
+    // Query the verification key
+    match ethereum_client.query_contract_verification_key().await {
+        Ok((contract_vkey, verifier_address)) => {
+            println!();
+            println!("🔑 Smart Contract Verification Key Information:");
+            println!("   Verification Key: 0x{}", hex::encode(contract_vkey));
+
+            if verbose {
+                println!("   SP1 Verifier Address: {}", verifier_address);
+            }
+
+            // Try to load local vk.json for comparison if it exists
+            if let Ok(local_vkey_content) = std::fs::read_to_string("vk.json") {
+                if let Ok(local_vkey) = parse_local_vkey(&local_vkey_content) {
+                    println!();
+                    println!(
+                        "📁 Local Verification Key (vk.json): 0x{}",
+                        hex::encode(local_vkey)
+                    );
+
+                    if contract_vkey == local_vkey {
+                        println!("✅ Keys match! Your proofs will be compatible with the smart contract.");
+                    } else {
+                        println!(
+                            "❌ Key mismatch! Your proofs will be REJECTED by the smart contract."
+                        );
+                        println!();
+                        println!("Solutions:");
+                        println!(
+                            "   1. Deploy new contract with key: 0x{}",
+                            hex::encode(local_vkey)
+                        );
+                        println!(
+                            "   2. Use circuit that matches contract key: 0x{}",
+                            hex::encode(contract_vkey)
+                        );
+                    }
+                } else {
+                    println!("⚠️ Found vk.json but couldn't parse it");
+                }
+            } else {
+                if verbose {
+                    println!("ℹ️ No local vk.json file found for comparison");
+                }
+            }
+
+            println!();
+            println!("🎉 Verification key query completed successfully!");
+        }
+        Err(e) => {
+            println!("❌ Failed to query verification key: {}", e);
+            println!("   Make sure the contract is deployed and accessible");
+        }
+    }
+
+    Ok(())
+}
+
+/// Parse local verification key from vk.json content
+fn parse_local_vkey(content: &str) -> Result<[u8; 32]> {
+    use serde_json::Value;
+
+    let vk_data: Value = serde_json::from_str(content)?;
+
+    // Extract the commit value array (8 32-bit integers)
+    let commit_array = vk_data["commit"]
+        .as_array()
+        .ok_or_else(|| eyre::eyre!("Missing or invalid 'commit' array in vk.json"))?;
+
+    if commit_array.len() != 8 {
+        return Err(eyre::eyre!(
+            "Expected 8 commit values, found {}",
+            commit_array.len()
+        ));
+    }
+
+    // Convert 8 u32 values to 32 bytes
+    let mut vkey_bytes = [0u8; 32];
+    for (i, value) in commit_array.iter().enumerate() {
+        let commit_value = value
+            .as_u64()
+            .ok_or_else(|| eyre::eyre!("Commit value {} is not a valid number", i))?;
+
+        let bytes = (commit_value as u32).to_le_bytes();
+        vkey_bytes[i * 4..(i + 1) * 4].copy_from_slice(&bytes);
+    }
+
+    Ok(vkey_bytes)
 }

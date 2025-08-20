@@ -36,24 +36,17 @@ impl ProofSystem {
     }
 }
 
-/// Request for proof generation
+/// Request for proof generation (batch processing)
 #[derive(Debug, Clone)]
 pub struct ProofGenerationRequest {
-    pub a: i32,
-    pub b: i32,
-    pub result: i32,
-    pub proof_system: ProofSystem,
-    pub generate_fixtures: bool,
-}
-
-/// Request for batch proof generation (new format for batch processing)
-#[derive(Debug, Clone)]
-pub struct BatchProofGenerationRequest {
     pub initial_balance: i32,
     pub transactions: Vec<i32>,
     pub proof_system: ProofSystem,
     pub generate_fixtures: bool,
 }
+
+/// Alias for backward compatibility
+pub type BatchProofGenerationRequest = ProofGenerationRequest;
 
 /// Response from proof generation
 #[derive(Debug, Clone)]
@@ -112,6 +105,9 @@ pub enum ProofError {
     #[error("Environment configuration error: {0}")]
     ConfigError(String),
 
+    #[error("Proof not ready: {0}")]
+    ProofNotReady(String),
+
     #[error("JSON serialization error: {0}")]
     JsonError(#[from] serde_json::Error),
 
@@ -123,20 +119,7 @@ pub enum ProofError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SP1ArithmeticProofFixture {
-    pub a: i32,
-    pub b: i32,
-    pub result: i32,
-    pub vkey: String,
-    pub public_values: String,
-    pub proof: String,
-}
-
-/// A fixture for batch processing that can be used to test SP1 zkVM proofs inside Solidity.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SP1BatchProofFixture {
     pub initial_balance: i32,
-    pub transactions: Vec<i32>,
     pub final_balance: i32,
     pub vkey: String,
     pub public_values: String,
@@ -288,18 +271,20 @@ pub async fn generate_batch_proof(
 pub async fn generate_sindri_proof(
     request: ProofGenerationRequest,
 ) -> Result<ProofGenerationResponse, ProofError> {
+    let final_balance = request.initial_balance + request.transactions.iter().sum::<i32>();
+
     info!(
-        "🔐 Generating {} proof: {} + {} = {} via Sindri",
+        "🔐 Generating {} batch proof: {} + {:?} = {} via Sindri",
         request.proof_system.to_sindri_scheme().to_uppercase(),
-        request.a,
-        request.b,
-        request.result
+        request.initial_balance,
+        request.transactions,
+        final_balance
     );
 
-    // Create SP1 inputs and serialize for Sindri
+    // Create SP1 inputs for batch processing and serialize for Sindri
     let mut stdin = SP1Stdin::new();
-    stdin.write(&request.a);
-    stdin.write(&request.b);
+    stdin.write(&request.initial_balance);
+    stdin.write(&request.transactions);
 
     let stdin_json =
         serde_json::to_string(&stdin).map_err(|e| ProofError::SerializationError(e.to_string()))?;
@@ -332,8 +317,8 @@ pub async fn generate_sindri_proof(
     };
 
     let verification_command = format!(
-        "cargo run --release -- --verify --proof-id {} --result {}",
-        proof_info.proof_id, request.result
+        "cargo run --release -- --verify --proof-id {} --initial-balance {} --transactions {:?}",
+        proof_info.proof_id, request.initial_balance, request.transactions
     );
 
     info!(
@@ -355,9 +340,9 @@ pub async fn generate_sindri_proof(
     if request.generate_fixtures {
         if let Err(e) = create_evm_fixture(
             &response.proof_info,
-            request.a,
-            request.b,
-            request.result,
+            request.initial_balance,
+            &request.transactions,
+            final_balance,
             request.proof_system,
         )
         .await
@@ -376,7 +361,7 @@ pub async fn generate_sindri_proof(
 /// Returns `ProofError` if:
 /// - Proof is not found on Sindri
 /// - Proof verification fails
-/// - Network communication errors occur  
+/// - Network communication errors occur
 /// - SP1 proof extraction fails
 pub async fn verify_sindri_proof(
     request: ProofVerificationRequest,
@@ -489,9 +474,9 @@ pub async fn verify_sindri_proof(
 #[allow(clippy::cognitive_complexity)]
 async fn create_evm_fixture(
     proof_info: &ProofInfoResponse,
-    _a: i32,
-    _b: i32,
-    result: i32,
+    initial_balance: i32,
+    _transactions: &[i32],
+    final_balance: i32,
     system: ProofSystem,
 ) -> Result<(), ProofError> {
     const MAX_ATTEMPTS: u32 = 60; // 5 minutes with 5-second intervals
@@ -546,12 +531,10 @@ async fn create_evm_fixture(
         .get_sp1_verifying_key()
         .map_err(|e| ProofError::FixtureGenerationError(e.to_string()))?;
 
-    // Create the fixture
-    // Note: In zero-knowledge mode, we use placeholder values for a and b since they're private
+    // Create the fixture using batch processing format
     let fixture = SP1ArithmeticProofFixture {
-        a: 0, // Placeholder - actual value is private in ZK
-        b: 0, // Placeholder - actual value is private in ZK
-        result,
+        initial_balance,
+        final_balance,
         vkey: verification_key.bytes32(),
         public_values: format!("0x{}", hex::encode(sp1_proof.public_values.as_slice())),
         proof: format!("0x{}", hex::encode(sp1_proof.bytes())),
@@ -593,7 +576,7 @@ async fn create_evm_fixture(
 /// # Errors
 ///
 /// Returns `ProofError` if:
-/// - Proof is not found on Sindri  
+/// - Proof is not found on Sindri
 /// - Network communication errors occur
 pub async fn get_sindri_proof_info(proof_id: &str) -> Result<ProofInfoResponse, ProofError> {
     let client = SindriClient::default();
@@ -608,11 +591,62 @@ pub async fn get_sindri_proof_info(proof_id: &str) -> Result<ProofInfoResponse, 
 /// # Errors
 ///
 /// Returns `ProofError` if:
-/// - Proof is not found on Sindri  
+/// - Proof is not found on Sindri
 /// - Network communication errors occur
 pub async fn is_proof_ready(proof_id: &str) -> Result<bool, ProofError> {
     let proof_info = get_sindri_proof_info(proof_id).await?;
     Ok(proof_info.status == JobStatus::Ready)
+}
+
+/// Retrieve actual proof data from Sindri for smart contract submission
+///
+/// # Errors
+///
+/// Returns `ProofError` if:
+/// - Proof is not found on Sindri
+/// - Proof is not ready yet
+/// - Network communication errors occur
+/// - Proof data is malformed
+pub async fn get_sindri_proof_data(proof_id: &str) -> Result<SindriProofData, ProofError> {
+    let proof_info = get_sindri_proof_info(proof_id).await?;
+
+    // Check if proof is ready
+    if proof_info.status != JobStatus::Ready {
+        return Err(ProofError::ProofNotReady(format!(
+            "Proof {} is not ready yet. Status: {:?}",
+            proof_id, proof_info.status
+        )));
+    }
+
+    // Extract proof data using Sindri's methods
+    let sp1_proof = proof_info
+        .to_sp1_proof_with_public()
+        .map_err(|e| ProofError::SindriError(format!("Failed to extract SP1 proof: {e}")))?;
+
+    let verifying_key = proof_info
+        .get_sp1_verifying_key()
+        .map_err(|e| ProofError::SindriError(format!("Failed to extract verification key: {e}")))?;
+
+    // Convert hex string to bytes for verifying key
+    let vkey_hex = verifying_key.bytes32();
+    let vkey_bytes = hex::decode(vkey_hex.strip_prefix("0x").unwrap_or(&vkey_hex))
+        .map_err(|e| ProofError::SindriError(format!("Failed to decode verifying key hex: {e}")))?;
+
+    Ok(SindriProofData {
+        proof_id: proof_id.to_string(),
+        proof_bytes: sp1_proof.bytes(),
+        public_values: sp1_proof.public_values.as_slice().to_vec(),
+        verifying_key: vkey_bytes,
+    })
+}
+
+/// Structured proof data retrieved from Sindri
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SindriProofData {
+    pub proof_id: String,
+    pub proof_bytes: Vec<u8>,
+    pub public_values: Vec<u8>,
+    pub verifying_key: Vec<u8>,
 }
 
 /// Create EVM-compatible fixture from Sindri proof for batch processing
@@ -620,7 +654,7 @@ pub async fn is_proof_ready(proof_id: &str) -> Result<bool, ProofError> {
 async fn create_batch_evm_fixture(
     proof_info: &ProofInfoResponse,
     initial_balance: i32,
-    transactions: &[i32],
+    _transactions: &[i32],
     final_balance: i32,
     system: ProofSystem,
 ) -> Result<(), ProofError> {
@@ -675,10 +709,9 @@ async fn create_batch_evm_fixture(
         .get_sp1_verifying_key()
         .map_err(|e| ProofError::FixtureGenerationError(e.to_string()))?;
 
-    // Create the batch fixture
-    let fixture = SP1BatchProofFixture {
+    // Create the batch fixture using the unified format
+    let fixture = SP1ArithmeticProofFixture {
         initial_balance,
-        transactions: transactions.to_vec(),
         final_balance,
         vkey: verification_key.bytes32(),
         public_values: format!("0x{}", hex::encode(sp1_proof.public_values.as_slice())),
