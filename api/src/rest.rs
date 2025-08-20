@@ -13,21 +13,25 @@ use tracing::{error, info, instrument, warn};
 
 use crate::batch_processor::BatchProcessorHandle;
 use arithmetic_db::{
-    create_batch, get_all_batches, get_batch_by_id, get_contract_submission_data,
-    get_current_state, get_pending_transactions, store_ads_state_commit, submit_transaction,
-    update_batch_proof, ContractSubmissionData,
+    get_all_batches, get_batch_by_id, get_contract_submission_data,
+    get_current_state, get_pending_transactions, submit_transaction,
+    update_batch_proof, store_ads_state_commit, ContractSubmissionData,
+    IndexedMerkleTreeADS,
 };
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 // ============================================================================
 // API STATE
 // ============================================================================
 
-/// API state containing the database pool and configuration
+/// API state containing the database pool, configuration, and ADS service
 #[derive(Clone)]
 pub struct ApiState {
     pub pool: PgPool,
     pub config: ApiConfig,
     pub batch_processor: Option<BatchProcessorHandle>,
+    pub ads_service: Arc<RwLock<IndexedMerkleTreeADS>>,
 }
 
 /// Configuration for API server
@@ -405,7 +409,7 @@ async fn get_pending_transactions_endpoint(
     }
 }
 
-/// Create a new batch
+/// Create a new batch using unified ADS-integrated workflow
 #[instrument(skip(state), level = "info")]
 async fn create_batch_endpoint(
     State(state): State<ApiState>,
@@ -418,33 +422,44 @@ async fn create_batch_endpoint(
     let batch_size = requested_size
         .max(1)
         .min(state.config.max_batch_size as i32);
-    info!("🔄 API: Creating batch with size: {}", batch_size);
+    
+    info!("🔄 UNIFIED API: Creating batch with size: {} (using ADS integration)", batch_size);
 
-    match create_batch(&state.pool, Some(batch_size)).await {
-        Ok(Some(batch)) => {
+    // Use unified batch service for consistent ADS integration
+    let unified_service = crate::unified_batch_service::UnifiedBatchService::new(
+        state.pool.clone(),
+        state.ads_service.clone(),
+        state.config.max_batch_size,
+    );
+
+    match unified_service.create_batch_with_ads(Some(batch_size), "api").await {
+        Ok(Some(result)) => {
             let response = CreateBatchResponse {
-                batch_id: batch.id,
-                previous_counter_value: batch.previous_counter_value,
-                final_counter_value: batch.final_counter_value,
-                transaction_count: batch.transaction_ids.len(),
-                proof_status: batch.proof_status.clone(),
-                created_at: batch.created_at,
+                batch_id: result.batch_id,
+                previous_counter_value: result.previous_counter_value,
+                final_counter_value: result.final_counter_value,
+                transaction_count: result.transaction_count,
+                proof_status: "pending".to_string(), // New batches start as pending
+                created_at: chrono::Utc::now(),
             };
 
             info!(
-                "✅ API: Batch created: id={}, transactions={}",
-                batch.id, response.transaction_count
+                "✅ UNIFIED API: Batch created with ADS integration: id={}, transactions={}, nullifiers={}, merkle_root=0x{}",
+                result.batch_id, 
+                result.transaction_count,
+                result.nullifier_count,
+                hex::encode(&result.merkle_root[..8])
             );
 
             // Trigger proof generation for the newly created batch
-            if let Some(ref batch_processor) = state.batch_processor {
-                info!("🚀 Triggering proof generation for batch {}", batch.id);
+            if state.batch_processor.is_some() {
+                info!("🚀 Triggering proof generation for batch {}", result.batch_id);
                 tokio::spawn({
                     let pool = state.pool.clone();
-                    let batch_id = batch.id;
+                    let batch_id = result.batch_id;
                     async move {
                         if let Err(e) = crate::batch_processor::BackgroundBatchProcessor::generate_proof_for_batch(&pool, batch_id).await {
-                            error!("Failed to generate proof for manually created batch {}: {}", batch_id, e);
+                            error!("Failed to generate proof for unified batch {}: {}", batch_id, e);
                         }
                     }
                 });
@@ -455,14 +470,14 @@ async fn create_batch_endpoint(
             Ok(Json(response))
         }
         Ok(None) => {
-            info!("ℹ️ API: No transactions available to batch");
+            info!("ℹ️ UNIFIED API: No transactions available to batch");
             Err((
                 StatusCode::BAD_REQUEST,
                 "No pending transactions available to batch".to_string(),
             ))
         }
         Err(e) => {
-            error!("Failed to create batch: {}", e);
+            error!("UNIFIED API: Failed to create batch: {}", e);
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Failed to create batch: {}", e),

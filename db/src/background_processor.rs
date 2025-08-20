@@ -166,9 +166,10 @@ impl BackgroundProcessor {
         transaction.result.hash(&mut hasher);
         transaction.id.hash(&mut hasher);
 
-        // Convert to positive i64 to comply with nullifier constraints
+        // Convert to positive i64 (IMT requires positive nullifiers)
+        // Take modulo to ensure we stay in positive range, then add 1 to avoid zero
         let hash = hasher.finish();
-        (hash as i64).abs()
+        ((hash % (i64::MAX as u64)) as i64) + 1
     }
 
     /// Fetch new arithmetic transactions since the last processed ID

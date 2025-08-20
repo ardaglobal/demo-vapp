@@ -1,0 +1,69 @@
+warning: unused imports: `AdsConfig` and `AdsServiceFactory`
+  --> api/src/rest.rs:19:5
+   |
+19 |     AdsConfig, IndexedMerkleTreeADS, AdsServiceFactory,
+   |     ^^^^^^^^^                        ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: variable does not need to be mutable
+   --> api/src/batch_processor.rs:356:13
+    |
+356 |         let mut db_tx = self.pool.begin().await
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: unused variable: `batch_processor`
+   --> api/src/rest.rs:444:29
+    |
+444 | ...f let Some(ref batch_processor) = state.batch_processor {
+    |                   ^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_batch_processor`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: `api` (lib) generated 3 warnings (run `cargo fix --lib -p api` to apply 2 suggestions)
+   Compiling api v0.1.0 (/Users/matt/Code/ardaglobal/demo-vapp/api)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.94s
+     Running `target/debug/server`
+[2m2025-08-20T01:30:48.496125Z[0m [32m INFO[0m [2mserver[0m[2m:[0m 🚀 Starting Batch Processing API Server
+[2m2025-08-20T01:30:48.496265Z[0m [32m INFO[0m [2mserver[0m[2m:[0m 📍 Server will bind to 0.0.0.0:8080
+[2m2025-08-20T01:30:48.496460Z[0m [32m INFO[0m [2mserver[0m[2m:[0m 📊 Initializing database connection...
+[2m2025-08-20T01:30:48.496507Z[0m [34mDEBUG[0m [2mdb::db[0m[2m:[0m Connecting to PostgreSQL database...
+[2m2025-08-20T01:30:48.676066Z[0m [34mDEBUG[0m [2mdb::db[0m[2m:[0m Running database migrations...
+[2m2025-08-20T01:30:48.678722Z[0m [34mDEBUG[0m [2msqlx::query[0m[2m:[0m [3msummary[0m[2m=[0m"SELECT current_database()" [3mdb.statement[0m[2m=[0m"" [3mrows_affected[0m[2m=[0m1 [3mrows_returned[0m[2m=[0m1 [3melapsed[0m[2m=[0m2.094084ms [3melapsed_secs[0m[2m=[0m0.002094084
+[2m2025-08-20T01:30:48.679671Z[0m [34mDEBUG[0m [2msqlx::query[0m[2m:[0m [3msummary[0m[2m=[0m"SELECT pg_advisory_lock($1)" [3mdb.statement[0m[2m=[0m"" [3mrows_affected[0m[2m=[0m1 [3mrows_returned[0m[2m=[0m1 [3melapsed[0m[2m=[0m884.083µs [3melapsed_secs[0m[2m=[0m0.000884083
+[2m2025-08-20T01:30:48.680182Z[0m [32m INFO[0m [2msqlx::postgres::notice[0m[2m:[0m relation "_sqlx_migrations" already exists, skipping
+[2m2025-08-20T01:30:48.680213Z[0m [34mDEBUG[0m [2msqlx::query[0m[2m:[0m [3msummary[0m[2m=[0m"CREATE TABLE IF NOT …" [3mdb.statement[0m[2m=[0m"\n\n\nCREATE TABLE IF NOT EXISTS _sqlx_migrations (\n    version BIGINT PRIMARY KEY,\n    description TEXT NOT NULL,\n    installed_on TIMESTAMPTZ NOT NULL DEFAULT now(),\n    success BOOLEAN NOT NULL,\n    checksum BYTEA NOT NULL,\n    execution_time BIGINT NOT NULL\n);\n                \n" [3mrows_affected[0m[2m=[0m0 [3mrows_returned[0m[2m=[0m0 [3melapsed[0m[2m=[0m476.458µs [3melapsed_secs[0m[2m=[0m0.000476458
+[2m2025-08-20T01:30:48.682207Z[0m [34mDEBUG[0m [2msqlx::query[0m[2m:[0m [3msummary[0m[2m=[0m"SELECT version FROM _sqlx_migrations …" [3mdb.statement[0m[2m=[0m"\n\nSELECT version FROM _sqlx_migrations WHERE success = false ORDER BY version LIMIT 1\n" [3mrows_affected[0m[2m=[0m0 [3mrows_returned[0m[2m=[0m0 [3melapsed[0m[2m=[0m1.933042ms [3melapsed_secs[0m[2m=[0m0.001933042
+[2m2025-08-20T01:30:48.683027Z[0m [34mDEBUG[0m [2msqlx::query[0m[2m:[0m [3msummary[0m[2m=[0m"SELECT version, checksum FROM …" [3mdb.statement[0m[2m=[0m"\n\nSELECT version, checksum FROM _sqlx_migrations ORDER BY version\n" [3mrows_affected[0m[2m=[0m14 [3mrows_returned[0m[2m=[0m14 [3melapsed[0m[2m=[0m775.917µs [3melapsed_secs[0m[2m=[0m0.000775917
+[2m2025-08-20T01:30:48.683372Z[0m [34mDEBUG[0m [2msqlx::query[0m[2m:[0m [3msummary[0m[2m=[0m"SELECT current_database()" [3mdb.statement[0m[2m=[0m"" [3mrows_affected[0m[2m=[0m1 [3mrows_returned[0m[2m=[0m1 [3melapsed[0m[2m=[0m237.958µs [3melapsed_secs[0m[2m=[0m0.000237958
+[2m2025-08-20T01:30:48.683861Z[0m [34mDEBUG[0m [2msqlx::query[0m[2m:[0m [3msummary[0m[2m=[0m"SELECT pg_advisory_unlock($1)" [3mdb.statement[0m[2m=[0m"" [3mrows_affected[0m[2m=[0m1 [3mrows_returned[0m[2m=[0m1 [3melapsed[0m[2m=[0m457.292µs [3melapsed_secs[0m[2m=[0m0.000457292
+[2m2025-08-20T01:30:48.683888Z[0m [34mDEBUG[0m [2mdb::db[0m[2m:[0m Migrations completed
+[2m2025-08-20T01:30:48.683895Z[0m [34mDEBUG[0m [2mdb::db[0m[2m:[0m Database ready
+[2m2025-08-20T01:30:48.683901Z[0m [32m INFO[0m [2mserver[0m[2m:[0m ✅ Database connection established
+[2m2025-08-20T01:30:48.684792Z[0m [34mDEBUG[0m [2msqlx::query[0m[2m:[0m [3msummary[0m[2m=[0m"SELECT 1" [3mdb.statement[0m[2m=[0m"" [3mrows_affected[0m[2m=[0m1 [3mrows_returned[0m[2m=[0m1 [3melapsed[0m[2m=[0m494.167µs [3melapsed_secs[0m[2m=[0m0.000494167
+[2m2025-08-20T01:30:48.684936Z[0m [32m INFO[0m [2mserver[0m[2m:[0m ✅ Database connectivity verified
+[2m2025-08-20T01:30:48.684998Z[0m [32m INFO[0m [2mapi::server[0m[2m:[0m 🚀 Creating API server with existing database pool
+[2m2025-08-20T01:30:48.685017Z[0m [32m INFO[0m [2mapi::server[0m[2m:[0m 🔐 Initializing ADS service with database recovery
+[2m2025-08-20T01:30:48.685123Z[0m [32m INFO[0m [1minitialize_ads_service[0m[2m:[0m [2mapi::server[0m[2m:[0m 🔐 Creating ADS service configuration
+[2m2025-08-20T01:30:48.685132Z[0m [32m INFO[0m [1minitialize_ads_service[0m[2m:[0m [2mapi::server[0m[2m:[0m 🏭 Creating ADS service factory
+[2m2025-08-20T01:30:48.685149Z[0m [32m INFO[0m [1minitialize_ads_service[0m[2m:[0m [2mapi::server[0m[2m:[0m 🌳 Initializing IndexedMerkleTreeADS (with database recovery)
+[2m2025-08-20T01:30:48.685172Z[0m [32m INFO[0m [1minitialize_ads_service[0m[2m:[0m[1mnew[0m[1m{[0m[3mconfig[0m[2m=[0mAdsConfig { settlement_contract: "0x742d35cc6640CA5AaAaB2AAD9d8e7f2B6E37b5D1", chain_id: 1, audit_enabled: true, metrics_enabled: true, cache_size_limit: 50000, batch_size_limit: 1000, gas_price: 20000000000 }[1m}[0m[2m:[0m [2mdb::ads_service[0m[2m:[0m 🚀 Initializing IndexedMerkleTreeADS service
+[2m2025-08-20T01:30:48.686534Z[0m [34mDEBUG[0m [1minitialize_ads_service[0m[2m:[0m[1mnew[0m[1m{[0m[3mconfig[0m[2m=[0mAdsConfig { settlement_contract: "0x742d35cc6640CA5AaAaB2AAD9d8e7f2B6E37b5D1", chain_id: 1, audit_enabled: true, metrics_enabled: true, cache_size_limit: 50000, batch_size_limit: 1000, gas_price: 20000000000 }[1m}[0m[2m:[0m[1minit_audit_storage[0m[2m:[0m [2msqlx::query[0m[2m:[0m [3msummary[0m[2m=[0m"SELECT 1 as status …" [3mdb.statement[0m[2m=[0m"\n\nSELECT 1 as status FROM audit_events LIMIT 0\n" [3mrows_affected[0m[2m=[0m0 [3mrows_returned[0m[2m=[0m0 [3melapsed[0m[2m=[0m1.107958ms [3melapsed_secs[0m[2m=[0m0.001107958
+[2m2025-08-20T01:30:48.686583Z[0m [34mDEBUG[0m [1minitialize_ads_service[0m[2m:[0m[1mnew[0m[1m{[0m[3mconfig[0m[2m=[0mAdsConfig { settlement_contract: "0x742d35cc6640CA5AaAaB2AAD9d8e7f2B6E37b5D1", chain_id: 1, audit_enabled: true, metrics_enabled: true, cache_size_limit: 50000, batch_size_limit: 1000, gas_price: 20000000000 }[1m}[0m[2m:[0m[1minit_audit_storage[0m[2m:[0m [2mdb::ads_service[0m[2m:[0m 📝 Audit storage initialized
+[2m2025-08-20T01:30:48.686727Z[0m [32m INFO[0m [1minitialize_ads_service[0m[2m:[0m[1mnew[0m[1m{[0m[3mconfig[0m[2m=[0mAdsConfig { settlement_contract: "0x742d35cc6640CA5AaAaB2AAD9d8e7f2B6E37b5D1", chain_id: 1, audit_enabled: true, metrics_enabled: true, cache_size_limit: 50000, batch_size_limit: 1000, gas_price: 20000000000 }[1m}[0m[2m:[0m [2mdb::ads_service[0m[2m:[0m ✅ IndexedMerkleTreeADS service initialized successfully
+[2m2025-08-20T01:30:48.686744Z[0m [32m INFO[0m [1minitialize_ads_service[0m[2m:[0m [2mapi::server[0m[2m:[0m ✅ ADS service initialized successfully with database recovery
+[2m2025-08-20T01:30:48.687161Z[0m [32m INFO[0m [1mcreate_router[0m[2m:[0m [2mapi::server[0m[2m:[0m 🔧 Building API router
+[2m2025-08-20T01:30:48.687181Z[0m [32m INFO[0m [1mcreate_router[0m[2m:[0m [2mapi::server[0m[2m:[0m 📡 Adding batch processing REST API routes
+[2m2025-08-20T01:30:48.687401Z[0m [32m INFO[0m [1mrun[0m[2m:[0m [2mapi::batch_processor[0m[2m:[0m 🚀 Starting background batch processor
+[2m2025-08-20T01:30:48.687425Z[0m [32m INFO[0m [1mrun[0m[2m:[0m [2mapi::batch_processor[0m[2m:[0m ⏰ Timer interval: 60 seconds
+[2m2025-08-20T01:30:48.687434Z[0m [32m INFO[0m [1mrun[0m[2m:[0m [2mapi::batch_processor[0m[2m:[0m 📊 Count trigger threshold: 10 transactions
+[2m2025-08-20T01:30:48.687442Z[0m [32m INFO[0m [1mrun[0m[2m:[0m [2mapi::batch_processor[0m[2m:[0m 📦 Max batch size: 50
+[2m2025-08-20T01:30:48.687561Z[0m [32m INFO[0m [2mapi::batch_processor[0m[2m:[0m 🔄 Starting continuous batch monitoring service...
+[2m2025-08-20T01:30:48.688018Z[0m [32m INFO[0m [1mcreate_router[0m[2m:[0m [2mapi::server[0m[2m:[0m ✅ API router built successfully
+[2m2025-08-20T01:30:48.688027Z[0m [32m INFO[0m [2mserver[0m[2m:[0m 🎯 Binding to address: 0.0.0.0:8080
+[2m2025-08-20T01:30:48.688084Z[0m [31mERROR[0m [2mserver[0m[2m:[0m ❌ Failed to bind to 0.0.0.0:8080: Address already in use (os error 48)
+[2m2025-08-20T01:30:48.688099Z[0m [31mERROR[0m [2mserver[0m[2m:[0m 💡 Make sure the port is not already in use

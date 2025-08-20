@@ -37,6 +37,7 @@ pub mod batch_processor;
 pub mod client;
 pub mod rest;
 pub mod server;
+pub mod unified_batch_service;
 
 // Temporarily disabled for minimal PoC:
 // pub mod graphql;       // 883 lines - GraphQL API for old nullifier system (depends on disabled modules)
@@ -72,6 +73,8 @@ pub use rest::{
 };
 
 pub use server::{ApiServer, ApiServerBuilder, ApiServerConfig};
+
+pub use unified_batch_service::{UnifiedBatchService, BatchCreationResult};
 
 // Re-export database types that the API uses
 pub use arithmetic_db::{

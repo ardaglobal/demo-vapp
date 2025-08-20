@@ -17,7 +17,9 @@ use tracing::{info, instrument};
 
 use crate::batch_processor::{create_batch_processor_config, start_batch_processor};
 use crate::rest::{ApiConfig, ApiState};
-use arithmetic_db::init_db;
+use arithmetic_db::{init_db, AdsConfig, AdsServiceFactory, IndexedMerkleTreeADS};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 // ============================================================================
 // API SERVER CONFIGURATION
@@ -96,16 +98,21 @@ impl ApiServer {
             init_db().await?
         };
 
+        // Initialize ADS service with recovery from database
+        info!("🔐 Initializing ADS service with database recovery");
+        let ads_service = Self::initialize_ads_service(pool.clone()).await?;
+
         // Start background batch processor
         let batch_processor_config = create_batch_processor_config(&config.api_config);
         let batch_processor_handle =
-            start_batch_processor(pool.clone(), batch_processor_config).await;
+            start_batch_processor(pool.clone(), batch_processor_config, ads_service.clone()).await;
 
         // Create API state
         let state = ApiState {
             pool,
             config: config.api_config.clone(),
             batch_processor: Some(batch_processor_handle),
+            ads_service,
         };
 
         let server = Self { config, state };
@@ -115,21 +122,57 @@ impl ApiServer {
     }
 
     /// Create new API server with existing database pool
-    pub async fn with_pool(pool: PgPool, config: ApiServerConfig) -> Self {
+    pub async fn with_pool(pool: PgPool, config: ApiServerConfig) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         info!("🚀 Creating API server with existing database pool");
+
+        // Initialize ADS service with recovery from database
+        info!("🔐 Initializing ADS service with database recovery");
+        let ads_service = Self::initialize_ads_service(pool.clone()).await?;
 
         // Start background batch processor
         let batch_processor_config = create_batch_processor_config(&config.api_config);
         let batch_processor_handle =
-            start_batch_processor(pool.clone(), batch_processor_config).await;
+            start_batch_processor(pool.clone(), batch_processor_config, ads_service.clone()).await;
 
         let state = ApiState {
             pool,
             config: config.api_config.clone(),
             batch_processor: Some(batch_processor_handle),
+            ads_service,
         };
 
-        Self { config, state }
+        Ok(Self { config, state })
+    }
+
+    /// Initialize ADS service with recovery from database state
+    #[instrument(skip(pool), level = "info")]
+    async fn initialize_ads_service(
+        pool: PgPool,
+    ) -> Result<Arc<RwLock<IndexedMerkleTreeADS>>, Box<dyn std::error::Error + Send + Sync>> {
+        info!("🔐 Creating ADS service configuration");
+        
+        // Create ADS configuration for production use
+        let ads_config = AdsConfig {
+            settlement_contract: "0x742d35cc6640CA5AaAaB2AAD9d8e7f2B6E37b5D1".to_string(),
+            chain_id: 1, // Mainnet - should be configurable
+            audit_enabled: true,
+            metrics_enabled: true,
+            cache_size_limit: 50_000,
+            batch_size_limit: 1_000,
+            gas_price: 20_000_000_000, // 20 gwei
+        };
+
+        info!("🏭 Creating ADS service factory");
+        let factory = AdsServiceFactory::with_config(pool.clone(), ads_config);
+        
+        info!("🌳 Initializing IndexedMerkleTreeADS (with database recovery)");
+        let ads_service = factory.create_indexed_merkle_tree().await
+            .map_err(|e| format!("Failed to create ADS service: {}", e))?;
+
+        let ads_service = Arc::new(RwLock::new(ads_service));
+        
+        info!("✅ ADS service initialized successfully with database recovery");
+        Ok(ads_service)
     }
 
     /// Build the complete router with all endpoints
@@ -376,7 +419,7 @@ impl ApiServerBuilder {
     }
 
     /// Build the API server with an existing database pool
-    pub async fn build_with_pool(self, pool: PgPool) -> ApiServer {
+    pub async fn build_with_pool(self, pool: PgPool) -> Result<ApiServer, Box<dyn std::error::Error + Send + Sync>> {
         ApiServer::with_pool(pool, self.config).await
     }
 }
