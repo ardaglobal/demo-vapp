@@ -36,6 +36,8 @@ sol! {
 
         function getCurrentState(bytes32 stateId) external view returns (bytes32);
 
+        function getPreviousStateRoot(bytes32 stateId) external view returns (bytes32);
+
         function readCurrentState(bytes32 stateId) external returns (bytes32 state, bool exists);
 
         function readStateHistory(bytes32 stateId, uint256 limit) external view returns (bytes32[] memory states);

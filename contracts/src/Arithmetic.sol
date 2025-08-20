@@ -586,6 +586,24 @@ contract Arithmetic is EventHelpers {
         return stateHistory[stateId].length;
     }
 
+    /// @notice Get the previous state root for a given state ID.
+    /// @param stateId The state identifier.
+    /// @return previousState The previous state root (returns zero if no history or only one state).
+    function getPreviousStateRoot(
+        bytes32 stateId
+    ) external view returns (bytes32 previousState) {
+        bytes32[] storage history = stateHistory[stateId];
+        uint256 length = history.length;
+        
+        // If there are less than 2 states in history, there's no previous state
+        if (length < 2) {
+            return bytes32(0);
+        }
+        
+        // Return the second-to-last state (previous state)
+        return history[length - 2];
+    }
+
     /*//////////////////////////////////////////////////////////////
                         PROOF READING FUNCTIONS
     //////////////////////////////////////////////////////////////*/
