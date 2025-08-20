@@ -114,7 +114,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     };
 
     // Create API server
-    let server = ApiServer::with_pool(pool, server_config).await;
+    let server = ApiServer::with_pool(pool, server_config).await?;
 
     // Create router
     let app = server.create_router();

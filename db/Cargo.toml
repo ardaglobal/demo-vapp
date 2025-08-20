@@ -37,6 +37,7 @@ sp1-sdk         = { workspace = true }
 
 # Utility dependencies (kept for non-API uses)
 async-trait = "0.1"
+blake3      = "1"
 hex         = "0.4"
 rand        = "0.8"
 serde_json  = "1.0"
