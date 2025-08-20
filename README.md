@@ -54,9 +54,12 @@ make up       # Start services
 make initDB   # Start DB, run migrations, generate SQLx cache, then stop DB
 ```
 
+## Running the vApp
+
 ### 1. Install Dependencies
 ```sh
-./install-dependencies.sh
+make setup
+# This calls ./install-dependencies.sh
 ```
 
 ### 2. Set Environment Variables
@@ -69,19 +72,9 @@ cp .env.example .env
 
 ### 3. Deploy Circuit to Sindri (Required for Proof Generation)
 ```sh
-# Deploy the circuit (uses 'latest' tag by default)
-./deploy-circuit.sh
-
-# Or deploy with a specific tag
-./deploy-circuit.sh "dev-v1.0"
-
-# Or set SINDRI_CIRCUIT_TAG in your .env
-# SINDRI_CIRCUIT_TAG=dev-v1.0
-
-# Or deploy manually:
-# sindri lint
-# sindri deploy                    # Uses 'latest' tag
-# sindri deploy --tag "custom-tag" # Uses specific tag
+# Set the SINDRI_CIRCUIT_TAG in the .env file
+make deploy
+# This calls ./deploy-circuit.sh
 ```
 
 **Note**: This step is required for proof generation. Without deploying the circuit, you can still run the server and submit transactions, but proof generation will fail.
@@ -89,7 +82,7 @@ cp .env.example .env
 ### 4. Start the Full Stack
 ```sh
 # Start database + API server (uses pre-built image from GitHub Container Registry)
-docker-compose up -d
+make up
 
 # Verify services are running
 docker-compose ps
@@ -100,8 +93,8 @@ curl http://localhost:8080/api/v2/health
 
 **For Local Development**: If you're actively developing and want to build the Docker image locally for faster iteration:
 ```sh
-# Option 1: Use the development compose file
-docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# Option 1: Use the development compose file, this will re-build the server dockerfile
+make up-dev
 
 # Option 2: Run API server locally (requires PostgreSQL running)
 docker-compose up postgres -d
@@ -172,7 +165,17 @@ cargo run --bin cli -- verify-proof \
 
 ### 6. Local SP1 Development
 
-For fast local SP1 unit testing, see the [Local SP1 Testing](#local-sp1-testing) section below.
+For fast local SP1 unit testing during zkVM program development:
+
+```sh
+# Quick SP1 batch processing test from root directory
+cargo run --release
+
+# This tests: initial_balance=10 + [5, 7] → final_balance=22
+# Generates Core proof in ~8 seconds without database dependencies
+```
+
+This provides a fast feedback loop for SP1 development, testing that a batch of transactions `[5, 7]` correctly transitions the balance from `10` to `22` while keeping individual amounts private.
 
 ---
 
@@ -280,20 +283,6 @@ make cli ARGS="list-batches"
 make cli ARGS="health-check"
 ```
 
-## Local SP1 Testing
-
-For fast local SP1 unit testing of batch processing during development:
-
-```sh
-# Quick SP1 batch processing test from root directory
-cargo run --release
-
-# This tests: initial_balance=10 + [5, 7] → final_balance=22
-# Generates Core proof in ~8 seconds without database dependencies
-```
-
-This provides a fast feedback loop for SP1 development, testing that a batch of transactions `[5, 7]` correctly transitions the balance from `10` to `22` while keeping individual amounts private.
-
 ## Production Batch Processing & Proof Verification
 
 For full batch processing with database and ZK proof generation:
@@ -301,7 +290,7 @@ For full batch processing with database and ZK proof generation:
 ### 1. Start the Full Stack
 ```sh
 # Start database + API server  
-docker-compose up -d
+make up
 
 # Verify services
 curl http://localhost:8080/api/v2/health
@@ -354,16 +343,6 @@ The project features **automated smart contract posting** for proven batches. Af
 3. **ZK Proof Generation**: Background process generates proof via Sindri
 4. **Smart Contract Posting**: Background process automatically posts state roots to contract
 5. **Status Tracking**: Database tracks posting status and timestamps
-
-### Quick Deployment
-
-```bash
-# 1. Apply database migration (adds contract posting tracking)
-cd db && sqlx migrate run
-
-# 2. Start API server with automated background processing
-cargo run -p api --bin server
-```
 
 ### Usage Examples
 
