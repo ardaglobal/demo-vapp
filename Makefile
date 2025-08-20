@@ -117,6 +117,7 @@ clean-sqlx:
 clean-builds:
 	rm -rf target
 	rm -rf build
+	rm -rf ADS
 	@echo "✅ Build artifacts cleaned up"
 
 ## clean: Clean up all resources
