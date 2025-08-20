@@ -604,6 +604,24 @@ impl EthereumClient {
         }))
     }
 
+    pub async fn get_previous_state_root(
+        &self,
+        state_id: FixedBytes<32>,
+    ) -> Result<FixedBytes<32>> {
+        let contract = IArithmetic::new(self.contracts.arithmetic, &self.http_provider);
+
+        let previous_state_root = contract
+            .getPreviousStateRoot(state_id)
+            .call()
+            .await
+            .map_err(|e| {
+                warn!("Failed to get previous state root: {e}");
+                EthereumError::from_contract_error(&format!("Previous state query failed: {e}"))
+            })?;
+
+        Ok(previous_state_root)
+    }
+
     #[cfg(feature = "database")]
     pub fn with_cache(mut self, cache: EthereumCache) -> Result<Self> {
         self.cache = Some(cache);
