@@ -726,3 +726,114 @@ The system provides comprehensive error handling:
 - **Parameter Validation**: Input sanitization and bounds checking
 - **Reentrancy Protection**: Safe external call patterns
 - **State Consistency**: Validation of state transitions
+
+## Knowledge Transfer & Best Practices
+
+### Architecture Lessons
+
+#### **Avoid Dual Code Paths**
+- **Problem**: Having multiple batch creation workflows creates confusion and inconsistency
+- **Solution**: Always consolidate similar functionality into shared services (see `UnifiedBatchService`)
+- **Prevention**: Code review should flag duplicate logic patterns
+
+#### **Single Source of Truth Principle**
+- **Learning**: Extract common logic into dedicated services
+- **Benefit**: Easier testing, consistent behavior, single place to modify logic
+- **Implementation**: Use services like `UnifiedBatchService` for all batch operations
+
+### Data Validation Best Practices
+
+#### **Nullifier Generation Requirements**
+All nullifiers in ADS/IMT operations must be positive integers:
+
+```rust
+// ❌ AVOID: .abs() has edge cases (i64::MIN remains negative)
+(hash as i64).abs()
+
+// ❌ AVOID: Complex conditional logic prone to errors
+if hash > i64::MAX as u64 { /* negative logic */ }
+
+// ✅ PREFER: Guaranteed positive with modulo arithmetic
+((hash % (i64::MAX as u64)) as i64) + 1
+```
+
+#### **Numeric Conversion Edge Cases**
+- **Issue**: `i64::MIN.abs() == i64::MIN` (still negative due to two's complement)
+- **Solution**: Use modulo arithmetic for guaranteed positive values
+- **Testing**: Always test with extreme values (i64::MIN, i64::MAX, 0)
+
+### Debugging Approaches
+
+#### **Follow the Data Flow**
+When debugging ADS/batch issues:
+1. Trace data from input to database storage
+2. Search codebase for all similar functions (e.g., `transaction_to_nullifier`)
+3. Verify both code logic AND database state
+4. Test edge cases (empty database, large values, etc.)
+
+#### **Error Message Analysis**
+```
+ERROR: Invalid nullifier value: First nullifier must be positive, got -6867682785953840976
+```
+- Use error messages to identify root cause patterns
+- Search codebase comprehensively for related functions
+- Apply fixes consistently across all locations
+
+### Development Guidelines
+
+#### **When Adding New Batch Triggers**:
+1. **Always use `UnifiedBatchService::create_batch_with_ads()`**
+2. **Never create separate batch creation logic**
+3. **Test all trigger paths together**
+4. **Verify ADS integration is complete**
+
+#### **When Modifying ADS/IMT Code**:
+1. **Ensure nullifiers are always positive**
+2. **Avoid `.abs()` for i64 edge cases**
+3. **Use modulo arithmetic for guaranteed ranges**
+4. **Test with extreme hash values**
+
+#### **Code Review Checklist**
+Future PRs should verify:
+- [ ] No duplicate batch creation logic
+- [ ] All nullifiers guaranteed positive (no `.abs()` without verification)
+- [ ] ADS integration included in all batch workflows
+- [ ] Comprehensive tests for all trigger paths
+- [ ] Database migrations maintain IMT schema integrity
+
+### System Architecture Patterns
+
+#### **Unified Service Pattern**
+```rust
+// ✅ GOOD: Single service for all batch operations
+pub struct UnifiedBatchService {
+    pool: PgPool,
+    ads_service: Arc<RwLock<IndexedMerkleTreeADS>>,
+    max_batch_size: u32,
+}
+
+impl UnifiedBatchService {
+    pub async fn create_batch_with_ads(
+        &self,
+        requested_batch_size: Option<i32>,
+        trigger_source: &str,  // Track trigger source for debugging
+    ) -> Result<Option<BatchCreationResult>, String>
+}
+```
+
+#### **Atomic Transaction Pattern**
+- Use database transactions for all ADS operations
+- Ensure IMT state and batch state are updated atomically
+- Include comprehensive error handling and rollback logic
+
+### Testing Strategies
+
+#### **Integration Testing**
+- Test all batch trigger paths: REST API, CLI, background processor
+- Verify ADS integration works consistently across all paths
+- Use comprehensive test scripts (see `test_unified_batch_flow.sh`)
+
+#### **Data Validation Testing**
+- Test nullifier generation with extreme values
+- Verify positive-only constraint enforcement
+- Test edge cases in numeric conversions
