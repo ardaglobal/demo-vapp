@@ -294,8 +294,22 @@ impl IndexedMerkleTreeADS {
     pub async fn new(pool: PgPool, config: AdsConfig) -> Result<Self, AdsError> {
         info!("🚀 Initializing IndexedMerkleTreeADS service");
 
-        let tree = IndexedMerkleTree::new(pool.clone());
-        let metrics = AdsMetrics {
+        let mut tree = IndexedMerkleTree::new(pool.clone());
+        
+        // Recover state from database if it exists
+        if let Some(state) = tree.db.state.get_state(None).await.map_err(AdsError::Database)? {
+            info!(
+                "🔄 Found existing tree state with {} nullifiers, recovering...",
+                state.total_nullifiers
+            );
+            tree.recover_state(state).await.map_err(AdsError::Database)?;
+            info!("✅ Tree state recovered successfully");
+        } else {
+            info!("📝 No existing tree state found, starting with empty tree");
+        }
+
+        // Initialize metrics - if we recovered state, update them accordingly
+        let mut metrics = AdsMetrics {
             operations_total: 0,
             insertions_total: 0,
             proofs_generated: 0,
@@ -311,6 +325,15 @@ impl IndexedMerkleTreeADS {
             },
         };
 
+        // If we recovered state, update metrics to reflect the recovered data
+        if let Ok(Some(state)) = tree.db.state.get_state(None).await {
+            metrics.insertions_total = state.total_nullifiers as u64;
+            info!(
+                "📊 Updated metrics from recovered state: {} insertions",
+                metrics.insertions_total
+            );
+        }
+
         let service = Self {
             tree: Arc::new(RwLock::new(tree)),
             state_cache: Arc::new(RwLock::new(HashMap::new())),
@@ -324,6 +347,9 @@ impl IndexedMerkleTreeADS {
         if service.config.audit_enabled {
             service.init_audit_storage().await?;
         }
+
+        // Rebuild state cache from persisted commitments if we have recovered data
+        service.rebuild_state_cache().await?;
 
         info!("✅ IndexedMerkleTreeADS service initialized successfully");
         Ok(service)
@@ -340,6 +366,62 @@ impl IndexedMerkleTreeADS {
             .map_err(|e| AdsError::Database(DbError::Database(e)))?;
 
         debug!("📝 Audit storage initialized");
+        Ok(())
+    }
+
+    /// Rebuild state cache from persisted ADS state commits
+    #[instrument(skip(self), level = "info")]
+    async fn rebuild_state_cache(&self) -> Result<(), AdsError> {
+        info!("🔄 Rebuilding ADS state cache from database");
+
+        // Get recent ADS state commits to populate the cache
+        let recent_commits = sqlx::query!(
+            r#"
+            SELECT ads.batch_id, ads.merkle_root, ads.created_at,
+                   pb.previous_counter_value, pb.final_counter_value
+            FROM ads_state_commits ads
+            JOIN proof_batches pb ON ads.batch_id = pb.id
+            WHERE pb.proof_status = 'proven'
+            ORDER BY ads.created_at DESC
+            LIMIT 100
+            "#
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AdsError::Database(crate::error::DbError::Database(e)))?;
+
+        if !recent_commits.is_empty() {
+            let mut cache = self.state_cache.write().await;
+            
+            for commit in recent_commits {
+                let mut root_key = [0u8; 32];
+                root_key.copy_from_slice(&commit.merkle_root);
+                
+                let state_commitment = StateCommitment {
+                    root_hash: root_key,
+                    nullifier_count: 0, // We could query this if needed
+                    tree_height: 32,
+                    last_updated: commit.created_at.unwrap_or_else(|| chrono::Utc::now()),
+                    commitment_hash: root_key, // Use root as commitment hash for simplicity
+                    settlement_data: SettlementData {
+                        contract_address: "0x0000000000000000000000000000000000000000".to_string(),
+                        chain_id: 1, // Default to mainnet
+                        nonce: 0,
+                        gas_price: 20_000_000_000, // 20 gwei
+                    },
+                };
+                
+                cache.insert(root_key, state_commitment);
+            }
+            
+            info!(
+                "✅ Rebuilt state cache with {} entries from proven batches",
+                cache.len()
+            );
+        } else {
+            info!("📝 No proven batches found, state cache remains empty");
+        }
+
         Ok(())
     }
 

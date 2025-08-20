@@ -719,6 +719,71 @@ impl IndexedMerkleTree {
         }
     }
 
+    /// Recover tree state from database on startup
+    #[instrument(skip(self, state), level = "info")]
+    pub async fn recover_state(&mut self, state: TreeState) -> Result<(), DbError> {
+        info!(
+            "🔄 Recovering IMT state: {} nullifiers, next_index={}, root: {:02x?}",
+            state.total_nullifiers,
+            state.next_available_index,
+            &state.root_hash[..8]
+        );
+
+        // Validate the recovered state
+        if state.total_nullifiers < 0 {
+            return Err(DbError::InvalidState(
+                "Invalid nullifier count in recovered state".into(),
+            ));
+        }
+
+        if state.next_available_index < 0 {
+            return Err(DbError::InvalidState(
+                "Invalid next available index in recovered state".into(),
+            ));
+        }
+
+        if state.root_hash.len() != 32 {
+            return Err(DbError::InvalidHashLength(state.root_hash.len()));
+        }
+
+        // Verify the nullifier chain integrity if we have nullifiers
+        if state.total_nullifiers > 0 {
+            let chain_valid = sqlx::query_scalar!(
+                "SELECT validate_nullifier_chain()"
+            )
+            .fetch_one(&self.db.nullifiers.pool)
+            .await
+            .map_err(DbError::Database)?
+            .unwrap_or(false);
+
+            if !chain_valid {
+                return Err(DbError::InvalidState(
+                    "Nullifier chain integrity check failed during recovery".into(),
+                ));
+            }
+
+            info!("✅ Nullifier chain integrity verified");
+        }
+
+        // Verify that the current root matches what we expect
+        let current_root = self.get_root().await?;
+        if current_root != state.root_hash.as_slice() {
+            warn!(
+                "Root mismatch during recovery: expected {:02x?}, got {:02x?}",
+                &state.root_hash[..8],
+                &current_root[..8]
+            );
+            // This is not necessarily an error - the state might have been updated
+            // between when we read it and now, but we should log it
+        }
+
+        info!(
+            "✅ IMT state recovery completed: {} nullifiers recovered",
+            state.total_nullifiers
+        );
+        Ok(())
+    }
+
     /// Implements the exact 7-step nullifier insertion algorithm from transparency dictionaries paper
     #[instrument(skip(self), level = "info")]
     pub async fn insert_nullifier(

@@ -1,6 +1,5 @@
 use crate::merkle_tree::IndexedMerkleTree;
-use crate::{DbError, DbResult};
-use chrono::{DateTime, Utc};
+use crate::{DbError, DbResult, IncomingTransaction};
 use sqlx::{PgPool, Row};
 use std::time::Duration;
 use tokio::time::interval;
@@ -127,15 +126,15 @@ impl BackgroundProcessor {
         Ok(processed_count)
     }
 
-    /// Process a single arithmetic transaction into the merkle tree
+    /// Process a single transaction into the merkle tree
     async fn process_single_transaction(
         &self,
         tree: &mut IndexedMerkleTree,
-        transaction: &ArithmeticTransactionWithId,
+        transaction: &IncomingTransaction,
     ) -> DbResult<()> {
         debug!(
-            "Processing transaction ID {}: {} + {} = {}",
-            transaction.id, transaction.a, transaction.b, transaction.result
+            "Processing transaction ID {}: amount = {}",
+            transaction.id, transaction.amount
         );
 
         // Convert transaction to a nullifier value
@@ -153,16 +152,14 @@ impl BackgroundProcessor {
         Ok(())
     }
 
-    /// Convert an arithmetic transaction to a nullifier value
-    fn transaction_to_nullifier(&self, transaction: &ArithmeticTransactionWithId) -> i64 {
+    /// Convert a transaction to a nullifier value
+    fn transaction_to_nullifier(&self, transaction: &IncomingTransaction) -> i64 {
         // Create a deterministic nullifier from the transaction data using blake3
         // This ensures the same transaction always produces the same nullifier across deployments
         let mut hasher = blake3::Hasher::new();
         
         // Hash each field as its little-endian byte representation for deterministic results
-        hasher.update(&transaction.a.to_le_bytes());
-        hasher.update(&transaction.b.to_le_bytes());
-        hasher.update(&transaction.result.to_le_bytes());
+        hasher.update(&transaction.amount.to_le_bytes());
         hasher.update(&transaction.id.to_le_bytes());
         
         // Get the first 8 bytes of the digest as a u64 (little-endian)
@@ -178,22 +175,23 @@ impl BackgroundProcessor {
         ((hash_u64 % (i64::MAX as u64)) as i64) + 1
     }
 
-    /// Fetch new arithmetic transactions since the last processed ID
-    async fn fetch_new_transactions(&self) -> DbResult<Vec<ArithmeticTransactionWithId>> {
+    /// Fetch new transactions since the last processed ID
+    async fn fetch_new_transactions(&self) -> DbResult<Vec<IncomingTransaction>> {
         let query = if let Some(last_id) = self.last_processed_id {
-            sqlx::query_as::<_, ArithmeticTransactionWithId>(
-                "SELECT id, a, b, result, created_at 
-                 FROM arithmetic_transactions 
-                 WHERE id > $1 
+            sqlx::query_as::<_, IncomingTransaction>(
+                "SELECT id, amount, included_in_batch_id, created_at 
+                 FROM incoming_transactions 
+                 WHERE id > $1 AND included_in_batch_id IS NULL
                  ORDER BY id ASC 
                  LIMIT $2",
             )
             .bind(last_id)
             .bind(self.config.batch_size as i32)
         } else {
-            sqlx::query_as::<_, ArithmeticTransactionWithId>(
-                "SELECT id, a, b, result, created_at 
-                 FROM arithmetic_transactions 
+            sqlx::query_as::<_, IncomingTransaction>(
+                "SELECT id, amount, included_in_batch_id, created_at 
+                 FROM incoming_transactions 
+                 WHERE included_in_batch_id IS NULL
                  ORDER BY id ASC 
                  LIMIT $1",
             )
@@ -238,16 +236,7 @@ impl BackgroundProcessor {
     }
 }
 
-/// Arithmetic transaction with database ID for background processing
-#[derive(Debug, Clone, sqlx::FromRow)]
-struct ArithmeticTransactionWithId {
-    pub id: i32,
-    pub a: i32,
-    pub b: i32,
-    pub result: i32,
-    #[allow(dead_code)]
-    pub created_at: DateTime<Utc>,
-}
+
 
 /// Builder for background processor
 pub struct ProcessorBuilder {
@@ -290,8 +279,9 @@ impl Default for ProcessorBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::store_arithmetic_transaction;
+    use crate::db::submit_transaction;
     use crate::test_utils::TestDatabase;
+    use chrono::Utc;
 
     #[tokio::test]
     async fn test_background_processing() {
@@ -299,13 +289,9 @@ mod tests {
         let pool = &test_db.pool;
 
         // Store some test transactions
-        store_arithmetic_transaction(pool, 5, 10, 15).await.unwrap();
-        store_arithmetic_transaction(pool, 20, 30, 50)
-            .await
-            .unwrap();
-        store_arithmetic_transaction(pool, 100, 200, 300)
-            .await
-            .unwrap();
+        submit_transaction(pool, 15).await.unwrap();
+        submit_transaction(pool, 50).await.unwrap();
+        submit_transaction(pool, 300).await.unwrap();
 
         // Create background processor
         let config = ProcessorConfig {
@@ -328,11 +314,10 @@ mod tests {
         let test_db = TestDatabase::new().await.unwrap();
         let processor = BackgroundProcessor::new(test_db.pool.clone(), ProcessorConfig::default());
 
-        let transaction = ArithmeticTransactionWithId {
+        let transaction = IncomingTransaction {
             id: 1,
-            a: 5,
-            b: 10,
-            result: 15,
+            amount: 15,
+            included_in_batch_id: None,
             created_at: Utc::now(),
         };
 

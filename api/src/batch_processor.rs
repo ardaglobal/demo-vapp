@@ -346,7 +346,7 @@ impl BackgroundBatchProcessor {
                 self.update_stats(result.batch_id, result.transaction_count).await;
 
                 // Trigger proof generation asynchronously
-                self.trigger_proof_generation(result.batch_id).await;
+                self.trigger_proof_generation(result.batch_id);
 
                 Ok(Some(result.batch_id))
             }

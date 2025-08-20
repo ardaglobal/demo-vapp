@@ -47,6 +47,10 @@ pub enum DbError {
     #[error("Connection pool error: {0}")]
     PoolError(String),
 
+    /// Invalid state during recovery or operation
+    #[error("Invalid state: {0}")]
+    InvalidState(String),
+
     /// Migration error
     #[error("Migration error: {0}")]
     MigrationError(String),
@@ -102,6 +106,7 @@ impl DbError {
             Self::PoolError(_) => "POOL_ERROR",
             Self::MigrationError(_) => "MIGRATION_ERROR",
             Self::ConfigError(_) => "CONFIG_ERROR",
+            Self::InvalidState(_) => "INVALID_STATE",
         }
     }
 }
