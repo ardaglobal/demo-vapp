@@ -27,4 +27,4 @@ ADS/
 # Downloaded proofs
 proof_*.json
 
-**/.sqlx
+**.sqlx

@@ -99,12 +99,30 @@ server:
 	@echo "💡 Tip: Run 'make up postgres' in another terminal first"
 	cargo run --bin server --release
 
-## clean: Clean up Docker resources
-.PHONY: clean
-clean:
+## clean-docker: Clean up Docker resources
+.PHONY: clean-docker
+clean-docker:
 	docker-compose down -v
 	docker system prune -f
 	@echo "✅ Docker resources cleaned up"
+
+## clean-sqlx: Clean up SQLx resources
+.PHONY: clean-sqlx
+clean-sqlx:
+	rm -rf .sqlx
+	@echo "✅ SQLx resources cleaned up"
+
+## clean-builds: Clean up build artifacts
+.PHONY: clean-builds
+clean-builds:
+	rm -rf target
+	rm -rf build
+	@echo "✅ Build artifacts cleaned up"
+
+## clean: Clean up all resources
+.PHONY: clean
+clean: clean-docker clean-sqlx clean-builds
+	@echo "✅ All resources cleaned up"
 
 ## setup: Complete setup from scratch
 .PHONY: setup
