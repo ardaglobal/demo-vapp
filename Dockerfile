@@ -1,12 +1,12 @@
 # Balanced Dockerfile: Optimized but maintainable
 # Single file that works for both development and production
 
-FROM rust:1.88.0 as builder
+FROM rust:1.88.0 AS builder
 
 # Install SP1 toolchain (cached when Dockerfile doesn't change)
 RUN curl -L https://sp1.succinct.xyz | bash
-ENV PATH="/root/.sp1/bin:$PATH"
-RUN /root/.sp1/bin/sp1up
+ENV PATH="/root/.sp1/bin:/usr/local/cargo/bin:$PATH"
+RUN sp1up
 
 WORKDIR /app
 
