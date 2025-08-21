@@ -54,9 +54,13 @@ jobs:
 
       - name: Install SP1 toolchain
         run: |
+          # Install SP1 following same approach as Dockerfile
           curl -L https://sp1.succinct.xyz | bash
-          ~/.sp1/bin/sp1up
-          ~/.sp1/bin/cargo-prove prove --version
+          # Set PATH immediately to use SP1 tools in this step
+          export PATH="$HOME/.sp1/bin:$PATH"
+          # Run SP1 update tool
+          sp1up
+          # Add SP1 to PATH for subsequent steps
           echo "$HOME/.sp1/bin" >> $GITHUB_PATH
 
       - name: Cache Rust dependencies
