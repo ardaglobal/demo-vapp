@@ -31,6 +31,11 @@ services:
       # Pass through Sindri configuration from host environment or .env file
       - SINDRI_API_KEY=${SINDRI_API_KEY}
       - SINDRI_CIRCUIT_TAG=${SINDRI_CIRCUIT_TAG:-latest}
+      # Ethereum configuration from host environment or .env file
+      - ETHEREUM_RPC_URL=${ETHEREUM_RPC_URL}
+      - ETHEREUM_CONTRACT_ADDRESS=${ETHEREUM_CONTRACT_ADDRESS}
+      - ETHEREUM_WALLET_PRIVATE_KEY=${ETHEREUM_WALLET_PRIVATE_KEY}
+      - ETHEREUM_DEPLOYER_ADDRESS=${ETHEREUM_DEPLOYER_ADDRESS}
     ports:
       - "8080:8080"
     depends_on:
