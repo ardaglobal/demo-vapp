@@ -13,7 +13,10 @@ env:
 jobs:
   coverage:
     name: Generate Code Coverage
-    runs-on: ubuntu-latest
+    runs-on:
+      # AWS Codebuild Trigger
+      - codebuild-demo-vapp-${{ github.run_id }}-${{ github.run_attempt }}
+      - run-id=${{ github.run_id }}
 
     services:
       postgres:
