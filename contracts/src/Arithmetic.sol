@@ -238,6 +238,7 @@ contract Arithmetic is EventHelpers {
         bytes calldata proof,
         bytes calldata publicValues
     ) external onlyAuthorized {
+        // Verify the proof first
         ISP1Verifier(verifier).verifyProof(
             arithmeticProgramVKey,
             publicValues,
@@ -247,6 +248,7 @@ contract Arithmetic is EventHelpers {
         bytes32 proofHash = keccak256(proof);
 
         currentState[stateId] = newStateRoot;
+        stateHistory[stateId].push(newStateRoot);
         storedProofs[proofHash] = proof;
         storedResults[proofHash] = publicValues;
         verifiedProofs[proofHash] = true;
@@ -265,69 +267,6 @@ contract Arithmetic is EventHelpers {
         // Update event statistics
         eventCountByStateId[stateId]++;
         _updateEventStats("state_update");
-    }
-
-    /// @notice Post new state update with proof verification and access control.
-    /// @param stateId The state identifier.
-    /// @param newState The new state root.
-    /// @param proof The ZK proof to verify.
-    /// @param result The verification result data.
-    /// @return success True if the operation succeeded.
-    function postStateUpdate(
-        bytes32 stateId,
-        bytes32 newState,
-        bytes calldata proof,
-        bytes calldata result
-    ) external onlyAuthorized returns (bool success) {
-        return _postStateUpdate(stateId, newState, proof, result);
-    }
-
-    /// @notice Internal implementation of state update with proof verification.
-    /// @param stateId The state identifier.
-    /// @param newState The new state root.
-    /// @param proof The ZK proof to verify.
-    /// @param result The verification result data.
-    /// @return success True if the operation succeeded.
-    function _postStateUpdate(
-        bytes32 stateId,
-        bytes32 newState,
-        bytes calldata proof,
-        bytes calldata result
-    ) internal returns (bool success) {
-        try
-            ISP1Verifier(verifier).verifyProof(
-                arithmeticProgramVKey,
-                result,
-                proof
-            )
-        {
-            bytes32 proofHash = keccak256(proof);
-
-            currentState[stateId] = newState;
-            stateHistory[stateId].push(newState);
-            storedProofs[proofHash] = proof;
-            storedResults[proofHash] = result;
-            verifiedProofs[proofHash] = true;
-
-            // Store proof metadata
-            _storeProofMetadata(proofHash, stateId, msg.sender);
-
-            emit StateUpdated(
-                stateId,
-                newState,
-                proofHash,
-                msg.sender,
-                block.timestamp
-            );
-
-            // Update event statistics
-            eventCountByStateId[stateId]++;
-            _updateEventStats("state_update");
-
-            return true;
-        } catch {
-            return false;
-        }
     }
 
     /// @notice Get the current state root for a given state ID.
@@ -594,12 +533,12 @@ contract Arithmetic is EventHelpers {
     ) external view returns (bytes32 previousState) {
         bytes32[] storage history = stateHistory[stateId];
         uint256 length = history.length;
-        
+
         // If there are less than 2 states in history, there's no previous state
         if (length < 2) {
             return bytes32(0);
         }
-        
+
         // Return the second-to-last state (previous state)
         return history[length - 2];
     }
@@ -941,17 +880,20 @@ contract Arithmetic is EventHelpers {
     /// @notice Check if a given verification key matches the contract's program vkey.
     /// @param vKey The verification key to check against the contract's vkey.
     /// @return matches True if the provided vkey matches the contract's vkey.
-    function isValidProgramVerificationKey(bytes32 vKey) external view returns (bool matches) {
+    function isValidProgramVerificationKey(
+        bytes32 vKey
+    ) external view returns (bool matches) {
         return vKey == arithmeticProgramVKey;
     }
 
     /// @notice Get verification key information for debugging.
     /// @return contractVKey The contract's verification key.
     /// @return verifierAddress The SP1 verifier contract address.
-    function getVerificationInfo() external view returns (
-        bytes32 contractVKey,
-        address verifierAddress
-    ) {
+    function getVerificationInfo()
+        external
+        view
+        returns (bytes32 contractVKey, address verifierAddress)
+    {
         return (arithmeticProgramVKey, verifier);
     }
 
@@ -969,12 +911,17 @@ contract Arithmetic is EventHelpers {
     ) external view returns (bool isValid, string memory message) {
         // Check if the verification key matches
         if (expectedVKey != arithmeticProgramVKey) {
-            return (false, string(abi.encodePacked(
-                "Verification key mismatch. Expected: 0x",
-                _bytes32ToHex(arithmeticProgramVKey),
-                ", Got: 0x",
-                _bytes32ToHex(expectedVKey)
-            )));
+            return (
+                false,
+                string(
+                    abi.encodePacked(
+                        "Verification key mismatch. Expected: 0x",
+                        _bytes32ToHex(arithmeticProgramVKey),
+                        ", Got: 0x",
+                        _bytes32ToHex(expectedVKey)
+                    )
+                )
+            );
         }
 
         // Check if proof and public values are non-empty
@@ -993,12 +940,12 @@ contract Arithmetic is EventHelpers {
     function _bytes32ToHex(bytes32 data) internal pure returns (string memory) {
         bytes memory alphabet = "0123456789abcdef";
         bytes memory str = new bytes(64);
-        
+
         for (uint256 i = 0; i < 32; i++) {
             str[i * 2] = alphabet[uint8(data[i] >> 4)];
             str[1 + i * 2] = alphabet[uint8(data[i] & 0x0f)];
         }
-        
+
         return string(str);
     }
 }

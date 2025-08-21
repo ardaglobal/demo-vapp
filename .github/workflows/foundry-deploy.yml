@@ -50,5 +50,5 @@ jobs:
           forge create src/Arithmetic.sol:Arithmetic \
             --broadcast \
             --rpc-url ${{ secrets.SEPOLIA_RPC_URL }} \
-            --private-key ${{ secrets.PRIVATE_KEY }} \
+            --private-key ${{ secrets.ETHEREUM_WALLET_PRIVATE_KEY }} \
             --constructor-args ${{ secrets.SEPOLIA_GROTH16_VERIFIER }} ${{ secrets.PROGRAM_VKEY }}

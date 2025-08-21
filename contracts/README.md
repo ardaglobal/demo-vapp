@@ -37,7 +37,7 @@ The Arithmetic contract provides complete state management with ZK proof verific
 
 ```solidity
 // Update state with ZK proof verification
-arithmetic.postStateUpdate(stateId, newState, proof, publicValues);
+arithmetic.updateState(stateId, newState, proof, publicValues);
 
 // Read current state
 bytes32 currentState = arithmetic.getCurrentState(stateId);
@@ -90,13 +90,13 @@ RPC_URL=...
 ```
 
 ```sh
-PRIVATE_KEY=...
+ETHEREUM_WALLET_PRIVATE_KEY=...
 ```
 
 Then deploy the contract to the chain:
 
 ```sh
-forge create src/Arithmetic.sol:Arithmetic --broadcast --rpc-url $RPC_URL --private-key $PRIVATE_KEY --constructor-args $VERIFIER $PROGRAM_VKEY
+forge create src/Arithmetic.sol:Arithmetic --broadcast --rpc-url $ETHEREUM_RPC_URL --private-key $ETHEREUM_WALLET_PRIVATE_KEY --constructor-args $VERIFIER_CONTRACT_ADDRESS $PROGRAM_VKEY
 ```
 
 It can also be a good idea to verify the contract when you deploy, in which case you would also need to set `ETHERSCAN_API_KEY`:
@@ -127,7 +127,7 @@ You can also trigger deployments manually and choose whether to verify the contr
 The following secrets need to be configured in your GitHub repository:
 
 #### Core Secrets
-- `PRIVATE_KEY`: The private key of the deployer account
+- `ETHEREUM_WALLET_PRIVATE_KEY`: The private key of the deployer account
 - `PROGRAM_VKEY`: The program verification key (get this by running `cargo run --package arithmetic-script --release -- --vkey` in the `../script` directory)
 
 #### Sepolia Network Secrets

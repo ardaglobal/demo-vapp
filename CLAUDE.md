@@ -765,18 +765,68 @@ Transaction 3: 40 + 10 = 50 (inputs: 3 + 7)
 - Error tracking and diagnostics
 - Integration with monitoring tools
 
-### State Management Commands
+### Smart Contract Deployment Commands
 
+**Deploy Arithmetic Smart Contract (Root Directory):**
 ```bash
-# Deploy state management contracts
+# 1. Set required environment variables
+export ETHEREUM_RPC_URL="https://eth-mainnet.g.alchemy.com/v2/your-api-key"
+export ETHEREUM_WALLET_PRIVATE_KEY="your-private-key-without-0x-prefix"
+export VERIFIER_CONTRACT_ADDRESS="0x1234567890123456789012345678901234567890"
+export PROGRAM_VKEY="0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab"
+
+# 2. Deploy the contract using Makefile
+make deploy-contract
+
+# Alternative: Source from .env file
+export $(cat .env | grep -v '^#' | xargs) && make deploy-contract
+
+# Get deployment help
+make deploy-contract-help
+```
+
+**Smart Contract Development Commands:**
+```bash
+# Build smart contracts (from root)
+make forge-build
+
+# Run smart contract tests (from root)
+make forge-test
+
+# Or run directly in contracts directory
+cd contracts && forge build
+cd contracts && forge test
+
+# Deploy state management contracts (if using script)
 cd contracts && forge script script/DeployStateManager.s.sol --broadcast
 
-# Run state management tests
+# Run specific state management tests
 cd contracts && forge test --match-contract StateManagementTest
-
 
 # Run gas optimization tests
 cd contracts && forge test --match-test test_Gas
+```
+
+**Deployment Requirements:**
+- **ETHEREUM_RPC_URL**: Ethereum RPC endpoint (e.g., Alchemy, Infura)
+- **ETHEREUM_WALLET_PRIVATE_KEY**: Deployment wallet private key (without 0x prefix)
+- **VERIFIER_CONTRACT_ADDRESS**: SP1 verifier contract address for your network
+- **PROGRAM_VKEY**: Program verification key from circuit compilation
+
+**Example Deployment Output:**
+```
+✅ All environment variables are set
+
+🚀 Deploying contract...
+📡 RPC URL: https://eth-mainnet.g.alchemy.com/v2/your-api-key
+🔑 Verifier: 0x1234567890123456789012345678901234567890
+🗝️  Program VKey: 0xabcdef...
+
+[⠊] Compiling...
+[⠘] Deploying Arithmetic on eth...
+✅ Hash: 0xabc123...
+Contract Address: 0xdef456...
+✅ Contract deployed successfully!
 ```
 
 ### Usage Patterns
@@ -784,7 +834,7 @@ cd contracts && forge test --match-test test_Gas
 **Single State Update**:
 ```solidity
 // Direct update through Arithmetic contract
-arithmetic.postStateUpdate(stateId, newState, proof, result);
+arithmetic.updateState(stateId, newState, proof, result);
 ```
 
 **Batch Operations**:

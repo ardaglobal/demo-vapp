@@ -219,7 +219,7 @@ You need to regenerate the SQLx cache when:
 # Recommended way: Use the make command (fully automated)
 make initDB
 
-# Manual way: 
+# Manual way:
 docker-compose up postgres -d
 cd db && sqlx migrate run && cd ..
 cargo sqlx prepare --workspace
@@ -240,7 +240,7 @@ The project includes a comprehensive `Makefile` with convenient shortcuts for co
 ### Setup & Installation
 - `make help` - Show all available commands with descriptions
 - `make install` - Install all dependencies via `./install-dependencies.sh`
-- `make env` - Copy `.env.example` to `.env` 
+- `make env` - Copy `.env.example` to `.env`
 - `make setup` - Complete setup: install dependencies, copy .env, initialize database
 - `make initDB` - Initialize database (start, migrate, generate SQLx cache, stop)
 
@@ -249,12 +249,16 @@ The project includes a comprehensive `Makefile` with convenient shortcuts for co
 - `make cli ARGS="..."` - Run CLI client (e.g., `make cli ARGS="health-check"`)
 - `make server` - Start API server locally (requires database)
 - `make test` - Run all tests
+- `make forge-build` - Build smart contracts
+- `make forge-test` - Run smart contract tests
 
 ### Services
 - `make up` - Start services using pre-built Docker image
 - `make up-dev` - Start services with local Docker build
 - `make down` - Stop all services
 - `make deploy` - Deploy circuit to Sindri
+- `make deploy-contract` - Deploy Arithmetic smart contract
+- `make deploy-contract-help` - Show smart contract deployment help
 
 ### Docker Operations
 - `make docker-build` - Build Docker image locally
@@ -289,7 +293,7 @@ For full batch processing with database and ZK proof generation:
 
 ### 1. Start the Full Stack
 ```sh
-# Start database + API server  
+# Start database + API server
 make up
 
 # Verify services
@@ -326,7 +330,7 @@ cargo run --bin cli -- verify-proof \
 ```
 
 ### Benefits of Batch Proof Verification
-- **Privacy**: Individual transaction amounts `[5, 7]` remain hidden  
+- **Privacy**: Individual transaction amounts `[5, 7]` remain hidden
 - **Correctness**: Balance transition cryptographically verified
 - **Trustless**: External parties can verify without database access
 - **Offline**: Works without network once proof data is downloaded
@@ -348,7 +352,7 @@ The project features **automated smart contract posting** for proven batches. Af
 
 The CLI workflow is the same as described in [Production Batch Processing](#production-batch-processing--proof-verification). The background process automatically handles:
 - ✅ ZK proof generation via Sindri
-- ✅ Smart contract posting when proof is ready  
+- ✅ Smart contract posting when proof is ready
 - ✅ Database status updates with timestamps
 
 ### Environment Setup
@@ -388,6 +392,72 @@ posted_to_contract_at TIMESTAMP           -- Timestamp of successful posting
 - **Audit Trail**: Complete database tracking of batch lifecycle
 - **Scalable**: Handles multiple batches concurrently with rate limiting
 - **Production Ready**: Comprehensive error handling and monitoring
+
+## Smart Contract Deployment
+
+Deploy the Arithmetic smart contract to Ethereum-compatible networks using the included Makefile commands.
+
+### Prerequisites
+
+Before deploying, you'll need:
+- An Ethereum RPC endpoint (e.g., Alchemy, Infura, or local node)
+- A wallet private key for deployment
+- The SP1 verifier contract address for your target network
+- Your program verification key (generated during circuit compilation)
+
+### Deployment Commands
+
+```bash
+# 1. Set required environment variables
+export ETHEREUM_RPC_URL="https://eth-mainnet.g.alchemy.com/v2/your-api-key"
+export ETHEREUM_WALLET_PRIVATE_KEY="your-private-key-without-0x-prefix"
+export VERIFIER_CONTRACT_ADDRESS="0x1234567890123456789012345678901234567890"
+export PROGRAM_VKEY="0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab"
+
+# 2. Deploy the contract
+make deploy-contract
+```
+
+**Alternative using .env file:**
+```bash
+# Add the variables to your .env file, then:
+export $(cat .env | grep -v '^#' | xargs) && make deploy-contract
+```
+
+**Get help with deployment:**
+```bash
+make deploy-contract-help
+```
+
+### Additional Smart Contract Commands
+
+```bash
+# Build smart contracts
+make forge-build
+
+# Run smart contract tests
+make forge-test
+```
+
+### Example Output
+
+When deployment succeeds, you'll see output similar to:
+```
+✅ All environment variables are set
+
+🚀 Deploying contract...
+📡 RPC URL: https://eth-mainnet.g.alchemy.com/v2/your-api-key
+🔑 Verifier: 0x1234567890123456789012345678901234567890
+🗝️  Program VKey: 0xabcdef...
+
+[⠊] Compiling...
+[⠘] Deploying Arithmetic on eth...
+✅ Hash: 0xabc123...
+Contract Address: 0xdef456...
+✅ Contract deployed successfully!
+```
+
+Save the contract address for use in your application's environment configuration.
 
 ## Sindri Integration for Serverless ZK Proofs
 

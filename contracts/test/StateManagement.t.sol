@@ -103,8 +103,12 @@ contract StateManagementTest is Test {
             "src/fixtures/groth16-fixture.json"
         );
         groth16Fixture = FixtureData({
-            initial_balance: int32(int256(groth16Json.readUint(".initial_balance"))),
-            final_balance: int32(int256(groth16Json.readUint(".final_balance"))),
+            initial_balance: int32(
+                int256(groth16Json.readUint(".initial_balance"))
+            ),
+            final_balance: int32(
+                int256(groth16Json.readUint(".final_balance"))
+            ),
             vkey: bytes32(groth16Json.readBytes(".vkey")),
             publicValues: groth16Json.readBytes(".publicValues"),
             proof: groth16Json.readBytes(".proof")
@@ -115,7 +119,9 @@ contract StateManagementTest is Test {
             "src/fixtures/plonk-fixture.json"
         );
         plonkFixture = FixtureData({
-            initial_balance: int32(int256(plonkJson.readUint(".initial_balance"))),
+            initial_balance: int32(
+                int256(plonkJson.readUint(".initial_balance"))
+            ),
             final_balance: int32(int256(plonkJson.readUint(".final_balance"))),
             vkey: bytes32(plonkJson.readBytes(".vkey")),
             publicValues: plonkJson.readBytes(".publicValues"),
@@ -139,14 +145,12 @@ contract StateManagementTest is Test {
             block.timestamp
         );
 
-        bool success = arithmetic.postStateUpdate(
+        arithmetic.updateState(
             STATE_ID_1,
             NEW_STATE_1,
             groth16Fixture.proof,
             groth16Fixture.publicValues
         );
-
-        assertTrue(success, "State update should succeed with valid proof");
 
         // Verify state was stored
         bytes32 storedState = arithmetic.getCurrentState(STATE_ID_1);
@@ -179,7 +183,7 @@ contract StateManagementTest is Test {
     function test_GetCurrentState_ExistingState_ReturnsCorrectState() public {
         // First update a state
         vm.prank(authorizedPoster);
-        arithmetic.postStateUpdate(
+        arithmetic.updateState(
             STATE_ID_1,
             NEW_STATE_1,
             groth16Fixture.proof,
@@ -207,7 +211,7 @@ contract StateManagementTest is Test {
     function test_GetStoredProof_ExistingProof_ReturnsCorrectProof() public {
         // Store a proof first
         vm.prank(authorizedPoster);
-        arithmetic.postStateUpdate(
+        arithmetic.updateState(
             STATE_ID_1,
             NEW_STATE_1,
             groth16Fixture.proof,
@@ -227,7 +231,7 @@ contract StateManagementTest is Test {
     function test_GetStoredResult_ExistingResult_ReturnsCorrectResult() public {
         // Store a result first
         vm.prank(authorizedPoster);
-        arithmetic.postStateUpdate(
+        arithmetic.updateState(
             STATE_ID_1,
             NEW_STATE_1,
             groth16Fixture.proof,
@@ -303,13 +307,13 @@ contract StateManagementTest is Test {
     function test_BatchReadStates_ExistingStates_ReturnsCorrectStates() public {
         // Setup test states
         vm.startPrank(authorizedPoster);
-        arithmetic.postStateUpdate(
+        arithmetic.updateState(
             STATE_ID_1,
             NEW_STATE_1,
             groth16Fixture.proof,
             groth16Fixture.publicValues
         );
-        arithmetic.postStateUpdate(
+        arithmetic.updateState(
             STATE_ID_2,
             NEW_STATE_2,
             plonkFixture.proof,
@@ -348,7 +352,7 @@ contract StateManagementTest is Test {
     function test_GetProofById_ExistingProof_ReturnsProofAndTrue() public {
         // Store a proof first
         vm.prank(authorizedPoster);
-        arithmetic.postStateUpdate(
+        arithmetic.updateState(
             STATE_ID_1,
             NEW_STATE_1,
             groth16Fixture.proof,
@@ -375,7 +379,7 @@ contract StateManagementTest is Test {
     function test_IsProofVerified_VerifiedProof_ReturnsTrue() public {
         // Store a verified proof
         vm.prank(authorizedPoster);
-        arithmetic.postStateUpdate(
+        arithmetic.updateState(
             STATE_ID_1,
             NEW_STATE_1,
             groth16Fixture.proof,
@@ -402,7 +406,7 @@ contract StateManagementTest is Test {
     {
         // Store a verified proof
         vm.prank(authorizedPoster);
-        arithmetic.postStateUpdate(
+        arithmetic.updateState(
             STATE_ID_1,
             NEW_STATE_1,
             groth16Fixture.proof,
@@ -429,7 +433,7 @@ contract StateManagementTest is Test {
     function test_UpdateState_UnauthorizedUser_Reverts() public {
         vm.prank(unauthorizedUser);
         vm.expectRevert(Arithmetic.UnauthorizedAccess.selector);
-        arithmetic.postStateUpdate(
+        arithmetic.updateState(
             STATE_ID_1,
             NEW_STATE_1,
             groth16Fixture.proof,
@@ -439,13 +443,12 @@ contract StateManagementTest is Test {
 
     function test_UpdateState_Owner_Success() public {
         vm.prank(owner);
-        bool success = arithmetic.postStateUpdate(
+        arithmetic.updateState(
             STATE_ID_1,
             NEW_STATE_1,
             groth16Fixture.proof,
             groth16Fixture.publicValues
         );
-        assertTrue(success, "Owner should be able to update state");
     }
 
     function test_BatchUpdateStates_UnauthorizedUser_Reverts() public {
@@ -479,14 +482,13 @@ contract StateManagementTest is Test {
         );
 
         vm.prank(authorizedPoster);
-        bool success = arithmetic.postStateUpdate(
+        vm.expectRevert();
+        arithmetic.updateState(
             STATE_ID_1,
             NEW_STATE_1,
             invalidProof,
             groth16Fixture.publicValues
         );
-
-        assertFalse(success, "Invalid proof should cause update to fail");
 
         // Verify state was not updated
         bytes32 storedState = arithmetic.getCurrentState(STATE_ID_1);
@@ -517,7 +519,7 @@ contract StateManagementTest is Test {
         vm.prank(authorizedPoster);
 
         uint256 gasBefore = gasleft();
-        arithmetic.postStateUpdate(
+        arithmetic.updateState(
             STATE_ID_1,
             NEW_STATE_1,
             groth16Fixture.proof,
@@ -548,7 +550,7 @@ contract StateManagementTest is Test {
             uniqueProof[uniqueProof.length - 1] = bytes1(uint8(i));
 
             uint256 gasBefore = gasleft();
-            arithmetic.postStateUpdate(
+            arithmetic.updateState(
                 stateId,
                 newState,
                 uniqueProof,
@@ -599,13 +601,13 @@ contract StateManagementTest is Test {
     function test_Gas_StateReading() public {
         // Setup some states
         vm.startPrank(authorizedPoster);
-        arithmetic.postStateUpdate(
+        arithmetic.updateState(
             STATE_ID_1,
             NEW_STATE_1,
             groth16Fixture.proof,
             groth16Fixture.publicValues
         );
-        arithmetic.postStateUpdate(
+        arithmetic.updateState(
             STATE_ID_2,
             NEW_STATE_2,
             plonkFixture.proof,
@@ -639,7 +641,7 @@ contract StateManagementTest is Test {
         vm.prank(authorizedPoster);
 
         uint256 gasBefore = gasleft();
-        arithmetic.postStateUpdate(
+        arithmetic.updateState(
             STATE_ID_1,
             NEW_STATE_1,
             groth16Fixture.proof,
@@ -736,7 +738,7 @@ contract StateManagementTest is Test {
         vm.startPrank(authorizedPoster);
 
         // First update
-        arithmetic.postStateUpdate(
+        arithmetic.updateState(
             STATE_ID_1,
             NEW_STATE_1,
             groth16Fixture.proof,
@@ -744,7 +746,7 @@ contract StateManagementTest is Test {
         );
 
         // Second update with different proof
-        arithmetic.postStateUpdate(
+        arithmetic.updateState(
             STATE_ID_1,
             NEW_STATE_2,
             plonkFixture.proof,

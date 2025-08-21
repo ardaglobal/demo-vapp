@@ -21,7 +21,7 @@ contract StateInteractionWrapper {
         }
         
         return abi.encodeWithSignature(
-            "postStateUpdate(bytes32,bytes32,bytes,bytes)",
+            "updateState(bytes32,bytes32,bytes,bytes)",
             stateId,
             newState,
             proof,
@@ -83,7 +83,7 @@ contract StateInteractionTest is Test {
         assertTrue(callData.length > 0);
         
         bytes memory expectedCallData = abi.encodeWithSignature(
-            "postStateUpdate(bytes32,bytes32,bytes,bytes)",
+            "updateState(bytes32,bytes32,bytes,bytes)",
             stateId,
             newState,
             proof,
@@ -216,8 +216,8 @@ contract StateInteractionTest is Test {
     }
     
     function testGetFunctionSelector() public {
-        bytes4 selector = StateInteraction.getFunctionSelector("postStateUpdate(bytes32,bytes32,bytes,bytes)");
-        bytes4 expectedSelector = bytes4(keccak256("postStateUpdate(bytes32,bytes32,bytes,bytes)"));
+        bytes4 selector = StateInteraction.getFunctionSelector("updateState(bytes32,bytes32,bytes,bytes)");
+        bytes4 expectedSelector = bytes4(keccak256("updateState(bytes32,bytes32,bytes,bytes)"));
         
         assertEq(selector, expectedSelector);
     }
