@@ -1,4 +1,4 @@
-name: Build and Push Docker Image
+name: Build and Push Docker Image 
 
 on:
   push:
@@ -15,6 +15,7 @@ env:
 jobs:
   build-and-push:
     runs-on:
+      # AWS Codebuild Trigger
       - codebuild-demo-vapp-${{ github.run_id }}-${{ github.run_attempt }}
     permissions:
       contents: read
