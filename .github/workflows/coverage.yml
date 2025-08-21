@@ -1,0 +1,113 @@
+name: Code Coverage
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  SQLX_OFFLINE: true
+
+jobs:
+  coverage:
+    name: Generate Code Coverage
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov
+
+      - name: Install SP1 toolchain
+        run: |
+          curl -L https://sp1.succinct.xyz | bash
+          ~/.sp1/bin/sp1up
+          ~/.sp1/bin/cargo-prove prove --version
+          echo "$HOME/.sp1/bin" >> $GITHUB_PATH
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-coverage-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-coverage-
+            ${{ runner.os }}-cargo-
+
+      - name: Wait for PostgreSQL to be ready
+        run: |
+          echo "Waiting for PostgreSQL to be ready..."
+          timeout 60s bash -c 'until pg_isready -h localhost -p 5432 -U postgres; do sleep 1; done'
+          echo "PostgreSQL is ready!"
+
+      - name: Generate code coverage
+        run: |
+          # Generate HTML report
+          cargo llvm-cov --workspace --all-features --html
+          # Generate JSON report for programmatic use
+          cargo llvm-cov --workspace --all-features --json --output-path target/llvm-cov/coverage.json
+          # Generate text summary for display
+          cargo llvm-cov --workspace --all-features --summary-only > target/llvm-cov/coverage-summary.txt
+        env:
+          DATABASE_URL: postgresql://postgres:password@localhost:5432/postgres
+
+      - name: Display coverage summary
+        run: |
+          echo "=== Code Coverage Summary ==="
+          if [ -f "target/llvm-cov/coverage-summary.txt" ]; then
+            cat target/llvm-cov/coverage-summary.txt
+          fi
+          echo ""
+          echo "Coverage report generated successfully!"
+          echo "HTML report will be available in the artifacts section."
+
+      - name: Upload HTML coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-html-report
+          path: target/llvm-cov/html/
+          retention-days: 30
+
+      - name: Upload JSON coverage data
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-json-data
+          path: target/llvm-cov/coverage.json
+          retention-days: 30
+
+      - name: Upload coverage summary
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-summary
+          path: target/llvm-cov/coverage-summary.txt
+          retention-days: 30
