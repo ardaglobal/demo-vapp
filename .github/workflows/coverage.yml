@@ -1,0 +1,135 @@
+name: Code Coverage
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  SQLX_OFFLINE: true
+
+jobs:
+  coverage:
+    name: Generate Code Coverage
+    runs-on:
+      # AWS Codebuild Trigger
+      - codebuild-demo-vapp-${{ github.run_id }}-${{ github.run_attempt }}
+      - run-id=${{ github.run_id }}
+
+    services:
+      postgres:
+        image: public.ecr.aws/docker/library/postgres:15
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_HOST_AUTH_METHOD: trust
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov
+
+      - name: Install SP1 toolchain
+        run: |
+          # Install SP1 following same approach as Dockerfile
+          curl -L https://sp1.succinct.xyz | bash
+          # Set PATH immediately to use SP1 tools in this step
+          export PATH="$HOME/.sp1/bin:$PATH"
+          # Run SP1 update tool
+          sp1up
+          # Add SP1 to PATH for subsequent steps
+          echo "$HOME/.sp1/bin" >> $GITHUB_PATH
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-coverage-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-coverage-
+            ${{ runner.os }}-cargo-
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      # PostgreSQL readiness check commented out - GitHub Actions service health checks
+      # already guarantee the database is ready before job steps execute
+      #- name: Wait for PostgreSQL to be ready
+      #  run: |
+      #    echo "Waiting for PostgreSQL to be ready..."
+      #    timeout 60s bash -c 'until pg_isready -h localhost -p 5432 -U postgres; do sleep 1; done'
+      #    echo "PostgreSQL is ready!"
+
+      - name: Generate code coverage
+        run: |
+          # Generate HTML report with limited concurrency to avoid database connection pool exhaustion
+          cargo llvm-cov --workspace --all-features --html -- --test-threads=5
+          # Generate JSON report for programmatic use
+          cargo llvm-cov --workspace --all-features --json --output-path target/llvm-cov/coverage.json -- --test-threads=5
+          # Generate text summary for display
+          cargo llvm-cov --workspace --all-features --summary-only -- --test-threads=5 > target/llvm-cov/coverage-summary.txt
+        env:
+          # Optimized connection pool settings for CodeBuild environment with longer timeouts
+          DATABASE_URL: postgresql://postgres:password@localhost:5432/postgres?pool_max_size=20&connection_timeout=60
+
+      - name: Display coverage summary
+        run: |
+          echo "=== Code Coverage Summary ==="
+          if [ -f "target/llvm-cov/coverage-summary.txt" ]; then
+            cat target/llvm-cov/coverage-summary.txt
+          fi
+          echo ""
+          echo "Coverage report generated successfully!"
+          echo "HTML report will be available in the artifacts section."
+
+      - name: Upload HTML coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-html-report
+          path: target/llvm-cov/html/
+          retention-days: 30
+
+      - name: Upload JSON coverage data
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-json-data
+          path: target/llvm-cov/coverage.json
+          retention-days: 30
+
+      - name: Upload coverage summary
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-summary
+          path: target/llvm-cov/coverage-summary.txt
+          retention-days: 30

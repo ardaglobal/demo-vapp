@@ -16,8 +16,8 @@ jobs:
 
     name: Build and Execute
     runs-on:
-      - runs-on
-      - runner=16cpu-linux-x64
+      # AWS Codebuild Trigger
+      - codebuild-demo-vapp-${{ github.run_id }}-${{ github.run_attempt }}
       - run-id=${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
