@@ -26,8 +26,6 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: password
           POSTGRES_HOST_AUTH_METHOD: trust
-          # PostgreSQL native configuration
-          POSTGRES_INITDB_ARGS: "--max-connections=500 --shared-buffers=256MB"
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
