@@ -75,7 +75,7 @@ library StateInteraction {
         }
         
         callData = abi.encodeWithSignature(
-            "postStateUpdate(bytes32,bytes32,bytes,bytes)",
+            "updateState(bytes32,bytes32,bytes,bytes)",
             stateId,
             newState,
             proof,

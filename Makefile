@@ -99,6 +99,82 @@ server:
 	@echo "💡 Tip: Run 'make up postgres' in another terminal first"
 	cargo run --bin server --release
 
+## forge-build: Build smart contracts
+.PHONY: forge-build
+forge-build:
+	@echo "Building smart contracts..."
+	cd contracts && forge build
+	@echo "✅ Smart contracts built successfully"
+
+## forge-test: Run smart contract tests
+.PHONY: forge-test
+forge-test:
+	@echo "Running smart contract tests..."
+	cd contracts && forge test
+	@echo "✅ Smart contract tests completed"
+
+## deploy-contract: Deploy Arithmetic smart contract
+# Required environment variables:
+#   ETHEREUM_RPC_URL     - RPC endpoint URL (e.g., Alchemy, Infura)
+#   ETHEREUM_WALLET_PRIVATE_KEY         - Private key for deployment (without 0x prefix)
+#   VERIFIER_CONTRACT_ADDRESS - SP1 verifier contract address
+#   PROGRAM_VKEY        - Program verification key
+.PHONY: deploy-contract
+deploy-contract:
+	@echo "Deploying Arithmetic smart contract..."
+	@echo "🔍 Checking required environment variables..."
+	@if [ -z "$$ETHEREUM_RPC_URL" ]; then \
+		echo "❌ ETHEREUM_RPC_URL is required"; \
+		exit 1; \
+	fi
+	@if [ -z "$$ETHEREUM_WALLET_PRIVATE_KEY" ]; then \
+		echo "❌ ETHEREUM_WALLET_PRIVATE_KEY is required"; \
+		exit 1; \
+	fi
+	@if [ -z "$$VERIFIER_CONTRACT_ADDRESS" ]; then \
+		echo "❌ VERIFIER_CONTRACT_ADDRESS is required"; \
+		exit 1; \
+	fi
+	@if [ -z "$$PROGRAM_VKEY" ]; then \
+		echo "❌ PROGRAM_VKEY is required"; \
+		exit 1; \
+	fi
+	@echo "✅ All environment variables are set"
+	@echo ""
+	@echo "🚀 Deploying contract..."
+	@echo "📡 RPC URL: $$ETHEREUM_RPC_URL"
+	@echo "🔑 Verifier: $$VERIFIER_CONTRACT_ADDRESS"
+	@echo "🗝️  Program VKey: $$PROGRAM_VKEY"
+	@echo ""
+	cd contracts && forge create src/Arithmetic.sol:Arithmetic \
+		--broadcast \
+		--rpc-url $$ETHEREUM_RPC_URL \
+		--private-key $$ETHEREUM_WALLET_PRIVATE_KEY \
+		--constructor-args $$VERIFIER_CONTRACT_ADDRESS $$PROGRAM_VKEY
+	@echo "✅ Contract deployed successfully!"
+
+## deploy-contract-help: Show deployment command usage
+.PHONY: deploy-contract-help
+deploy-contract-help:
+	@echo "Smart Contract Deployment Help"
+	@echo "=============================="
+	@echo ""
+	@echo "Required Environment Variables:"
+	@echo "  ETHEREUM_RPC_URL          - Ethereum RPC endpoint"
+	@echo "  ETHEREUM_WALLET_PRIVATE_KEY              - Deployment wallet private key (no 0x prefix)"
+	@echo "  VERIFIER_CONTRACT_ADDRESS - SP1 verifier contract address"
+	@echo "  PROGRAM_VKEY             - Program verification key"
+	@echo ""
+	@echo "Example Usage:"
+	@echo "  export ETHEREUM_RPC_URL='https://eth-mainnet.g.alchemy.com/v2/your-api-key'"
+	@echo "  export ETHEREUM_WALLET_PRIVATE_KEY='your-private-key-without-0x-prefix'"
+	@echo "  export VERIFIER_CONTRACT_ADDRESS='0x1234...'"
+	@echo "  export PROGRAM_VKEY='0xabcd...'"
+	@echo "  make deploy-contract"
+	@echo ""
+	@echo "Or set them in your .env file and run:"
+	@echo "  export \$$(cat .env | grep -v '^#' | xargs) && make deploy-contract"
+
 ## clean-docker: Clean up Docker resources
 .PHONY: clean-docker
 clean-docker:
@@ -144,7 +220,7 @@ initDB:
 	@# Wait for PostgreSQL to be ready
 	@echo "⏳ Waiting for PostgreSQL to be ready..."
 	@sleep 8
-	@# Check database connectivity  
+	@# Check database connectivity
 	@echo "🏥 Checking database connectivity..."
 	@if ! pg_isready -h localhost -p 5432 -U postgres >/dev/null 2>&1; then \
 		echo "❌ PostgreSQL is not ready. Please check if it's running and accessible."; \
@@ -174,5 +250,6 @@ setup: install env initDB
 	@echo ""
 	@echo "🎉 Setup complete! Next steps:"
 	@echo "1. Edit .env and add your SINDRI_API_KEY"
-	@echo "2. Run: make deploy"
-	@echo "3. Run: make up"
+	@echo "2. Run: make deploy                    # Deploy circuit to Sindri"
+	@echo "3. Run: make up                        # Start services"
+	@echo "4. Run: make deploy-contract-help      # For smart contract deployment"

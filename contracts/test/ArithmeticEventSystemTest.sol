@@ -40,7 +40,7 @@ contract ArithmeticEventSystemTest is Test {
         emit StateUpdated(stateId, newState, proofId, user1, block.timestamp);
         
         vm.prank(user1);
-        arithmetic.postStateUpdate(stateId, newState, proof, result);
+        arithmetic.updateState(stateId, newState, proof, result);
     }
     
     function testProofStoredEvent() public {
@@ -61,7 +61,7 @@ contract ArithmeticEventSystemTest is Test {
         emit ProofStored(proofId, stateId, user1, block.timestamp);
         
         vm.prank(user1);
-        arithmetic.postStateUpdate(stateId, newState, proof, result);
+        arithmetic.updateState(stateId, newState, proof, result);
     }
     
     function testProofVerifiedEvent() public {
@@ -82,7 +82,7 @@ contract ArithmeticEventSystemTest is Test {
         emit ProofVerified(proofId, true, new bytes(0), block.timestamp);
         
         vm.prank(user1);
-        arithmetic.postStateUpdate(stateId, newState, proof, result);
+        arithmetic.updateState(stateId, newState, proof, result);
     }
     
     function testBatchStateUpdatedEvent() public {
@@ -125,7 +125,7 @@ contract ArithmeticEventSystemTest is Test {
         );
         
         vm.prank(user1);
-        arithmetic.postStateUpdate(stateId, keccak256("new-state"), "proof", "result");
+        arithmetic.updateState(stateId, keccak256("new-state"), "proof", "result");
         
         // Expect the StateReadRequested event
         vm.expectEmit(true, true, true, true);
@@ -148,7 +148,7 @@ contract ArithmeticEventSystemTest is Test {
         );
         
         vm.prank(user1);
-        arithmetic.postStateUpdate(stateId, keccak256("new-state"), proof, "result");
+        arithmetic.updateState(stateId, keccak256("new-state"), proof, "result");
         
         // Expect the ProofReadRequested event
         vm.expectEmit(true, true, true, true);
@@ -173,7 +173,7 @@ contract ArithmeticEventSystemTest is Test {
         
         bytes32 stateId = keccak256("stats-test-state");
         vm.prank(user1);
-        arithmetic.postStateUpdate(stateId, keccak256("new-state"), "proof", "result");
+        arithmetic.updateState(stateId, keccak256("new-state"), "proof", "result");
         
         // Check updated stats
         Arithmetic.EventStats memory updatedStats = arithmetic.getEventStats();
@@ -196,7 +196,7 @@ contract ArithmeticEventSystemTest is Test {
         for (uint i = 0; i < 3; i++) {
             bytes32 stateId = keccak256(abi.encodePacked("submitter-test-", i));
             vm.prank(user1);
-            arithmetic.postStateUpdate(
+            arithmetic.updateState(
                 stateId, 
                 keccak256(abi.encodePacked("new-state-", i)), 
                 abi.encodePacked("proof-", i), 
@@ -222,7 +222,7 @@ contract ArithmeticEventSystemTest is Test {
         
         // Post state update
         vm.prank(user1);
-        arithmetic.postStateUpdate(stateId, keccak256("new-state"), "proof", "result");
+        arithmetic.updateState(stateId, keccak256("new-state"), "proof", "result");
         
         // Should have incremented count
         assertTrue(arithmetic.getEventCountByStateId(stateId) >= 1);
@@ -242,7 +242,7 @@ contract ArithmeticEventSystemTest is Test {
         
         // Post state update
         vm.prank(user1);
-        arithmetic.postStateUpdate(
+        arithmetic.updateState(
             keccak256("daily-test"), 
             keccak256("new-state"), 
             "proof", 
@@ -286,7 +286,7 @@ contract ArithmeticEventSystemTest is Test {
         
         // Post an event
         vm.prank(user1);
-        arithmetic.postStateUpdate(
+        arithmetic.updateState(
             keccak256("range-test"), 
             keccak256("new-state"), 
             "proof", 

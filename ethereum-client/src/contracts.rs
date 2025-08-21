@@ -20,13 +20,6 @@ sol! {
             bytes calldata publicValues
         ) external;
 
-        function postStateUpdate(
-            bytes32 stateId,
-            bytes32 newState,
-            bytes calldata proof,
-            bytes calldata result
-        ) external returns (bool success);
-
         function batchUpdateStates(
             bytes32[] calldata stateIds,
             bytes32[] calldata newStates,

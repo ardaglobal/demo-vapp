@@ -3,7 +3,7 @@ default-run = "demo-vapp"
 edition     = "2021"
 license     = "MIT"
 name        = "demo-vapp"
-version     = "0.1.0"
+version     = "0.2.0"
 
 # Default package for `cargo run` (local SP1 unit testing)
 # Provides fast local SP1 unit testing with Core proofs

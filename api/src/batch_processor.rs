@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
 use tokio::time::{interval, Instant};
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::rest::ApiConfig;
 use alloy_primitives::{Bytes, FixedBytes};
@@ -902,7 +902,29 @@ impl BackgroundBatchProcessor {
 
         // Use real proof data from Sindri
         let proof_bytes = Bytes::from(proof_data.proof_bytes);
-        let public_values = Bytes::from(proof_data.public_values);
+
+        // IMPORTANT: Smart contract expects ABI-encoded public values
+        // The contract calls abi.decode() on the public values, so we must keep them ABI-encoded
+        let public_values = Bytes::from(proof_data.public_values.clone());
+
+        // Log decoded values for debugging
+        if proof_data.public_values.len() == 64 {
+            use alloy_sol_types::SolType;
+            use arithmetic_lib::PublicValuesStruct;
+
+            match PublicValuesStruct::abi_decode(&proof_data.public_values) {
+                Ok(decoded) => {
+                    info!("✅ Using ABI-encoded public values (contract expects this format)");
+                    info!(
+                        "   Decoded: initial_balance={}, final_balance={}",
+                        decoded.initial_balance, decoded.final_balance
+                    );
+                }
+                Err(e) => {
+                    warn!("⚠️ Failed to decode public values for logging: {}", e);
+                }
+            }
+        }
 
         info!("🔐 Submitting real SP1 proof to smart contract");
         info!("   State ID: {}", state_id);
