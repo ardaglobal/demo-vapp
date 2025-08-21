@@ -90,15 +90,15 @@ jobs:
 
       - name: Generate code coverage
         run: |
-          # Generate HTML report
-          cargo llvm-cov --workspace --all-features --html
+          # Generate HTML report with limited concurrency to avoid database connection pool exhaustion
+          cargo llvm-cov --workspace --all-features --html -- --test-threads=5
           # Generate JSON report for programmatic use
-          cargo llvm-cov --workspace --all-features --json --output-path target/llvm-cov/coverage.json
+          cargo llvm-cov --workspace --all-features --json --output-path target/llvm-cov/coverage.json -- --test-threads=5
           # Generate text summary for display
-          cargo llvm-cov --workspace --all-features --summary-only > target/llvm-cov/coverage-summary.txt
+          cargo llvm-cov --workspace --all-features --summary-only -- --test-threads=5 > target/llvm-cov/coverage-summary.txt
         env:
-          # Optimized connection pool settings for CodeBuild environment
-          DATABASE_URL: postgresql://postgres:password@localhost:5432/postgres?pool_max_size=50&connection_timeout=30
+          # Optimized connection pool settings for CodeBuild environment with longer timeouts
+          DATABASE_URL: postgresql://postgres:password@localhost:5432/postgres?pool_max_size=20&connection_timeout=60
 
       - name: Display coverage summary
         run: |
