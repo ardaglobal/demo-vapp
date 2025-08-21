@@ -25,12 +25,14 @@ jobs:
           POSTGRES_DB: postgres
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: password
+          POSTGRES_HOST_AUTH_METHOD: trust
+          # PostgreSQL native configuration
+          POSTGRES_INITDB_ARGS: "--max-connections=500 --shared-buffers=256MB"
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-          postgres -c max_connections=500 -c shared_buffers=256MB
         ports:
           - 5432:5432
 
@@ -93,7 +95,8 @@ jobs:
           # Generate text summary for display
           cargo llvm-cov --workspace --all-features --summary-only > target/llvm-cov/coverage-summary.txt
         env:
-          DATABASE_URL: postgresql://postgres:password@localhost:5432/postgres
+          # Optimized connection pool settings for CodeBuild environment
+          DATABASE_URL: postgresql://postgres:password@localhost:5432/postgres?pool_max_size=50&connection_timeout=30
 
       - name: Display coverage summary
         run: |
