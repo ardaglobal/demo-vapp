@@ -81,12 +81,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: ${{ steps.platforms.outputs.platforms }}
-          cache-from: |
-            type=gha,scope=build-cache
-            type=gha,scope=deps-cache
-          cache-to: |
-            type=gha,mode=max,scope=build-cache
-            type=gha,mode=max,scope=deps-cache
+          # Remove GitHub cache dependency - CodeBuild uses its built-in Docker layer caching
+          # See: https://docs.aws.amazon.com/codebuild/latest/userguide/specify-caching-local.html
           build-args: |
             BUILDKIT_INLINE_CACHE=1
 
